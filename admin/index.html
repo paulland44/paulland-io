@@ -1,0 +1,935 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Paul Land</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --void: #08080c;
+            --void-light: #0e0e14;
+            --void-lighter: #14141c;
+            --star: #c8bfa8;
+            --star-dim: rgba(200, 191, 168, 0.3);
+            --accent: #3d8b6e;
+            --accent-dim: rgba(61, 139, 110, 0.15);
+            --accent-glow: rgba(61, 139, 110, 0.4);
+            --text-muted: rgba(200, 191, 168, 0.4);
+            --text-body: rgba(200, 191, 168, 0.7);
+            --border: rgba(200, 191, 168, 0.06);
+            --border-hover: rgba(200, 191, 168, 0.12);
+            --mono: 'Inconsolata', monospace;
+            --red: #c45050;
+            --yellow: #c4a850;
+            --blue: #5080c4;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--void);
+            color: var(--star);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            font-weight: 300;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* ─── Layout ─── */
+        .layout {
+            display: flex;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            width: 220px;
+            min-height: 100vh;
+            background: var(--void-light);
+            border-right: 1px solid var(--border);
+            padding: 1.5rem 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-brand {
+            padding: 0 1.5rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 1rem;
+        }
+
+        .sidebar-brand a {
+            font-size: 0.7rem;
+            font-weight: 400;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+
+        .sidebar-brand a:hover { color: var(--accent); }
+
+        .sidebar-brand h1 {
+            font-size: 1rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            margin-top: 0.3rem;
+        }
+
+        .sidebar-nav { flex: 1; }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.6rem 1.5rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.75rem;
+            font-weight: 400;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: color 0.2s, background 0.2s;
+            border: none;
+            background: none;
+            width: 100%;
+            text-align: left;
+        }
+
+        .nav-item:hover { color: var(--star); background: rgba(200, 191, 168, 0.03); }
+        .nav-item.active { color: var(--accent); background: var(--accent-dim); }
+
+        .nav-item .count {
+            margin-left: auto;
+            font-size: 0.65rem;
+            opacity: 0.5;
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.6rem;
+            color: var(--text-muted);
+        }
+
+        .main {
+            flex: 1;
+            margin-left: 220px;
+            padding: 2rem;
+        }
+
+        /* ─── Header ─── */
+        .page-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .page-title {
+            font-size: 1.1rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+        }
+
+        .page-stats {
+            display: flex;
+            gap: 1.5rem;
+        }
+
+        .stat {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.4rem;
+            font-weight: 500;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            font-size: 0.6rem;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+
+        /* ─── Filters ─── */
+        .filters {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-btn {
+            padding: 0.35rem 0.8rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover { border-color: var(--border-hover); color: var(--star); }
+        .filter-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+        .search-input {
+            padding: 0.35rem 0.8rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--star);
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            font-weight: 300;
+            letter-spacing: 0.04em;
+            outline: none;
+            width: 200px;
+            margin-left: auto;
+            transition: border-color 0.2s;
+        }
+
+        .search-input::placeholder { color: var(--text-muted); }
+        .search-input:focus { border-color: var(--accent); }
+
+        /* ─── Table ─── */
+        .table-wrap {
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.6rem 0.8rem;
+            font-size: 0.6rem;
+            font-weight: 400;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+            white-space: nowrap;
+        }
+
+        td {
+            padding: 0.7rem 0.8rem;
+            border-bottom: 1px solid var(--border);
+            vertical-align: top;
+        }
+
+        tr { transition: background 0.15s; }
+        tr:hover { background: rgba(200, 191, 168, 0.02); }
+        tr.expandable { cursor: pointer; }
+
+        .title-cell {
+            max-width: 400px;
+        }
+
+        .title-text {
+            color: var(--star);
+            font-weight: 400;
+        }
+
+        .title-url {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-decoration: none;
+            display: block;
+            margin-top: 0.15rem;
+            max-width: 350px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .title-url:hover { color: var(--accent); }
+
+        .type-badge {
+            display: inline-block;
+            padding: 0.15rem 0.5rem;
+            border-radius: 2px;
+            font-size: 0.6rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+        }
+
+        .type-article { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .type-thought { background: rgba(200, 191, 168, 0.1); color: var(--star-dim); }
+        .type-signal { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .type-reflection { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
+        .type-note { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+
+        .tag {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            background: var(--accent-dim);
+            color: var(--accent);
+            border-radius: 2px;
+            font-size: 0.6rem;
+            margin: 0.1rem;
+        }
+
+        .date-cell {
+            white-space: nowrap;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+        }
+
+        .source-cell {
+            color: var(--text-body);
+            font-size: 0.7rem;
+            max-width: 140px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            margin-right: 0.3rem;
+        }
+
+        .status-new { background: var(--accent); }
+        .status-read { background: var(--text-muted); }
+
+        .captured-yes { color: var(--accent); }
+        .captured-no { color: var(--text-muted); }
+
+        /* ─── Expanded row ─── */
+        .expanded-row td {
+            padding: 1rem 0.8rem 1.5rem;
+            background: var(--void-light);
+        }
+
+        .expanded-content {
+            max-height: 300px;
+            overflow-y: auto;
+            color: var(--text-body);
+            font-size: 0.75rem;
+            line-height: 1.8;
+            white-space: pre-wrap;
+            padding-right: 1rem;
+        }
+
+        .expanded-meta {
+            display: flex;
+            gap: 2rem;
+            margin-top: 1rem;
+            padding-top: 0.8rem;
+            border-top: 1px solid var(--border);
+            font-size: 0.65rem;
+            color: var(--text-muted);
+        }
+
+        .expanded-meta a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .expanded-meta a:hover { text-decoration: underline; }
+
+        /* ─── Tags view ─── */
+        .tags-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+        }
+
+        .tag-card {
+            padding: 0.5rem 1rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            transition: border-color 0.2s;
+        }
+
+        .tag-card:hover { border-color: var(--accent); }
+
+        .tag-card-name {
+            color: var(--accent);
+            font-weight: 400;
+        }
+
+        .tag-card-count {
+            color: var(--text-muted);
+            font-size: 0.65rem;
+            margin-left: 0.4rem;
+        }
+
+        /* ─── Loading / empty ─── */
+        .loading, .empty {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border: 1.5px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            margin-left: 0.5rem;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Config banner ─── */
+        .config-banner {
+            background: rgba(196, 80, 80, 0.1);
+            border: 1px solid rgba(196, 80, 80, 0.3);
+            color: var(--red);
+            padding: 1rem 1.5rem;
+            margin-bottom: 1.5rem;
+            border-radius: 2px;
+            font-size: 0.75rem;
+        }
+
+        .config-banner code {
+            background: rgba(196, 80, 80, 0.15);
+            padding: 0.1rem 0.3rem;
+            border-radius: 2px;
+        }
+
+        /* ─── Mobile ─── */
+        @media (max-width: 768px) {
+            .sidebar {
+                position: static;
+                width: 100%;
+                min-height: auto;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+
+            .main { margin-left: 0; }
+            .layout { flex-direction: column; }
+
+            .page-header { flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .search-input { margin-left: 0; width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <nav class="sidebar">
+            <div class="sidebar-brand">
+                <a href="/">paulland.io</a>
+                <h1>Admin</h1>
+            </div>
+            <div class="sidebar-nav">
+                <button class="nav-item active" data-view="articles">
+                    Articles <span class="count" id="countArticles">-</span>
+                </button>
+                <button class="nav-item" data-view="thoughts">
+                    Thoughts & Signals <span class="count" id="countThoughts">-</span>
+                </button>
+                <button class="nav-item" data-view="reflections">
+                    Reflections <span class="count" id="countReflections">-</span>
+                </button>
+                <button class="nav-item" data-view="feed-items">
+                    Feed Items <span class="count" id="countFeedItems">-</span>
+                </button>
+                <button class="nav-item" data-view="feeds">
+                    Feeds <span class="count" id="countFeeds">-</span>
+                </button>
+                <button class="nav-item" data-view="tags">
+                    Tags
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                Last refreshed: <span id="lastRefresh">-</span>
+            </div>
+        </nav>
+
+        <main class="main" id="mainContent">
+            <div class="loading">Loading</div>
+        </main>
+    </div>
+
+    <script>
+    // ─── Supabase config ──────────────────────────────────────
+    // These are safe to include: anon key is read-only via RLS,
+    // and this page is protected by Cloudflare Access.
+    const SUPABASE_URL = 'https://gdnwdndajexntfmybzmm.supabase.co';
+    const SUPABASE_ANON_KEY = 'sb_publishable_pcwf-S6epQz3FgTWA2tffA_BfBc5SCx';
+
+    // ─── Init ─────────────────────────────────────────────────
+    let db;
+    let currentView = 'articles';
+    let expandedRow = null;
+
+    function init() {
+        if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+            document.getElementById('mainContent').innerHTML = `
+                <div class="config-banner">
+                    Supabase not configured. Edit <code>admin/index.html</code> and set
+                    <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> at the top of the script.
+                </div>
+            `;
+            return;
+        }
+
+        db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // Wire up nav
+        document.querySelectorAll('.nav-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentView = btn.dataset.view;
+                loadView(currentView);
+            });
+        });
+
+        loadCounts();
+        loadView('articles');
+    }
+
+    // ─── Counts ───────────────────────────────────────────────
+    async function loadCounts() {
+        const [articles, thoughts, signals, reflections, feedItems, feeds] = await Promise.all([
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
+            db.from('feed_items').select('id', { count: 'exact', head: true }),
+            db.from('feeds').select('id', { count: 'exact', head: true }),
+        ]);
+
+        document.getElementById('countArticles').textContent = articles.count || 0;
+        document.getElementById('countThoughts').textContent = (thoughts.count || 0) + (signals.count || 0);
+        document.getElementById('countReflections').textContent = reflections.count || 0;
+        document.getElementById('countFeedItems').textContent = feedItems.count || 0;
+        document.getElementById('countFeeds').textContent = feeds.count || 0;
+        document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+    }
+
+    // ─── View router ──────────────────────────────────────────
+    function loadView(view) {
+        expandedRow = null;
+        switch (view) {
+            case 'articles': return loadArticles();
+            case 'thoughts': return loadThoughts();
+            case 'reflections': return loadReflections();
+            case 'feed-items': return loadFeedItems();
+            case 'feeds': return loadFeeds();
+            case 'tags': return loadTags();
+        }
+    }
+
+    // ─── Articles ─────────────────────────────────────────────
+    async function loadArticles() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading articles</div>';
+
+        const { data, error } = await db
+            .from('content')
+            .select('id, title, url, source, author, tags, status, captured_at, body, metadata')
+            .eq('type', 'article')
+            .order('captured_at', { ascending: false })
+            .limit(100);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No articles captured yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Articles</h2>
+                <input type="text" class="search-input" placeholder="Filter articles..." id="searchArticles">
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Source</th>
+                            <th>Tags</th>
+                            <th>Date</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="articlesBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderArticleRows(data);
+
+        document.getElementById('searchArticles').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            const filtered = data.filter(a =>
+                a.title.toLowerCase().includes(q) ||
+                (a.source || '').toLowerCase().includes(q) ||
+                (a.tags || []).some(t => t.toLowerCase().includes(q))
+            );
+            renderArticleRows(filtered);
+        });
+    }
+
+    function renderArticleRows(data) {
+        const tbody = document.getElementById('articlesBody');
+        tbody.innerHTML = data.map(a => `
+            <tr class="expandable" data-id="${a.id}">
+                <td class="title-cell">
+                    <div class="title-text">${esc(a.title)}</div>
+                    ${a.url ? `<a class="title-url" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(truncUrl(a.url))}</a>` : ''}
+                </td>
+                <td class="source-cell">${esc(a.source || '-')}</td>
+                <td>${(a.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+                <td class="date-cell">${formatDate(a.captured_at)}</td>
+                <td><span class="status-dot status-${a.status}"></span>${a.status}</td>
+            </tr>
+        `).join('');
+
+        // Click to expand
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', () => {
+                const id = row.dataset.id;
+                const existing = tbody.querySelector(`.expanded-row[data-parent="${id}"]`);
+                if (existing) { existing.remove(); expandedRow = null; return; }
+
+                // Remove other expanded
+                tbody.querySelectorAll('.expanded-row').forEach(r => r.remove());
+
+                const item = data.find(a => a.id === id);
+                if (!item) return;
+
+                const expRow = document.createElement('tr');
+                expRow.className = 'expanded-row';
+                expRow.dataset.parent = id;
+                expRow.innerHTML = `
+                    <td colspan="5">
+                        <div class="expanded-content">${esc(item.body || 'No content.').substring(0, 3000)}</div>
+                        <div class="expanded-meta">
+                            ${item.author ? `<span>Author: ${esc(item.author)}</span>` : ''}
+                            ${item.url ? `<span><a href="${esc(item.url)}" target="_blank" rel="noopener">Open original</a></span>` : ''}
+                            ${item.metadata?.published_date ? `<span>Published: ${item.metadata.published_date}</span>` : ''}
+                        </div>
+                    </td>
+                `;
+                row.after(expRow);
+                expandedRow = id;
+            });
+        });
+    }
+
+    // ─── Thoughts & Signals ───────────────────────────────────
+    async function loadThoughts() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading</div>';
+
+        const { data, error } = await db
+            .from('content')
+            .select('id, title, type, tags, status, captured_at, body')
+            .in('type', ['thought', 'signal'])
+            .order('captured_at', { ascending: false })
+            .limit(100);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No thoughts or signals yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Thoughts & Signals</h2>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Title</th><th>Type</th><th>Tags</th><th>Date</th></tr>
+                    </thead>
+                    <tbody id="thoughtsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        const tbody = document.getElementById('thoughtsBody');
+        tbody.innerHTML = data.map(t => `
+            <tr class="expandable" data-id="${t.id}">
+                <td class="title-cell"><div class="title-text">${esc(t.title)}</div></td>
+                <td><span class="type-badge type-${t.type}">${t.type}</span></td>
+                <td>${(t.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
+                <td class="date-cell">${formatDate(t.captured_at)}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', () => {
+                const id = row.dataset.id;
+                const existing = tbody.querySelector(`.expanded-row[data-parent="${id}"]`);
+                if (existing) { existing.remove(); return; }
+                tbody.querySelectorAll('.expanded-row').forEach(r => r.remove());
+
+                const item = data.find(t => t.id === id);
+                const expRow = document.createElement('tr');
+                expRow.className = 'expanded-row';
+                expRow.dataset.parent = id;
+                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${esc(item.body || '')}</div></td>`;
+                row.after(expRow);
+            });
+        });
+    }
+
+    // ─── Reflections ──────────────────────────────────────────
+    async function loadReflections() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading</div>';
+
+        const { data, error } = await db
+            .from('content')
+            .select('id, title, tags, status, captured_at, body, metadata')
+            .eq('type', 'reflection')
+            .order('captured_at', { ascending: false })
+            .limit(50);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No reflections yet. Use /reflect in the bot.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Reflections</h2>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Title</th><th>Mode</th><th>Tags</th><th>Date</th></tr>
+                    </thead>
+                    <tbody id="reflectionsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        const tbody = document.getElementById('reflectionsBody');
+        tbody.innerHTML = data.map(r => `
+            <tr class="expandable" data-id="${r.id}">
+                <td class="title-cell"><div class="title-text">${esc(r.title)}</div></td>
+                <td><span class="type-badge type-reflection">${r.metadata?.mode || 'quick'}</span></td>
+                <td>${(r.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
+                <td class="date-cell">${formatDate(r.captured_at)}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', () => {
+                const id = row.dataset.id;
+                const existing = tbody.querySelector(`.expanded-row[data-parent="${id}"]`);
+                if (existing) { existing.remove(); return; }
+                tbody.querySelectorAll('.expanded-row').forEach(r => r.remove());
+
+                const item = data.find(r => r.id === id);
+                const expRow = document.createElement('tr');
+                expRow.className = 'expanded-row';
+                expRow.dataset.parent = id;
+                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${esc(item.body || '')}</div></td>`;
+                row.after(expRow);
+            });
+        });
+    }
+
+    // ─── Feed Items ───────────────────────────────────────────
+    async function loadFeedItems() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading feed items</div>';
+
+        const { data, error } = await db
+            .from('feed_items')
+            .select('id, item_title, item_url, item_summary, captured, first_seen_at, feed_id, feeds(name)')
+            .order('first_seen_at', { ascending: false })
+            .limit(100);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No feed items yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Feed Items</h2>
+                <input type="text" class="search-input" placeholder="Filter items..." id="searchFeedItems">
+            </div>
+            <div class="filters" id="feedItemFilters">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="captured">Captured</button>
+                <button class="filter-btn" data-filter="uncaptured">Uncaptured</button>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Title</th><th>Feed</th><th>Captured</th><th>Seen</th></tr>
+                    </thead>
+                    <tbody id="feedItemsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        let activeFilter = 'all';
+
+        function render() {
+            const q = (document.getElementById('searchFeedItems')?.value || '').toLowerCase();
+            let filtered = data;
+            if (activeFilter === 'captured') filtered = filtered.filter(i => i.captured);
+            if (activeFilter === 'uncaptured') filtered = filtered.filter(i => !i.captured);
+            if (q) filtered = filtered.filter(i =>
+                (i.item_title || '').toLowerCase().includes(q) ||
+                (i.feeds?.name || '').toLowerCase().includes(q)
+            );
+
+            const tbody = document.getElementById('feedItemsBody');
+            tbody.innerHTML = filtered.map(i => `
+                <tr>
+                    <td class="title-cell">
+                        <div class="title-text">${esc(i.item_title || 'Untitled')}</div>
+                        <a class="title-url" href="${esc(i.item_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(truncUrl(i.item_url))}</a>
+                    </td>
+                    <td class="source-cell">${esc(i.feeds?.name || '-')}</td>
+                    <td class="${i.captured ? 'captured-yes' : 'captured-no'}">${i.captured ? 'Yes' : 'No'}</td>
+                    <td class="date-cell">${formatDate(i.first_seen_at)}</td>
+                </tr>
+            `).join('');
+        }
+
+        document.getElementById('feedItemFilters').addEventListener('click', e => {
+            if (!e.target.classList.contains('filter-btn')) return;
+            document.querySelectorAll('#feedItemFilters .filter-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            activeFilter = e.target.dataset.filter;
+            render();
+        });
+
+        document.getElementById('searchFeedItems').addEventListener('input', render);
+        render();
+    }
+
+    // ─── Feeds ────────────────────────────────────────────────
+    async function loadFeeds() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading feeds</div>';
+
+        const { data, error } = await db
+            .from('feeds')
+            .select('*')
+            .order('name');
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No feeds configured.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">RSS Feeds</h2>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Name</th><th>URL</th><th>Mode</th><th>Interval</th><th>Tags</th><th>Last Checked</th><th>Active</th></tr>
+                    </thead>
+                    <tbody id="feedsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        document.getElementById('feedsBody').innerHTML = data.map(f => `
+            <tr>
+                <td class="title-text">${esc(f.name)}</td>
+                <td><a class="title-url" href="${esc(f.url)}" target="_blank" rel="noopener" style="display:inline">${esc(truncUrl(f.url))}</a></td>
+                <td><span class="type-badge type-${f.mode === 'auto' ? 'article' : 'thought'}">${f.mode}</span></td>
+                <td class="date-cell">${f.check_interval_minutes}m</td>
+                <td>${(f.default_tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+                <td class="date-cell">${f.last_checked_at ? formatDate(f.last_checked_at) : 'Never'}</td>
+                <td class="${f.active ? 'captured-yes' : 'captured-no'}">${f.active ? 'Yes' : 'No'}</td>
+            </tr>
+        `).join('');
+    }
+
+    // ─── Tags ─────────────────────────────────────────────────
+    async function loadTags() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading tags</div>';
+
+        const { data, error } = await db
+            .from('content')
+            .select('tags');
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const counts = {};
+        (data || []).forEach(row => {
+            (row.tags || []).forEach(tag => {
+                counts[tag] = (counts[tag] || 0) + 1;
+            });
+        });
+
+        const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
+
+        if (!sorted.length) { main.innerHTML = '<div class="empty">No tags yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Tags</h2>
+            </div>
+            <div class="tags-grid">
+                ${sorted.map(([tag, count]) => `
+                    <div class="tag-card">
+                        <span class="tag-card-name">${esc(tag)}</span>
+                        <span class="tag-card-count">${count}</span>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+    }
+
+    // ─── Helpers ──────────────────────────────────────────────
+    function esc(str) {
+        if (!str) return '';
+        const el = document.createElement('span');
+        el.textContent = str;
+        return el.innerHTML;
+    }
+
+    function formatDate(iso) {
+        if (!iso) return '-';
+        const d = new Date(iso);
+        const day = d.getDate().toString().padStart(2, '0');
+        const mon = (d.getMonth() + 1).toString().padStart(2, '0');
+        const yr = d.getFullYear().toString().slice(-2);
+        const hr = d.getHours().toString().padStart(2, '0');
+        const mn = d.getMinutes().toString().padStart(2, '0');
+        return `${day}/${mon}/${yr} ${hr}:${mn}`;
+    }
+
+    function truncUrl(url) {
+        if (!url) return '';
+        try {
+            const u = new URL(url);
+            const path = u.pathname.length > 40 ? u.pathname.substring(0, 40) + '...' : u.pathname;
+            return u.hostname + path;
+        } catch { return url.substring(0, 60); }
+    }
+
+    // ─── Boot ─────────────────────────────────────────────────
+    init();
+    </script>
+</body>
+</html>
