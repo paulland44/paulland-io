@@ -1,0 +1,759 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Paul Land</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Inconsolata:wght@300;400&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --void: #08080c;
+            --star: #c8bfa8;
+            --star-dim: rgba(200, 191, 168, 0.15);
+            --star-glow: rgba(200, 191, 168, 0.5);
+            --line-active: rgba(200, 191, 168, 0.25);
+            --accent: #d4a853;
+            --accent-glow: rgba(212, 168, 83, 0.4);
+            --text-muted: rgba(200, 191, 168, 0.4);
+            --serif: 'Cormorant Garamond', Georgia, serif;
+            --mono: 'Inconsolata', monospace;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--void);
+            color: var(--star);
+            font-family: var(--mono);
+            overflow: hidden;
+            height: 100vh;
+            height: 100dvh;
+            width: 100vw;
+            cursor: crosshair;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        canvas {
+            position: fixed;
+            inset: 0;
+        }
+        #cosmos { z-index: 0; }
+        #connections { z-index: 1; pointer-events: none; }
+
+        /* Constellation nodes */
+        .node {
+            position: absolute;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.4rem;
+            pointer-events: none;
+            will-change: transform;
+        }
+
+        .node-dot {
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: var(--star-dim);
+            transition: width 0.5s ease, height 0.5s ease, background 0.5s ease, box-shadow 0.5s ease;
+            animation: breathe 4s ease-in-out infinite;
+        }
+
+        .node.awakened .node-dot {
+            width: 6px;
+            height: 6px;
+            background: var(--star);
+            box-shadow: 0 0 20px var(--star-glow), 0 0 40px var(--star-dim);
+            animation: none;
+        }
+
+        .node.bright .node-dot {
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            box-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(212, 168, 83, 0.15);
+            animation: none;
+        }
+
+        .node-label {
+            font-family: var(--serif);
+            font-size: 1rem;
+            font-weight: 300;
+            letter-spacing: 0.06em;
+            white-space: nowrap;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.5s ease, transform 0.5s ease;
+            text-shadow: 0 0 20px rgba(200, 191, 168, 0.3);
+        }
+
+        .node.awakened .node-label {
+            opacity: 0.7;
+            transform: translateY(0);
+        }
+
+        .node.bright .node-label {
+            opacity: 1;
+            transform: translateY(0);
+            color: var(--accent);
+        }
+
+        .node-sub {
+            font-family: var(--mono);
+            font-size: 0.65rem;
+            font-weight: 300;
+            letter-spacing: 0.08em;
+            opacity: 0;
+            transform: translateY(4px);
+            transition: opacity 0.4s ease 0.1s, transform 0.4s ease 0.1s;
+            color: var(--text-muted);
+            text-align: center;
+            max-width: 200px;
+        }
+
+        .node.bright .node-sub {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @keyframes breathe {
+            0%, 100% { opacity: 0.15; }
+            50% { opacity: 0.3; }
+        }
+
+        /* Centre identity */
+        .identity {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+            text-align: center;
+            pointer-events: none;
+        }
+
+        .identity-name {
+            font-family: var(--serif);
+            font-size: clamp(1.4rem, 3vw, 2.2rem);
+            font-weight: 300;
+            letter-spacing: 0.15em;
+            opacity: 0;
+            animation: fadeIn 1.5s ease 0.5s forwards;
+        }
+
+        .identity-line {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            font-weight: 300;
+            letter-spacing: 0.25em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-top: 0.6rem;
+            opacity: 0;
+            animation: fadeIn 1s ease 1.5s forwards;
+        }
+
+        @keyframes fadeIn {
+            to { opacity: 0.8; }
+        }
+
+        /* ─── Hamburger trigger ─── */
+        .nav-trigger {
+            position: fixed;
+            top: 1.25rem;
+            right: 1.25rem;
+            z-index: 200;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            cursor: pointer;
+            opacity: 0.35;
+            transition: opacity 0.3s ease;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+
+        .nav-trigger:hover { opacity: 0.9; }
+
+        .nav-trigger span {
+            display: block;
+            width: 20px;
+            height: 1.5px;
+            background: var(--star);
+            border-radius: 1px;
+            transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        /* Animate to X when open */
+        body.nav-open .nav-trigger { opacity: 0.9; }
+        body.nav-open .nav-trigger span:nth-child(1) {
+            transform: translateY(6.5px) rotate(45deg);
+        }
+        body.nav-open .nav-trigger span:nth-child(2) {
+            opacity: 0;
+        }
+        body.nav-open .nav-trigger span:nth-child(3) {
+            transform: translateY(-6.5px) rotate(-45deg);
+        }
+
+        /* ─── Navigation panel ─── */
+        .nav-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 320px;
+            height: 100vh;
+            height: 100dvh;
+            z-index: 150;
+            background: rgba(8, 8, 12, 0.96);
+            backdrop-filter: blur(40px);
+            -webkit-backdrop-filter: blur(40px);
+            border-left: 1px solid rgba(200, 191, 168, 0.06);
+            padding: 5rem 2.5rem 2.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transform: translateX(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        body.nav-open .nav-panel {
+            transform: translateX(0);
+        }
+
+        /* Overlay to catch clicks outside panel */
+        .nav-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 140;
+            background: rgba(0,0,0,0.3);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.4s ease;
+        }
+
+        body.nav-open .nav-overlay {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .nav-section { margin-bottom: 2.5rem; }
+
+        .nav-section-label {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            font-weight: 400;
+            letter-spacing: 0.3em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .nav-link {
+            display: block;
+            font-family: var(--serif);
+            font-size: 1.3rem;
+            font-weight: 300;
+            color: var(--star);
+            text-decoration: none;
+            padding: 0.4rem 0;
+            opacity: 0.6;
+            transition: opacity 0.3s, color 0.3s, padding-left 0.3s;
+        }
+
+        .nav-link:hover {
+            opacity: 1;
+            color: var(--accent);
+            padding-left: 0.5rem;
+        }
+
+        .nav-link.coming-soon {
+            opacity: 0.25;
+            cursor: default;
+        }
+
+        .nav-link.coming-soon:hover {
+            opacity: 0.25;
+            color: var(--star);
+            padding-left: 0;
+        }
+
+        .nav-link-hint {
+            font-family: var(--mono);
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            letter-spacing: 0.1em;
+            margin-left: 0.5rem;
+        }
+
+        .nav-footer {
+            border-top: 1px solid rgba(200, 191, 168, 0.06);
+            padding-top: 1.5rem;
+        }
+
+        .nav-footer p {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            font-weight: 300;
+            color: var(--text-muted);
+            line-height: 1.8;
+            letter-spacing: 0.05em;
+        }
+
+        .nav-footer a {
+            color: var(--star);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(200, 191, 168, 0.15);
+            transition: border-color 0.2s, color 0.2s;
+        }
+
+        .nav-footer a:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ─── Hint ─── */
+        .hint {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            letter-spacing: 0.2em;
+            color: var(--text-muted);
+            opacity: 0;
+            z-index: 3;
+            animation: fadeIn 1s ease 2.5s forwards;
+            transition: opacity 0.8s ease;
+        }
+
+        .hint.hidden { opacity: 0 !important; animation: none; }
+
+        /* ─── Mobile ─── */
+        @media (max-width: 768px) {
+            body { cursor: default; }
+
+            .hint-text-desktop { display: none; }
+            .hint-text-mobile { display: inline; }
+
+            .nav-panel {
+                width: 100%;
+                padding: 5rem 2rem 2rem;
+            }
+
+            .node-label { font-size: 0.85rem; }
+            .node-sub { font-size: 0.58rem; max-width: 160px; }
+            .identity-name { letter-spacing: 0.1em; }
+        }
+
+        @media (min-width: 769px) {
+            .hint-text-mobile { display: none; }
+            .hint-text-desktop { display: inline; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="cosmos"></canvas>
+    <canvas id="connections"></canvas>
+
+    <div class="identity">
+        <div class="identity-name">Paul Land</div>
+        <div class="identity-line">Product · Packaging · AI</div>
+    </div>
+
+    <div class="hint">
+        <span class="hint-text-desktop">move to explore</span>
+        <span class="hint-text-mobile">touch to explore</span>
+    </div>
+
+    <!-- Hamburger trigger — sits above everything -->
+    <button class="nav-trigger" id="navTrigger" aria-label="Toggle navigation">
+        <span></span>
+        <span></span>
+        <span></span>
+    </button>
+
+    <!-- Overlay to close on outside click -->
+    <div class="nav-overlay" id="navOverlay"></div>
+
+    <!-- Navigation panel -->
+    <div class="nav-panel" id="navPanel">
+        <div>
+            <div class="nav-section">
+                <div class="nav-section-label">Navigate</div>
+                <a href="#" class="nav-link">About</a>
+                <a href="#" class="nav-link coming-soon">Blog <span class="nav-link-hint">soon</span></a>
+                <a href="#" class="nav-link coming-soon">CV <span class="nav-link-hint">soon</span></a>
+            </div>
+            <div class="nav-section">
+                <div class="nav-section-label">Connect</div>
+                <a href="#" class="nav-link">LinkedIn</a>
+                <a href="mailto:paul@paulland.io" class="nav-link">Email</a>
+                <a href="#" class="nav-link">GitHub</a>
+                <a href="#" class="nav-link">Bluesky</a>
+            </div>
+        </div>
+        <div class="nav-footer">
+            <p>Senior Product Manager at Esko.<br>
+            Building smarter packaging workflows.<br>
+            Yorkshire, England.</p>
+        </div>
+    </div>
+
+    <script>
+    // ─── Configuration ───────────────────────────────────────
+    const isMobile = window.innerWidth <= 768;
+
+    const CONSTELLATION = [
+        {
+            id: 'product', label: 'Product Strategy',
+            sub: 'Cloud-native packaging platforms',
+            x: 0.25, y: 0.28, connections: ['ai', 'packaging', 'knowledge']
+        },
+        {
+            id: 'ai', label: 'AI & Agents',
+            sub: 'From assistant to autopilot',
+            x: 0.70, y: 0.20, connections: ['product', 'knowledge']
+        },
+        {
+            id: 'packaging', label: 'Packaging',
+            sub: 'Labels · Flexibles · Folding carton · Corrugated',
+            x: 0.15, y: 0.63, connections: ['product']
+        },
+        {
+            id: 'knowledge', label: 'Knowledge Systems',
+            sub: 'Building a second brain that thinks',
+            x: 0.74, y: 0.55, connections: ['ai', 'writing']
+        },
+        {
+            id: 'writing', label: 'Writing',
+            sub: 'Thinking out loud, eventually in public',
+            x: 0.55, y: 0.78, connections: ['knowledge']
+        },
+        {
+            id: 'music', label: 'Music',
+            sub: 'Radiohead · Talking Heads · Bowie',
+            x: 0.85, y: 0.80, connections: []
+        },
+        {
+            id: 'cycling', label: 'Cycling',
+            sub: 'Zwift · Yorkshire roads',
+            x: 0.10, y: 0.42, connections: []
+        },
+        {
+            id: 'craft', label: 'Industry Craft',
+            sub: 'Solving the skills shortage through software',
+            x: 0.42, y: 0.48, connections: ['packaging', 'product', 'ai']
+        }
+    ];
+
+    // Mobile-adjusted positions — avoid edges and overlaps
+    const MOBILE_POSITIONS = {
+        product:   { x: 0.28, y: 0.18 },
+        ai:        { x: 0.72, y: 0.15 },
+        packaging: { x: 0.20, y: 0.55 },
+        knowledge: { x: 0.75, y: 0.45 },
+        writing:   { x: 0.50, y: 0.75 },
+        music:     { x: 0.80, y: 0.72 },
+        cycling:   { x: 0.15, y: 0.35 },
+        craft:     { x: 0.45, y: 0.40 }
+    };
+
+    const AWAKEN_RADIUS = isMobile ? 120 : 200;
+    const BRIGHT_RADIUS = isMobile ? 60 : 100;
+    const DRIFT_STRENGTH = 12;
+    const DRIFT_RETURN_SPEED = 0.06;
+    const AMBIENT_STAR_COUNT = isMobile ? 100 : 180;
+
+    // ─── State ───────────────────────────────────────────────
+    let mouseX = -1000, mouseY = -1000;
+    let hasMoved = false;
+    let ambientStars = [];
+    let nodes = [];
+
+    // ─── Canvas setup ────────────────────────────────────────
+    const cosmosCanvas = document.getElementById('cosmos');
+    const cosmosCtx = cosmosCanvas.getContext('2d');
+    const connCanvas = document.getElementById('connections');
+    const connCtx = connCanvas.getContext('2d');
+
+    function resizeCanvases() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        [cosmosCanvas, connCanvas].forEach(c => {
+            c.width = w * dpr;
+            c.height = h * dpr;
+            c.style.width = w + 'px';
+            c.style.height = h + 'px';
+            c.getContext('2d').scale(dpr, dpr);
+        });
+    }
+
+    // ─── Ambient starfield ───────────────────────────────────
+    function createAmbientStars() {
+        ambientStars = [];
+        for (let i = 0; i < AMBIENT_STAR_COUNT; i++) {
+            ambientStars.push({
+                x: Math.random() * window.innerWidth,
+                y: Math.random() * window.innerHeight,
+                r: Math.random() * 1.2 + 0.3,
+                baseAlpha: Math.random() * 0.2 + 0.03,
+                phase: Math.random() * Math.PI * 2,
+                speed: Math.random() * 0.003 + 0.001
+            });
+        }
+    }
+
+    function drawAmbientStars(time) {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        cosmosCtx.clearRect(0, 0, w, h);
+
+        ambientStars.forEach(s => {
+            const flicker = Math.sin(time * s.speed + s.phase) * 0.5 + 0.5;
+            const dist = Math.hypot(mouseX - s.x, mouseY - s.y);
+            const proximity = Math.max(0, 1 - dist / 250);
+            const alpha = s.baseAlpha + flicker * 0.06 + proximity * 0.25;
+
+            cosmosCtx.beginPath();
+            cosmosCtx.arc(s.x, s.y, s.r + proximity * 0.6, 0, Math.PI * 2);
+            cosmosCtx.fillStyle = `rgba(200, 191, 168, ${Math.min(alpha, 0.6)})`;
+            cosmosCtx.fill();
+        });
+    }
+
+    // ─── Constellation nodes ─────────────────────────────────
+    function getNodePosition(data) {
+        const mobile = window.innerWidth <= 768;
+        const pos = mobile && MOBILE_POSITIONS[data.id] ? MOBILE_POSITIONS[data.id] : data;
+        return {
+            x: pos.x * window.innerWidth,
+            y: pos.y * window.innerHeight
+        };
+    }
+
+    function createNodes() {
+        document.querySelectorAll('.node').forEach(n => n.remove());
+
+        nodes = CONSTELLATION.map(data => {
+            const el = document.createElement('div');
+            el.className = 'node';
+            el.innerHTML = `
+                <div class="node-dot"></div>
+                <div class="node-label">${data.label}</div>
+                <div class="node-sub">${data.sub}</div>
+            `;
+
+            const pos = getNodePosition(data);
+            el.style.left = pos.x + 'px';
+            el.style.top = pos.y + 'px';
+            el.style.transform = 'translate(-50%, -50%)';
+            document.body.appendChild(el);
+
+            return {
+                ...data,
+                el,
+                // Home position
+                homeX: pos.x,
+                homeY: pos.y,
+                // Current rendered position (for drift)
+                currentX: pos.x,
+                currentY: pos.y
+            };
+        });
+    }
+
+    // ─── Connection lines ────────────────────────────────────
+    function drawConnections() {
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        connCtx.clearRect(0, 0, w, h);
+
+        const drawn = new Set();
+
+        nodes.forEach(node => {
+            const dist = Math.hypot(mouseX - node.currentX, mouseY - node.currentY);
+            if (dist > AWAKEN_RADIUS * 1.2) return;
+
+            const strength = 1 - dist / (AWAKEN_RADIUS * 1.2);
+
+            node.connections.forEach(targetId => {
+                const key = [node.id, targetId].sort().join('-');
+                if (drawn.has(key)) return;
+                drawn.add(key);
+
+                const target = nodes.find(n => n.id === targetId);
+                if (!target) return;
+
+                const tDist = Math.hypot(mouseX - target.currentX, mouseY - target.currentY);
+                const tStrength = Math.max(0, 1 - tDist / (AWAKEN_RADIUS * 1.8));
+                const alpha = Math.min(strength, 0.4) * (0.2 + tStrength * 0.8);
+
+                if (alpha < 0.01) return;
+
+                // Curved line
+                const mx = (node.currentX + target.currentX) / 2;
+                const my = (node.currentY + target.currentY) / 2;
+                const dx = target.currentX - node.currentX;
+                const dy = target.currentY - node.currentY;
+                const cpx = mx - dy * 0.12;
+                const cpy = my + dx * 0.12;
+
+                connCtx.beginPath();
+                connCtx.moveTo(node.currentX, node.currentY);
+                connCtx.quadraticCurveTo(cpx, cpy, target.currentX, target.currentY);
+                connCtx.strokeStyle = `rgba(200, 191, 168, ${alpha * 0.3})`;
+                connCtx.lineWidth = 1;
+                connCtx.stroke();
+            });
+        });
+    }
+
+    // ─── Update loop ─────────────────────────────────────────
+    function updateNodes() {
+        nodes.forEach(node => {
+            const dx = mouseX - node.homeX;
+            const dy = mouseY - node.homeY;
+            const dist = Math.hypot(dx, dy);
+
+            // Drift: nodes are gently attracted toward cursor
+            let targetX = node.homeX;
+            let targetY = node.homeY;
+
+            if (dist < AWAKEN_RADIUS && dist > 0) {
+                const pull = (1 - dist / AWAKEN_RADIUS);
+                const ease = pull * pull; // Quadratic easing — stronger when closer
+                targetX = node.homeX + (dx / dist) * ease * DRIFT_STRENGTH;
+                targetY = node.homeY + (dy / dist) * ease * DRIFT_STRENGTH;
+            }
+
+            // Smooth interpolation toward target
+            node.currentX += (targetX - node.currentX) * DRIFT_RETURN_SPEED;
+            node.currentY += (targetY - node.currentY) * DRIFT_RETURN_SPEED;
+
+            // Apply position
+            const el = node.el;
+            el.style.left = node.currentX + 'px';
+            el.style.top = node.currentY + 'px';
+
+            // State classes
+            const cursorDist = Math.hypot(mouseX - node.currentX, mouseY - node.currentY);
+
+            if (cursorDist < BRIGHT_RADIUS) {
+                el.className = 'node bright';
+            } else if (cursorDist < AWAKEN_RADIUS) {
+                el.className = 'node awakened';
+            } else {
+                el.className = 'node';
+            }
+        });
+    }
+
+    function loop(time) {
+        drawAmbientStars(time);
+        updateNodes();
+        drawConnections();
+        requestAnimationFrame(loop);
+    }
+
+    // ─── Input events ────────────────────────────────────────
+    function onInteract() {
+        if (!hasMoved) {
+            hasMoved = true;
+            document.querySelector('.hint').classList.add('hidden');
+        }
+    }
+
+    document.addEventListener('mousemove', e => {
+        mouseX = e.clientX;
+        mouseY = e.clientY;
+        onInteract();
+    });
+
+    document.addEventListener('mouseleave', () => {
+        mouseX = -1000;
+        mouseY = -1000;
+    });
+
+    // Touch: treat as cursor position
+    let touchHoldTimer = null;
+
+    document.addEventListener('touchstart', e => {
+        // Don't interfere with nav
+        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay')) return;
+
+        const t = e.touches[0];
+        mouseX = t.clientX;
+        mouseY = t.clientY;
+        onInteract();
+    }, { passive: true });
+
+    document.addEventListener('touchmove', e => {
+        if (e.target.closest('.nav-panel')) return;
+
+        const t = e.touches[0];
+        mouseX = t.clientX;
+        mouseY = t.clientY;
+        onInteract();
+    }, { passive: true });
+
+    document.addEventListener('touchend', e => {
+        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay')) return;
+
+        // Hold position for a moment so the user sees the activated state
+        clearTimeout(touchHoldTimer);
+        touchHoldTimer = setTimeout(() => {
+            mouseX = -1000;
+            mouseY = -1000;
+        }, 1500);
+    });
+
+    // ─── Navigation ──────────────────────────────────────────
+    const navTrigger = document.getElementById('navTrigger');
+    const navOverlay = document.getElementById('navOverlay');
+
+    function toggleNav() {
+        document.body.classList.toggle('nav-open');
+    }
+
+    function closeNav() {
+        document.body.classList.remove('nav-open');
+    }
+
+    navTrigger.addEventListener('click', e => {
+        e.stopPropagation();
+        toggleNav();
+    });
+
+    navOverlay.addEventListener('click', closeNav);
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') closeNav();
+    });
+
+    // ─── Resize ──────────────────────────────────────────────
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+            resizeCanvases();
+            createAmbientStars();
+            createNodes();
+        }, 150);
+    });
+
+    // ─── Init ────────────────────────────────────────────────
+    resizeCanvases();
+    createAmbientStars();
+    createNodes();
+    requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
