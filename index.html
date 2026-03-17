@@ -336,6 +336,146 @@
 
         .hint.hidden { opacity: 0 !important; animation: none; }
 
+        /* ─── About panel ─── */
+        .about-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 300;
+            background: rgba(0, 0, 0, 0.5);
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease;
+        }
+
+        body.about-open .about-overlay {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .about-panel {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) translateY(30px);
+            z-index: 310;
+            width: min(560px, 90vw);
+            max-height: 80vh;
+            max-height: 80dvh;
+            overflow-y: auto;
+            background: rgba(8, 8, 12, 0.97);
+            backdrop-filter: blur(60px);
+            -webkit-backdrop-filter: blur(60px);
+            border: 1px solid rgba(200, 191, 168, 0.06);
+            border-radius: 2px;
+            padding: 3rem 3rem 2.5rem;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        body.about-open .about-panel {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translate(-50%, -50%) translateY(0);
+        }
+
+        .about-close {
+            position: absolute;
+            top: 1.25rem;
+            right: 1.25rem;
+            width: 32px;
+            height: 32px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            opacity: 0.3;
+            transition: opacity 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .about-close:hover { opacity: 0.9; }
+
+        .about-close::before,
+        .about-close::after {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 1.5px;
+            background: var(--star);
+            border-radius: 1px;
+        }
+
+        .about-close::before { transform: rotate(45deg); }
+        .about-close::after { transform: rotate(-45deg); }
+
+        .about-heading {
+            font-family: var(--serif);
+            font-size: 1.6rem;
+            font-weight: 300;
+            letter-spacing: 0.08em;
+            margin-bottom: 2rem;
+            color: var(--star);
+        }
+
+        .about-body p {
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            font-weight: 300;
+            line-height: 2;
+            letter-spacing: 0.03em;
+            color: rgba(200, 191, 168, 0.7);
+            margin-bottom: 1.4rem;
+        }
+
+        .about-body p:last-child { margin-bottom: 0; }
+
+        .about-body strong {
+            color: var(--star);
+            font-weight: 400;
+        }
+
+        .about-body .accent {
+            color: var(--accent);
+        }
+
+        .about-divider {
+            width: 40px;
+            height: 1px;
+            background: rgba(200, 191, 168, 0.1);
+            margin: 2rem 0;
+        }
+
+        .about-footer {
+            font-family: var(--mono);
+            font-size: 0.6rem;
+            font-weight: 300;
+            letter-spacing: 0.1em;
+            color: var(--text-muted);
+        }
+
+        .about-footer a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px solid rgba(61, 139, 110, 0.3);
+            transition: border-color 0.2s;
+        }
+
+        .about-footer a:hover { border-color: var(--accent); }
+
+        @media (max-width: 768px) {
+            .about-panel {
+                padding: 2.5rem 2rem 2rem;
+                width: 94vw;
+                max-height: 85vh;
+                max-height: 85dvh;
+            }
+
+            .about-heading { font-size: 1.3rem; }
+            .about-body p { font-size: 0.7rem; }
+        }
+
         /* ─── Mobile ─── */
         @media (max-width: 768px) {
             body { cursor: default; }
@@ -388,7 +528,7 @@
         <div>
             <div class="nav-section">
                 <div class="nav-section-label">Navigate</div>
-                <a href="#" class="nav-link">About</a>
+                <a href="#" class="nav-link" id="aboutLink">About</a>
                 <a href="#" class="nav-link coming-soon">Blog <span class="nav-link-hint">soon</span></a>
                 <a href="#" class="nav-link coming-soon">CV <span class="nav-link-hint">soon</span></a>
             </div>
@@ -403,6 +543,30 @@
             <p>Senior Product Manager at Esko.<br>
             Building smarter packaging workflows.<br>
             Yorkshire, England.</p>
+        </div>
+    </div>
+
+    <!-- About overlay + panel -->
+    <div class="about-overlay" id="aboutOverlay"></div>
+    <div class="about-panel" id="aboutPanel">
+        <button class="about-close" id="aboutClose" aria-label="Close about"></button>
+        <h2 class="about-heading">About</h2>
+        <div class="about-body">
+            <p>I'm <strong>Paul Land</strong>, a Senior Product Manager at <strong>Esko</strong>, where I work on cloud-native platforms that are reshaping how the packaging industry operates.</p>
+
+            <p>My focus sits at the intersection of <span class="accent">product strategy</span>, <span class="accent">AI</span>, and <span class="accent">packaging technology</span> — helping teams move from manual, craft-dependent workflows toward intelligent, software-driven ones.</p>
+
+            <p>I think a lot about what happens when deep industry knowledge meets modern tooling. The packaging sector has decades of accumulated expertise locked in the heads of a shrinking workforce. I believe the answer isn't replacing that craft — it's encoding it into systems that can scale.</p>
+
+            <div class="about-divider"></div>
+
+            <p>Outside of work, I'm building a personal knowledge system — a <strong>second brain</strong> that captures articles, reflections, and signals from across the industry, and turns them into something searchable and useful over time.</p>
+
+            <p>When I'm not thinking about products or packaging, you'll find me on the bike — either out on Yorkshire roads or grinding up virtual climbs on Zwift.</p>
+        </div>
+        <div class="about-divider"></div>
+        <div class="about-footer">
+            <a href="mailto:info@paulland.io">info@paulland.io</a> · Yorkshire, England
         </div>
     </div>
 
@@ -699,8 +863,8 @@
     let touchHoldTimer = null;
 
     document.addEventListener('touchstart', e => {
-        // Don't interfere with nav
-        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay')) return;
+        // Don't interfere with nav or about panel
+        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay, .about-panel, .about-overlay')) return;
 
         const t = e.touches[0];
         mouseX = t.clientX;
@@ -709,7 +873,7 @@
     }, { passive: true });
 
     document.addEventListener('touchmove', e => {
-        if (e.target.closest('.nav-panel')) return;
+        if (e.target.closest('.nav-panel, .about-panel')) return;
 
         const t = e.touches[0];
         mouseX = t.clientX;
@@ -718,7 +882,7 @@
     }, { passive: true });
 
     document.addEventListener('touchend', e => {
-        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay')) return;
+        if (e.target.closest('.nav-trigger, .nav-panel, .nav-overlay, .about-panel, .about-overlay')) return;
 
         // Hold position for a moment so the user sees the activated state
         clearTimeout(touchHoldTimer);
@@ -747,8 +911,36 @@
 
     navOverlay.addEventListener('click', closeNav);
 
+    // ─── About panel ────────────────────────────────────────
+    const aboutLink = document.getElementById('aboutLink');
+    const aboutOverlay = document.getElementById('aboutOverlay');
+    const aboutClose = document.getElementById('aboutClose');
+
+    function openAbout() {
+        closeNav();
+        document.body.classList.add('about-open');
+    }
+
+    function closeAbout() {
+        document.body.classList.remove('about-open');
+    }
+
+    aboutLink.addEventListener('click', e => {
+        e.preventDefault();
+        openAbout();
+    });
+
+    aboutOverlay.addEventListener('click', closeAbout);
+    aboutClose.addEventListener('click', closeAbout);
+
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeNav();
+        if (e.key === 'Escape') {
+            if (document.body.classList.contains('about-open')) {
+                closeAbout();
+            } else {
+                closeNav();
+            }
+        }
     });
 
     // ─── Resize ──────────────────────────────────────────────
