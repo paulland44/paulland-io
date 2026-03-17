@@ -10,11 +10,11 @@
         :root {
             --void: #08080c;
             --star: #c8bfa8;
-            --star-dim: rgba(200, 191, 168, 0.15);
+            --star-dim: rgba(200, 191, 168, 0.3);
             --star-glow: rgba(200, 191, 168, 0.5);
             --line-active: rgba(200, 191, 168, 0.25);
-            --accent: #d4a853;
-            --accent-glow: rgba(212, 168, 83, 0.4);
+            --accent: #3d8b6e;
+            --accent-glow: rgba(61, 139, 110, 0.4);
             --text-muted: rgba(200, 191, 168, 0.4);
             --serif: 'Cormorant Garamond', Georgia, serif;
             --mono: 'Inconsolata', monospace;
@@ -54,27 +54,28 @@
         }
 
         .node-dot {
-            width: 4px;
-            height: 4px;
+            width: 6px;
+            height: 6px;
             border-radius: 50%;
             background: var(--star-dim);
-            transition: width 0.5s ease, height 0.5s ease, background 0.5s ease, box-shadow 0.5s ease;
+            box-shadow: 0 0 8px rgba(200, 191, 168, 0.1);
+            transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1), height 0.6s cubic-bezier(0.16, 1, 0.3, 1), background 0.6s ease, box-shadow 0.6s ease;
             animation: breathe 4s ease-in-out infinite;
         }
 
         .node.awakened .node-dot {
-            width: 6px;
-            height: 6px;
+            width: 8px;
+            height: 8px;
             background: var(--star);
             box-shadow: 0 0 20px var(--star-glow), 0 0 40px var(--star-dim);
             animation: none;
         }
 
         .node.bright .node-dot {
-            width: 8px;
-            height: 8px;
+            width: 10px;
+            height: 10px;
             background: var(--accent);
-            box-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(212, 168, 83, 0.15);
+            box-shadow: 0 0 30px var(--accent-glow), 0 0 60px rgba(61, 139, 110, 0.15);
             animation: none;
         }
 
@@ -86,7 +87,7 @@
             white-space: nowrap;
             opacity: 0;
             transform: translateY(4px);
-            transition: opacity 0.5s ease, transform 0.5s ease;
+            transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
             text-shadow: 0 0 20px rgba(200, 191, 168, 0.3);
         }
 
@@ -120,8 +121,8 @@
         }
 
         @keyframes breathe {
-            0%, 100% { opacity: 0.15; }
-            50% { opacity: 0.3; }
+            0%, 100% { opacity: 0.25; }
+            50% { opacity: 0.5; }
         }
 
         /* Centre identity */
@@ -465,10 +466,11 @@
         craft:     { x: 0.45, y: 0.40 }
     };
 
-    const AWAKEN_RADIUS = isMobile ? 120 : 200;
-    const BRIGHT_RADIUS = isMobile ? 60 : 100;
-    const DRIFT_STRENGTH = 12;
-    const DRIFT_RETURN_SPEED = 0.06;
+    const AWAKEN_RADIUS = isMobile ? 150 : 260;
+    const BRIGHT_RADIUS = isMobile ? 70 : 120;
+    const REPEL_RADIUS = isMobile ? 25 : 35;
+    const DRIFT_STRENGTH = 25;
+    const DRIFT_RETURN_SPEED = 0.1;
     const AMBIENT_STAR_COUNT = isMobile ? 100 : 180;
 
     // ─── State ───────────────────────────────────────────────
@@ -623,15 +625,27 @@
             const dy = mouseY - node.homeY;
             const dist = Math.hypot(dx, dy);
 
-            // Drift: nodes are gently attracted toward cursor
+            // Drift: magnetic attraction with close-range repulsion
             let targetX = node.homeX;
             let targetY = node.homeY;
 
             if (dist < AWAKEN_RADIUS && dist > 0) {
                 const pull = (1 - dist / AWAKEN_RADIUS);
-                const ease = pull * pull; // Quadratic easing — stronger when closer
+                const ease = pull * pull * pull; // Cubic easing — snappy close, gentle far
+
+                // Attract toward cursor
                 targetX = node.homeX + (dx / dist) * ease * DRIFT_STRENGTH;
                 targetY = node.homeY + (dy / dist) * ease * DRIFT_STRENGTH;
+
+                // Repel when very close — creates orbiting feel
+                const cursorToNodeX = node.currentX - mouseX;
+                const cursorToNodeY = node.currentY - mouseY;
+                const cursorDist = Math.hypot(cursorToNodeX, cursorToNodeY);
+                if (cursorDist < REPEL_RADIUS && cursorDist > 0) {
+                    const repelForce = (1 - cursorDist / REPEL_RADIUS) * 18;
+                    targetX += (cursorToNodeX / cursorDist) * repelForce;
+                    targetY += (cursorToNodeY / cursorDist) * repelForce;
+                }
             }
 
             // Smooth interpolation toward target
