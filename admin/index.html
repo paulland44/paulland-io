@@ -1962,18 +1962,27 @@
             }
         }
 
-        // 2. Fetch calendar events for this date
+        // 2. Fetch calendar events from Supabase (synced by capture-bot on Railway)
         let calendarEvents = [];
         try {
-            const res = await fetch(`/api/calendar-events?date=${dailyNoteDate}`, {
-                credentials: 'same-origin',
-            });
-            const result = await res.json();
-            if (res.ok && result.events) {
-                calendarEvents = result.events;
-                console.log(`Calendar: ${calendarEvents.length} events loaded for ${dailyNoteDate}`);
-            } else {
-                console.warn('Calendar API response:', result);
+            const { data: calData } = await db
+                .from('calendar_events')
+                .select('*')
+                .eq('event_date', dailyNoteDate)
+                .order('start_time', { ascending: true });
+
+            if (calData && calData.length > 0) {
+                calendarEvents = calData.map(e => ({
+                    uid: e.uid,
+                    title: e.title,
+                    startTime: e.start_time,
+                    endTime: e.end_time,
+                    allDay: e.all_day,
+                    location: e.location,
+                    organizer: e.organizer,
+                    attendees: e.attendees || [],
+                }));
+                console.log(`Calendar: ${calendarEvents.length} events for ${dailyNoteDate}`);
             }
         } catch (err) {
             console.warn('Calendar fetch failed:', err);
