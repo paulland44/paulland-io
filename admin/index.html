@@ -1913,23 +1913,33 @@
             const res = await fetch(`/api/calendar-events?date=${dailyNoteDate}`, {
                 credentials: 'same-origin',
             });
-            if (res.ok) {
-                const result = await res.json();
-                calendarEvents = result.events || [];
+            const result = await res.json();
+            if (res.ok && result.events) {
+                calendarEvents = result.events;
+                console.log(`Calendar: ${calendarEvents.length} events loaded for ${dailyNoteDate}`);
+            } else {
+                console.warn('Calendar API response:', result);
             }
         } catch (err) {
             console.warn('Calendar fetch failed:', err);
         }
 
-        // 3. Create cards for saved meetings
-        savedMeetings.forEach(m => addMeetingCard(m.title, m.notes));
+        // 3. Create cards for saved meetings (await each to ensure editors init)
+        for (const m of savedMeetings) {
+            await addMeetingCard(m.title, m.notes);
+        }
 
         // 4. Add calendar events that don't already have a matching card
         const existingTitles = new Set(savedMeetings.map(m => m.title.toLowerCase().trim()));
-        calendarEvents.forEach(evt => {
+
+        if (calendarEvents.length > 0) {
+            console.log(`Calendar: found ${calendarEvents.length} events for ${dailyNoteDate}`);
+        }
+
+        for (const evt of calendarEvents) {
             const title = evt.title || '';
             // Skip if we already have a card with a similar title
-            if (existingTitles.has(title.toLowerCase().trim())) return;
+            if (existingTitles.has(title.toLowerCase().trim())) continue;
 
             // Build a pre-populated note with meeting details
             let prefill = '';
@@ -1948,14 +1958,14 @@
                 prefill += `Attendees: ${evt.attendees.slice(0, 8).join(', ')}\n\n`;
             }
 
-            addMeetingCard(title, prefill);
+            await addMeetingCard(title, prefill);
             existingTitles.add(title.toLowerCase().trim());
-        });
+        }
     }
 
     function addMeetingCard(title, content) {
         const container = document.getElementById('meetingCardsContainer');
-        if (!container) return;
+        if (!container) return Promise.resolve();
 
         const id = ++meetingIdCounter;
         const cardEl = document.createElement('div');
@@ -1982,18 +1992,20 @@
             updateSaveStatus('unsaved');
         });
 
-        // Create editor after DOM is ready
-        requestAnimationFrame(() => {
-            const editorEl = document.getElementById(`meetingEditor-${id}`);
-            if (!editorEl) return;
-
-            const editor = createEditor(editorEl, 'Meeting notes...', content || '');
-            meetingCards.push({ id, editor });
-
-            // Build toolbar
+        // Create editor after DOM is ready — return a promise so callers can await
+        return new Promise(resolve => {
             requestAnimationFrame(() => {
-                buildToolbar(`meetingToolbar-${id}`, editor);
-            });
+                const editorEl = document.getElementById(`meetingEditor-${id}`);
+                if (!editorEl) { resolve(); return; }
+
+                const editor = createEditor(editorEl, 'Meeting notes...', content || '');
+                meetingCards.push({ id, editor });
+
+                // Build toolbar
+                requestAnimationFrame(() => {
+                    buildToolbar(`meetingToolbar-${id}`, editor);
+                    resolve();
+                });
         });
     }
 
