@@ -456,11 +456,6 @@
 
         .tag-remove:hover { opacity: 1; }
 
-        .tag-input-wrap {
-            display: inline-flex;
-            align-items: center;
-        }
-
         .tag-input {
             background: none;
             border: 1px solid var(--border);
@@ -487,6 +482,40 @@
         .tag-status.saving { color: var(--text-muted); }
         .tag-status.error { color: var(--red); }
         .tag-status.saved { color: var(--accent); opacity: 0; }
+
+        .tag-suggestions {
+            position: absolute;
+            bottom: calc(100% + 2px);
+            left: 0;
+            background: var(--void-lighter);
+            border: 1px solid var(--border-hover);
+            border-radius: 2px;
+            max-height: 150px;
+            overflow-y: auto;
+            display: none;
+            min-width: 140px;
+            z-index: 5;
+        }
+
+        .tag-suggestions.visible { display: block; }
+
+        .tag-suggestion {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-body);
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        .tag-suggestion:hover,
+        .tag-suggestion.active {
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+
+        .tag-input-wrap {
+            position: relative;
+        }
 
         .content-modal-body {
             color: var(--text-body);
@@ -780,6 +809,7 @@
     // ─── Init ─────────────────────────────────────────────────
     let db;
     let currentView = 'articles';
+    let allTags = [];
 
     function init() {
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -825,6 +855,12 @@
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+
+        // Load all unique tags for autocomplete
+        const { data: tagRows } = await db.from('content').select('tags');
+        const tagSet = new Set();
+        (tagRows || []).forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
+        allTags = Array.from(tagSet).sort();
     }
 
     // ─── View router ──────────────────────────────────────────
@@ -1232,6 +1268,7 @@
             ${pills}
             <span class="tag-input-wrap">
                 <input type="text" class="tag-input" id="tagInput" placeholder="add tag..." autocomplete="off">
+                <div class="tag-suggestions" id="tagSuggestions"></div>
             </span>
             <span class="tag-status" id="tagStatus"></span>
         </div>`;
@@ -1239,19 +1276,85 @@
 
     function wireTagEditor() {
         const input = document.getElementById('tagInput');
-        if (!input) return;
+        const sugBox = document.getElementById('tagSuggestions');
+        if (!input || !sugBox) return;
+        let activeIdx = -1;
+
+        function showSuggestions() {
+            const val = input.value.trim().toLowerCase();
+            const currentTags = currentModalItem?.tags || [];
+            const matches = allTags
+                .filter(t => !currentTags.includes(t) && t.includes(val))
+                .slice(0, 8);
+
+            if (!val || matches.length === 0) {
+                sugBox.classList.remove('visible');
+                sugBox.innerHTML = '';
+                activeIdx = -1;
+                return;
+            }
+
+            activeIdx = -1;
+            sugBox.innerHTML = matches.map(t =>
+                `<div class="tag-suggestion" data-tag="${esc(t)}">${esc(t)}</div>`
+            ).join('');
+            sugBox.classList.add('visible');
+
+            sugBox.querySelectorAll('.tag-suggestion').forEach(el => {
+                el.addEventListener('mousedown', async e => {
+                    e.preventDefault();
+                    await addTag(el.dataset.tag);
+                });
+            });
+        }
+
+        input.addEventListener('input', showSuggestions);
+        input.addEventListener('focus', showSuggestions);
+        input.addEventListener('blur', () => {
+            setTimeout(() => sugBox.classList.remove('visible'), 150);
+        });
 
         input.addEventListener('keydown', async e => {
+            const items = sugBox.querySelectorAll('.tag-suggestion');
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIdx = Math.min(activeIdx + 1, items.length - 1);
+                items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIdx = Math.max(activeIdx - 1, -1);
+                items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+                return;
+            }
+            if (e.key === 'Escape') {
+                sugBox.classList.remove('visible');
+                activeIdx = -1;
+                return;
+            }
             if (e.key === 'Enter') {
                 e.preventDefault();
-                const tag = input.value.trim().toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
-                if (!tag || !currentModalItem) return;
-                if (currentModalItem.tags?.includes(tag)) { input.value = ''; return; }
-
-                const newTags = [...(currentModalItem.tags || []), tag];
-                await updateTags(currentModalItem.id, newTags);
+                // Use selected suggestion or typed value
+                let tag;
+                if (activeIdx >= 0 && items[activeIdx]) {
+                    tag = items[activeIdx].dataset.tag;
+                } else {
+                    tag = input.value.trim().toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+                }
+                if (tag) await addTag(tag);
             }
         });
+
+        async function addTag(tag) {
+            if (!tag || !currentModalItem) return;
+            if (currentModalItem.tags?.includes(tag)) { input.value = ''; sugBox.classList.remove('visible'); return; }
+            const newTags = [...(currentModalItem.tags || []), tag];
+            // Add to global list if new
+            if (!allTags.includes(tag)) { allTags.push(tag); allTags.sort(); }
+            await updateTags(currentModalItem.id, newTags);
+        }
 
         document.querySelectorAll('.tag-remove').forEach(btn => {
             btn.addEventListener('click', async e => {
