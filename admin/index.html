@@ -635,6 +635,199 @@
             margin: 0.5em 0;
         }
 
+        /* ─── Overview ─── */
+        .overview-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .stat-card {
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            padding: 1.2rem 1.5rem;
+            transition: border-color 0.2s;
+        }
+
+        .stat-card:hover { border-color: var(--border-hover); }
+
+        .stat-card-value {
+            font-size: 1.8rem;
+            font-weight: 500;
+            color: var(--accent);
+            line-height: 1;
+        }
+
+        .stat-card-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            letter-spacing: 0.06em;
+            margin-top: 0.3rem;
+        }
+
+        .stat-card-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+            opacity: 0.7;
+        }
+
+        .overview-columns {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .overview-section {
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            padding: 1.2rem 1.5rem;
+        }
+
+        .overview-section-title {
+            font-size: 0.8rem;
+            font-weight: 400;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .activity-item {
+            display: flex;
+            align-items: baseline;
+            gap: 0.8rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .activity-item:last-child { border-bottom: none; }
+        .activity-item:hover { background: rgba(200, 191, 168, 0.02); }
+
+        .activity-title {
+            flex: 1;
+            color: var(--star);
+            font-weight: 400;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .activity-source {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .activity-date {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .date-group {
+            font-size: 0.7rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-top: 0.8rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .date-group:first-child { margin-top: 0; }
+
+        .attention-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+
+        .attention-item:last-child { border-bottom: none; }
+        .attention-item:hover { background: rgba(200, 191, 168, 0.02); }
+
+        .attention-icon {
+            font-size: 0.8rem;
+            opacity: 0.6;
+        }
+
+        .attention-title {
+            flex: 1;
+            color: var(--text-body);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .attention-reason {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+
+        .overview-bottom {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr;
+            gap: 1.5rem;
+        }
+
+        .tag-cloud {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem;
+        }
+
+        .tag-cloud .tag {
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .tag-cloud .tag:hover { opacity: 0.8; }
+
+        .tag-cloud .tag-count {
+            opacity: 0.5;
+            font-size: 0.65rem;
+            margin-left: 0.2rem;
+        }
+
+        .source-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.4rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .source-item:last-child { border-bottom: none; }
+
+        .source-name { color: var(--text-body); }
+        .source-count { color: var(--text-muted); font-size: 0.85rem; }
+
+        .empty-attention {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 1rem 0;
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            .overview-stats { grid-template-columns: repeat(2, 1fr); }
+            .overview-columns { grid-template-columns: 1fr; }
+            .overview-bottom { grid-template-columns: 1fr; }
+        }
+
         /* ─── Tags view ─── */
         .tags-grid {
             display: flex;
@@ -749,7 +942,10 @@
                 <h1>Admin</h1>
             </div>
             <div class="sidebar-nav">
-                <button class="nav-item active" data-view="articles">
+                <button class="nav-item active" data-view="overview">
+                    Overview
+                </button>
+                <button class="nav-item" data-view="articles">
                     Articles <span class="count" id="countArticles">-</span>
                 </button>
                 <button class="nav-item" data-view="thoughts">
@@ -808,7 +1004,7 @@
 
     // ─── Init ─────────────────────────────────────────────────
     let db;
-    let currentView = 'articles';
+    let currentView = 'overview';
     let allTags = [];
 
     function init() {
@@ -835,7 +1031,7 @@
         });
 
         loadCounts();
-        loadView('articles');
+        loadView('overview');
     }
 
     // ─── Counts ───────────────────────────────────────────────
@@ -867,6 +1063,7 @@
     function loadView(view) {
         closeContentModal();
         switch (view) {
+            case 'overview': return loadOverview();
             case 'articles': return loadArticles();
             case 'thoughts': return loadThoughts();
             case 'reflections': return loadReflections();
@@ -876,25 +1073,201 @@
         }
     }
 
+    // ─── Overview ─────────────────────────────────────────────
+    async function loadOverview() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading overview</div>';
+
+        const now = new Date();
+        const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+        const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
+
+        const [
+            allContent,
+            recentContent,
+            feedItemCount,
+            uncapturedCount,
+        ] = await Promise.all([
+            db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata'),
+            db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata')
+                .order('captured_at', { ascending: false }).limit(15),
+            db.from('feed_items').select('id', { count: 'exact', head: true }),
+            db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false),
+        ]);
+
+        const content = allContent.data || [];
+        const recent = recentContent.data || [];
+
+        // Counts
+        const articles = content.filter(c => c.type === 'article');
+        const articlesThisWeek = articles.filter(c => c.captured_at >= weekAgo);
+        const thoughtsSignals = content.filter(c => c.type === 'thought' || c.type === 'signal');
+        const reflections = content.filter(c => c.type === 'reflection');
+
+        // Tags
+        const tagCounts = {};
+        content.forEach(c => (c.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+        const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+
+        // Sources
+        const sourceCounts = {};
+        articles.forEach(a => { if (a.source) sourceCounts[a.source] = (sourceCounts[a.source] || 0) + 1; });
+        const topSources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+
+        // Needs attention
+        const STUB = '*Article content could not be extracted';
+        const needsAttention = [];
+        articles.forEach(a => {
+            if (!a.tags || a.tags.length === 0) needsAttention.push({ ...a, reason: 'No tags' });
+            else if (a.body && a.body.startsWith(STUB)) needsAttention.push({ ...a, reason: 'No content' });
+        });
+
+        // Group recent by date
+        function dateGroup(iso) {
+            if (iso >= todayStart) return 'Today';
+            if (iso >= yesterdayStart) return 'Yesterday';
+            return 'Earlier this week';
+        }
+
+        let activityHtml = '';
+        let lastGroup = '';
+        for (const item of recent) {
+            const group = dateGroup(item.captured_at);
+            if (group !== lastGroup) {
+                activityHtml += `<div class="date-group">${group}</div>`;
+                lastGroup = group;
+            }
+            activityHtml += `
+                <div class="activity-item" data-id="${item.id}">
+                    <span class="type-badge type-${item.type}">${item.type}</span>
+                    <span class="activity-title">${esc(item.title)}</span>
+                    ${item.source ? `<span class="activity-source">${esc(item.source)}</span>` : ''}
+                    <span class="activity-date">${formatDate(item.captured_at)}</span>
+                </div>
+            `;
+        }
+
+        const attentionHtml = needsAttention.length === 0
+            ? '<div class="empty-attention">All clear — nothing needs attention</div>'
+            : needsAttention.slice(0, 8).map(a => `
+                <div class="attention-item" data-id="${a.id}">
+                    <span class="attention-icon">${a.reason === 'No tags' ? '🏷' : '📄'}</span>
+                    <span class="attention-title">${esc(a.title)}</span>
+                    <span class="attention-reason">${a.reason}</span>
+                </div>
+            `).join('');
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Overview</h2>
+            </div>
+
+            <div class="overview-stats">
+                <div class="stat-card">
+                    <div class="stat-card-value">${articles.length}</div>
+                    <div class="stat-card-label">Articles</div>
+                    <div class="stat-card-sub">${articlesThisWeek.length} this week</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value">${thoughtsSignals.length}</div>
+                    <div class="stat-card-label">Thoughts & Signals</div>
+                    <div class="stat-card-sub">${reflections.length} reflections</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value">${feedItemCount.count || 0}</div>
+                    <div class="stat-card-label">Feed Items</div>
+                    <div class="stat-card-sub">${uncapturedCount.count || 0} uncaptured</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value">${Object.keys(tagCounts).length}</div>
+                    <div class="stat-card-label">Tags</div>
+                    <div class="stat-card-sub">${topTags.length > 0 ? topTags[0][0] + ' most used' : 'none yet'}</div>
+                </div>
+            </div>
+
+            <div class="overview-columns">
+                <div class="overview-section">
+                    <div class="overview-section-title">Recent Activity</div>
+                    ${activityHtml || '<div class="empty-attention">No recent activity</div>'}
+                </div>
+                <div class="overview-section">
+                    <div class="overview-section-title">Needs Attention (${needsAttention.length})</div>
+                    ${attentionHtml}
+                </div>
+            </div>
+
+            <div class="overview-bottom">
+                <div class="overview-section">
+                    <div class="overview-section-title">Top Tags</div>
+                    <div class="tag-cloud" id="overviewTagCloud">
+                        ${topTags.map(([tag, count]) =>
+                            `<span class="tag" data-tag="${esc(tag)}">${esc(tag)}<span class="tag-count">${count}</span></span>`
+                        ).join('')}
+                        ${topTags.length === 0 ? '<div class="empty-attention">No tags yet</div>' : ''}
+                    </div>
+                </div>
+                <div class="overview-section">
+                    <div class="overview-section-title">Top Sources</div>
+                    ${topSources.map(([name, count]) =>
+                        `<div class="source-item"><span class="source-name">${esc(name)}</span><span class="source-count">${count}</span></div>`
+                    ).join('')}
+                    ${topSources.length === 0 ? '<div class="empty-attention">No sources yet</div>' : ''}
+                </div>
+            </div>
+        `;
+
+        // Wire up recent activity clicks
+        main.querySelectorAll('.activity-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const item = recent.find(r => r.id === el.dataset.id);
+                if (item) openContentModal(item);
+            });
+        });
+
+        // Wire up attention item clicks
+        main.querySelectorAll('.attention-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const item = content.find(c => c.id === el.dataset.id);
+                if (item) openContentModal(item);
+            });
+        });
+
+        // Wire up tag cloud clicks — switch to articles filtered by tag
+        document.getElementById('overviewTagCloud')?.querySelectorAll('.tag').forEach(el => {
+            el.addEventListener('click', () => {
+                const tag = el.dataset.tag;
+                // Switch to articles view and pre-filter
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                document.querySelector('[data-view="articles"]').classList.add('active');
+                currentView = 'articles';
+                loadArticles(tag);
+            });
+        });
+    }
+
     // ─── Articles ─────────────────────────────────────────────
-    async function loadArticles() {
+    async function loadArticles(filterTag) {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading articles</div>';
 
-        const { data, error } = await db
-            .from('content')
+        let query = db.from('content')
             .select('id, title, url, source, author, tags, status, captured_at, body, metadata')
             .eq('type', 'article')
             .order('captured_at', { ascending: false })
             .limit(100);
 
+        if (filterTag) query = query.contains('tags', [filterTag]);
+
+        const { data, error } = await query;
+
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No articles captured yet.</div>'; return; }
+        if (!data.length) { main.innerHTML = `<div class="empty">${filterTag ? `No articles tagged "${esc(filterTag)}"` : 'No articles captured yet.'}</div>`; return; }
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">Articles</h2>
-                <input type="text" class="search-input" placeholder="Filter articles..." id="searchArticles">
+                <h2 class="page-title">Articles${filterTag ? ` — ${esc(filterTag)}` : ''}</h2>
+                <input type="text" class="search-input" placeholder="Filter articles..." id="searchArticles" value="${filterTag ? esc(filterTag) : ''}">
             </div>
             <div class="table-wrap">
                 <table>
