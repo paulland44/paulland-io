@@ -962,14 +962,24 @@
             color: var(--text-muted);
         }
 
-        .daily-section-header .daily-toolbar {
-            margin-left: auto;
+        .daily-toolbar {
             display: flex;
             gap: 0.25rem;
+            padding: 0.4rem 1rem;
+            border-bottom: 1px solid var(--border);
+            background: var(--void-lighter);
+        }
+
+        .daily-toolbar-sep {
+            width: 1px;
+            height: 18px;
+            background: var(--border);
+            margin: 0 0.2rem;
+            align-self: center;
         }
 
         .daily-toolbar button {
-            padding: 0.2rem 0.45rem;
+            padding: 0.2rem 0.5rem;
             background: none;
             border: 1px solid transparent;
             border-radius: 2px;
@@ -1014,6 +1024,14 @@
 
         .daily-editor-wrap .ProseMirror p {
             margin-bottom: 0.4rem;
+        }
+
+        .daily-editor-wrap .ProseMirror h1 {
+            font-size: 1.3rem;
+            font-weight: 400;
+            color: var(--accent);
+            margin: 0.8rem 0 0.4rem;
+            letter-spacing: 0.04em;
         }
 
         .daily-editor-wrap .ProseMirror h2 {
@@ -1547,7 +1565,7 @@
         return new Editor({
             element,
             extensions: [
-                StarterKit.configure({ heading: { levels: [2, 3] } }),
+                StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
                 TaskList,
                 TaskItem.configure({ nested: true }),
                 Placeholder.configure({ placeholder }),
@@ -1612,24 +1630,24 @@
                     <div class="daily-section-header">
                         <span>\u2610</span>
                         <span>Tasks</span>
-                        <div class="daily-toolbar" id="toolbarTasks"></div>
                     </div>
+                    <div class="daily-toolbar" id="toolbarTasks"></div>
                     <div class="daily-editor-wrap" id="editorTasks"></div>
                 </div>
                 <div class="daily-section">
                     <div class="daily-section-header">
                         <span>\u270E</span>
                         <span>Notes & Thoughts</span>
-                        <div class="daily-toolbar" id="toolbarNotes"></div>
                     </div>
+                    <div class="daily-toolbar" id="toolbarNotes"></div>
                     <div class="daily-editor-wrap" id="editorNotes"></div>
                 </div>
                 <div class="daily-section">
                     <div class="daily-section-header">
                         <span>\u25CE</span>
                         <span>Meetings & Conversations</span>
-                        <div class="daily-toolbar" id="toolbarMeetings"></div>
                     </div>
+                    <div class="daily-toolbar" id="toolbarMeetings"></div>
                     <div class="daily-editor-wrap" id="editorMeetings"></div>
                 </div>
             </div>
@@ -1702,21 +1720,31 @@
         const buttons = [
             { label: 'B', cmd: () => editor.chain().focus().toggleBold().run(), active: () => editor.isActive('bold'), title: 'Bold (Cmd+B)' },
             { label: 'I', cmd: () => editor.chain().focus().toggleItalic().run(), active: () => editor.isActive('italic'), title: 'Italic (Cmd+I)' },
-            { label: 'H', cmd: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor.isActive('heading', { level: 2 }), title: 'Heading' },
+            { type: 'sep' },
+            { label: 'H1', cmd: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), active: () => editor.isActive('heading', { level: 1 }), title: 'Heading 1' },
+            { label: 'H2', cmd: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor.isActive('heading', { level: 2 }), title: 'Heading 2' },
+            { label: 'H3', cmd: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), active: () => editor.isActive('heading', { level: 3 }), title: 'Heading 3' },
+            { type: 'sep' },
             { label: '\u2022', cmd: () => editor.chain().focus().toggleBulletList().run(), active: () => editor.isActive('bulletList'), title: 'Bullet list' },
+            { label: '1.', cmd: () => editor.chain().focus().toggleOrderedList().run(), active: () => editor.isActive('orderedList'), title: 'Numbered list' },
             { label: '\u2610', cmd: () => editor.chain().focus().toggleTaskList().run(), active: () => editor.isActive('taskList'), title: 'Task list' },
+            { label: '\u275D', cmd: () => editor.chain().focus().toggleBlockquote().run(), active: () => editor.isActive('blockquote'), title: 'Quote' },
         ];
 
         container.innerHTML = buttons.map((b, i) =>
-            `<button title="${b.title}" data-idx="${i}">${b.label}</button>`
+            b.type === 'sep'
+                ? '<span class="daily-toolbar-sep"></span>'
+                : `<button title="${b.title}" data-idx="${i}">${b.label}</button>`
         ).join('');
 
-        container.querySelectorAll('button').forEach(btn => {
+        container.querySelectorAll('button[data-idx]').forEach(btn => {
             const b = buttons[parseInt(btn.dataset.idx)];
-            btn.addEventListener('click', (e) => {
-                e.preventDefault();
-                b.cmd();
-            });
+            if (b && b.cmd) {
+                btn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    b.cmd();
+                });
+            }
         });
 
         // Update active states on editor changes

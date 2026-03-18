@@ -105,7 +105,7 @@ async function handleUpsertDailyNote(request, env) {
 
   // Upsert via PostgREST — merge-duplicates resolves on the unique note_date constraint
   const res = await fetch(
-    `${supabaseUrl}/rest/v1/daily_notes`,
+    `${supabaseUrl}/rest/v1/daily_notes?on_conflict=note_date`,
     {
       method: 'POST',
       headers: {
