@@ -124,6 +124,8 @@
             flex: 1;
             margin-left: 220px;
             padding: 2rem;
+            min-width: 0;
+            overflow-x: hidden;
         }
 
         /* ─── Header ─── */
@@ -686,6 +688,8 @@
             border: 1px solid var(--border);
             border-radius: 2px;
             padding: 1.2rem 1.5rem;
+            min-width: 0;
+            overflow: hidden;
         }
 
         .overview-section-title {
@@ -890,8 +894,11 @@
         }
 
         /* ─── Responsive ─── */
-        @media (max-width: 1100px) {
+        @media (max-width: 1400px) {
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
+        }
+
+        @media (max-width: 1100px) {
             .overview-columns { grid-template-columns: 1fr; }
             .overview-bottom { grid-template-columns: 1fr; }
         }
