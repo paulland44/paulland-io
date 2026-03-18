@@ -163,17 +163,8 @@ async function handleCalendarEvents(request, env) {
   }
 
   try {
-    // Fetch the ICS feed
-    // Note: Outlook/Exchange may block Cloudflare Worker IPs — use a full
-    // browser User-Agent to reduce chance of being blocked
-    const icsRes = await fetch(icsUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/calendar, text/plain, */*',
-        'Accept-Language': 'en-GB,en;q=0.9',
-      },
-      redirect: 'follow',
-    });
+    // Fetch the ICS feed — minimal headers to avoid Outlook/Exchange blocks
+    const icsRes = await fetch(icsUrl);
 
     if (!icsRes.ok) {
       const body = await icsRes.text().catch(() => '');

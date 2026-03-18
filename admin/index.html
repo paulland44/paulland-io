@@ -1662,14 +1662,17 @@
             const TurndownModule = await import('https://esm.sh/turndown@7?bundle');
             window._Turndown = TurndownModule.default || TurndownModule;
 
+            // Import WITHOUT ?bundle so esm.sh deduplicates shared ProseMirror
+            // dependencies. With ?bundle, each extension inlines its own copy
+            // of ProseMirror, causing "keyed plugin" conflicts across editors.
             [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder] = await Promise.all([
-                import('https://esm.sh/@tiptap/core@2?bundle'),
-                import('https://esm.sh/@tiptap/starter-kit@2?bundle'),
-                import('https://esm.sh/@tiptap/extension-task-list@2?bundle'),
-                import('https://esm.sh/@tiptap/extension-task-item@2?bundle'),
-                import('https://esm.sh/@tiptap/extension-placeholder@2?bundle'),
+                import('https://esm.sh/@tiptap/core@2'),
+                import('https://esm.sh/@tiptap/starter-kit@2'),
+                import('https://esm.sh/@tiptap/extension-task-list@2'),
+                import('https://esm.sh/@tiptap/extension-task-item@2'),
+                import('https://esm.sh/@tiptap/extension-placeholder@2'),
             ]);
-            TiptapMarkdown = null; // Not used — we use marked.js + turndown instead
+            TiptapMarkdown = null;
         } catch (err) {
             console.error('Failed to load Tiptap:', err);
             throw err;
