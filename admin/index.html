@@ -1659,18 +1659,67 @@
     async function loadTiptap() {
         if (TiptapCore) return;
         try {
-            [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder, TiptapMarkdown] = await Promise.all([
+            const TurndownModule = await import('https://esm.sh/turndown@7?bundle');
+            window._Turndown = TurndownModule.default || TurndownModule;
+
+            [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder] = await Promise.all([
                 import('https://esm.sh/@tiptap/core@2?bundle'),
                 import('https://esm.sh/@tiptap/starter-kit@2?bundle'),
                 import('https://esm.sh/@tiptap/extension-task-list@2?bundle'),
                 import('https://esm.sh/@tiptap/extension-task-item@2?bundle'),
                 import('https://esm.sh/@tiptap/extension-placeholder@2?bundle'),
-                import('https://esm.sh/tiptap-markdown@0.8?bundle'),
             ]);
+            TiptapMarkdown = null; // Not used — we use marked.js + turndown instead
         } catch (err) {
             console.error('Failed to load Tiptap:', err);
             throw err;
         }
+    }
+
+    function mdToHtml(md) {
+        if (!md || !md.trim()) return '';
+        // Convert task list markdown to HTML that Tiptap understands
+        // - [ ] task → <li data-type="taskItem" data-checked="false">task</li>
+        // - [x] task → <li data-type="taskItem" data-checked="true">task</li>
+        let html = marked.parse(md);
+        // marked renders - [ ] as list items with checkbox text — convert to tiptap format
+        html = html.replace(/<li>\[[ ]\]\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
+        html = html.replace(/<li>\[x\]\s*/gi, '<li data-type="taskItem" data-checked="true"><p>');
+        // Close <p> tags for task items
+        html = html.replace(/(data-checked="(?:true|false)"><p>[^<]*?)(<\/li>)/g, '$1</p>$2');
+        // Wrap task list items in a task list
+        html = html.replace(/<ul>\s*(<li data-type="taskItem")/g, '<ul data-type="taskList">$1');
+        return html;
+    }
+
+    function htmlToMd(html) {
+        if (!html || !html.trim()) return '';
+        if (!window._Turndown) return html;
+        const td = new window._Turndown({
+            headingStyle: 'atx',
+            bulletListMarker: '-',
+            codeBlockStyle: 'fenced',
+        });
+        // Handle tiptap task list items
+        td.addRule('taskItem', {
+            filter: function(node) {
+                return node.nodeName === 'LI' && node.getAttribute('data-type') === 'taskItem';
+            },
+            replacement: function(content, node) {
+                const checked = node.getAttribute('data-checked') === 'true';
+                const text = content.replace(/^\n+/, '').replace(/\n+$/, '').trim();
+                return (checked ? '- [x] ' : '- [ ] ') + text + '\n';
+            }
+        });
+        td.addRule('taskList', {
+            filter: function(node) {
+                return node.nodeName === 'UL' && node.getAttribute('data-type') === 'taskList';
+            },
+            replacement: function(content) {
+                return '\n' + content + '\n';
+            }
+        });
+        return td.turndown(html);
     }
 
     function createEditor(element, placeholder, content) {
@@ -1679,27 +1728,19 @@
         const TaskList = TiptapTaskList.TaskList || TiptapTaskList.default;
         const TaskItem = TiptapTaskItem.TaskItem || TiptapTaskItem.default;
         const Placeholder = TiptapPlaceholder.Placeholder || TiptapPlaceholder.default;
-        const Markdown = TiptapMarkdown.Markdown || TiptapMarkdown.default;
 
-        // Each editor must get fresh extension instances to avoid "keyed plugin" conflicts
-        const extensions = [
-            StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-            TaskList.configure(),
-            TaskItem.configure({ nested: true }),
-            Placeholder.configure({ placeholder }),
-        ];
-
-        // Markdown extension can cause keyed plugin errors — wrap in try/catch
-        try {
-            extensions.push(Markdown.configure());
-        } catch (err) {
-            console.warn('Markdown extension skipped:', err.message);
-        }
+        // Convert markdown content to HTML for Tiptap
+        const htmlContent = content ? mdToHtml(content) : '';
 
         const editor = new Editor({
             element,
-            extensions,
-            content: content || '',
+            extensions: [
+                StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+                TaskList,
+                TaskItem.configure({ nested: true }),
+                Placeholder.configure({ placeholder }),
+            ],
+            content: htmlContent,
             onUpdate: () => {
                 scheduleDailySave();
                 updateSaveStatus('unsaved');
@@ -1725,7 +1766,9 @@
     function getEditorMarkdown(editor) {
         if (!editor) return '';
         try {
-            return editor.storage.markdown?.getMarkdown() || '';
+            const html = editor.getHTML();
+            if (!html || html === '<p></p>') return '';
+            return htmlToMd(html);
         } catch {
             return editor.getText() || '';
         }

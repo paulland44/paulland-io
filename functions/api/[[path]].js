@@ -163,14 +163,16 @@ async function handleCalendarEvents(request, env) {
   }
 
   try {
-    // Fetch the ICS feed — use a browser-like User-Agent as some Exchange
-    // servers block non-browser requests from cloud IPs
+    // Fetch the ICS feed
+    // Note: Outlook/Exchange may block Cloudflare Worker IPs — use a full
+    // browser User-Agent to reduce chance of being blocked
     const icsRes = await fetch(icsUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (compatible; PaullandIO/1.0)',
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/calendar, text/plain, */*',
+        'Accept-Language': 'en-GB,en;q=0.9',
       },
-      cf: { cacheTtl: 300 }, // Cache for 5 minutes at Cloudflare edge
+      redirect: 'follow',
     });
 
     if (!icsRes.ok) {
@@ -178,7 +180,9 @@ async function handleCalendarEvents(request, env) {
       return json({
         error: 'Failed to fetch calendar',
         status: icsRes.status,
-        detail: body.substring(0, 200),
+        statusText: icsRes.statusText,
+        detail: body.substring(0, 500),
+        url_configured: !!icsUrl,
       }, 502);
     }
 
