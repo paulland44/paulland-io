@@ -163,13 +163,23 @@ async function handleCalendarEvents(request, env) {
   }
 
   try {
-    // Fetch the ICS feed
+    // Fetch the ICS feed — use a browser-like User-Agent as some Exchange
+    // servers block non-browser requests from cloud IPs
     const icsRes = await fetch(icsUrl, {
-      headers: { 'User-Agent': 'PaullandIO-Calendar/1.0' },
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; PaullandIO/1.0)',
+        'Accept': 'text/calendar, text/plain, */*',
+      },
+      cf: { cacheTtl: 300 }, // Cache for 5 minutes at Cloudflare edge
     });
 
     if (!icsRes.ok) {
-      return json({ error: 'Failed to fetch calendar', status: icsRes.status }, 502);
+      const body = await icsRes.text().catch(() => '');
+      return json({
+        error: 'Failed to fetch calendar',
+        status: icsRes.status,
+        detail: body.substring(0, 200),
+      }, 502);
     }
 
     const icsText = await icsRes.text();

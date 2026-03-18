@@ -1681,15 +1681,24 @@
         const Placeholder = TiptapPlaceholder.Placeholder || TiptapPlaceholder.default;
         const Markdown = TiptapMarkdown.Markdown || TiptapMarkdown.default;
 
+        // Each editor must get fresh extension instances to avoid "keyed plugin" conflicts
+        const extensions = [
+            StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
+            TaskList.configure(),
+            TaskItem.configure({ nested: true }),
+            Placeholder.configure({ placeholder }),
+        ];
+
+        // Markdown extension can cause keyed plugin errors — wrap in try/catch
+        try {
+            extensions.push(Markdown.configure());
+        } catch (err) {
+            console.warn('Markdown extension skipped:', err.message);
+        }
+
         const editor = new Editor({
             element,
-            extensions: [
-                StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
-                TaskList,
-                TaskItem.configure({ nested: true }),
-                Placeholder.configure({ placeholder }),
-                Markdown,
-            ],
+            extensions,
             content: content || '',
             onUpdate: () => {
                 scheduleDailySave();
