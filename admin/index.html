@@ -930,9 +930,12 @@
             font-size: 0.85rem;
             color: var(--text-muted);
             margin-left: auto;
-            transition: opacity 0.3s;
+            transition: color 0.3s;
+            min-width: 100px;
+            text-align: right;
         }
 
+        .daily-save-status.unsaved { color: var(--yellow); opacity: 0.7; }
         .daily-save-status.saving { color: var(--yellow); }
         .daily-save-status.saved { color: var(--accent); }
         .daily-save-status.error { color: var(--red); }
@@ -1146,6 +1149,99 @@
             margin: 1rem 0;
         }
 
+        /* Meeting cards */
+        .meeting-cards {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+        }
+
+        .meeting-card {
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            background: var(--void-lighter);
+        }
+
+        .meeting-card-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .meeting-card-title {
+            flex: 1;
+            background: none;
+            border: none;
+            color: var(--star);
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            font-weight: 400;
+            outline: none;
+        }
+
+        .meeting-card-title::placeholder {
+            color: var(--text-muted);
+            opacity: 0.5;
+        }
+
+        .meeting-card-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 1rem;
+            cursor: pointer;
+            padding: 0.2rem 0.4rem;
+            line-height: 1;
+            opacity: 0.5;
+            transition: all 0.15s;
+        }
+
+        .meeting-card-remove:hover {
+            color: var(--red);
+            opacity: 1;
+        }
+
+        .meeting-card .daily-toolbar {
+            border-bottom: none;
+            padding: 0.3rem 0.75rem;
+            background: none;
+        }
+
+        .meeting-card .daily-editor-wrap {
+            min-height: 60px;
+            padding: 0 0.75rem 0.5rem;
+        }
+
+        .meeting-card .daily-editor-wrap .ProseMirror {
+            min-height: 40px;
+        }
+
+        .meeting-add-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.4rem;
+            padding: 0.5rem;
+            border: 1px dashed var(--border);
+            border-radius: 2px;
+            background: none;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            width: 100%;
+        }
+
+        .meeting-add-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+        }
+
         /* ─── Responsive ─── */
         @media (max-width: 1400px) {
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
@@ -1279,7 +1375,8 @@
     let dailyNoteId = null;
     let dailySaveTimer = null;
     let dailyIsDirty = false;
-    let dailyEditors = { tasks: null, notes: null, meetings: null };
+    let dailyEditors = { tasks: null, notes: null };
+    let meetingCards = []; // Array of { id, title, editor }
 
     function init() {
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -1536,9 +1633,10 @@
     let TiptapTaskItem = null;
     let TiptapPlaceholder = null;
     let TiptapMarkdown = null;
+    let meetingIdCounter = 0;
 
     async function loadTiptap() {
-        if (TiptapCore) return; // Already loaded
+        if (TiptapCore) return;
         try {
             [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder, TiptapMarkdown] = await Promise.all([
                 import('https://esm.sh/@tiptap/core@2?bundle'),
@@ -1562,7 +1660,7 @@
         const Placeholder = TiptapPlaceholder.Placeholder || TiptapPlaceholder.default;
         const Markdown = TiptapMarkdown.Markdown || TiptapMarkdown.default;
 
-        return new Editor({
+        const editor = new Editor({
             element,
             extensions: [
                 StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -1572,8 +1670,13 @@
                 Markdown,
             ],
             content: content || '',
-            onUpdate: () => scheduleDailySave(),
+            onUpdate: () => {
+                scheduleDailySave();
+                updateSaveStatus('unsaved');
+            },
         });
+
+        return editor;
     }
 
     function destroyDailyEditors() {
@@ -1583,6 +1686,10 @@
                 dailyEditors[key] = null;
             }
         });
+        meetingCards.forEach(mc => {
+            if (mc.editor) mc.editor.destroy();
+        });
+        meetingCards = [];
     }
 
     function getEditorMarkdown(editor) {
@@ -1602,6 +1709,32 @@
     function todayStr() {
         const now = new Date();
         return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    }
+
+    function updateSaveStatus(state, msg) {
+        const status = document.getElementById('dailySaveStatus');
+        if (!status) return;
+        switch (state) {
+            case 'unsaved':
+                status.textContent = '\u2022 unsaved changes';
+                status.className = 'daily-save-status unsaved';
+                break;
+            case 'saving':
+                status.textContent = 'saving...';
+                status.className = 'daily-save-status saving';
+                break;
+            case 'saved':
+                status.textContent = 'saved \u2713';
+                status.className = 'daily-save-status saved';
+                break;
+            case 'error':
+                status.textContent = msg || 'save failed';
+                status.className = 'daily-save-status error';
+                break;
+            default:
+                status.textContent = '';
+                status.className = 'daily-save-status';
+        }
     }
 
     async function loadDailyNote(dateStr) {
@@ -1647,8 +1780,10 @@
                         <span>\u25CE</span>
                         <span>Meetings & Conversations</span>
                     </div>
-                    <div class="daily-toolbar" id="toolbarMeetings"></div>
-                    <div class="daily-editor-wrap" id="editorMeetings"></div>
+                    <div class="meeting-cards" id="meetingCardsContainer"></div>
+                    <div style="padding: 0 1rem 0.75rem;">
+                        <button class="meeting-add-btn" id="addMeetingBtn">+ Add Meeting</button>
+                    </div>
                 </div>
             </div>
         `;
@@ -1659,6 +1794,7 @@
         const todayBtn = document.getElementById('dailyToday');
         if (todayBtn) todayBtn.onclick = () => loadDailyNote();
         document.getElementById('dailyDateBtn').onclick = openDailyDatePicker;
+        document.getElementById('addMeetingBtn').onclick = () => addMeetingCard('', '');
 
         // Show loading state
         document.querySelectorAll('.daily-editor-wrap').forEach(el => {
@@ -1684,10 +1820,9 @@
 
         dailyNoteId = data?.id || null;
 
-        // Clear loading and create editors
+        // Clear loading and create editors with staggered init to avoid ProseMirror race condition
         document.getElementById('editorTasks').innerHTML = '';
         document.getElementById('editorNotes').innerHTML = '';
-        document.getElementById('editorMeetings').innerHTML = '';
 
         destroyDailyEditors();
 
@@ -1696,21 +1831,136 @@
             'Add tasks... (try typing "- [ ] " for a checkbox)',
             data?.tasks || ''
         );
+
+        // Stagger second editor to avoid ProseMirror init race
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
         dailyEditors.notes = createEditor(
             document.getElementById('editorNotes'),
             'Quick thoughts, ideas, observations...',
             data?.notes || ''
         );
-        dailyEditors.meetings = createEditor(
-            document.getElementById('editorMeetings'),
-            'Meeting notes, conversations, decisions...',
-            data?.meetings || ''
-        );
 
-        // Build toolbars for each editor
+        // Build toolbars
         buildToolbar('toolbarTasks', dailyEditors.tasks);
+
+        await new Promise(r => requestAnimationFrame(r));
+
         buildToolbar('toolbarNotes', dailyEditors.notes);
-        buildToolbar('toolbarMeetings', dailyEditors.meetings);
+
+        // Parse meetings from stored markdown — each meeting is separated by "---" or stored as JSON in metadata
+        parseMeetingsAndCreateCards(data);
+    }
+
+    function parseMeetingsAndCreateCards(data) {
+        meetingCards = [];
+        const container = document.getElementById('meetingCardsContainer');
+        if (!container) return;
+        container.innerHTML = '';
+
+        if (data?.meetings) {
+            // Try to parse from metadata first (structured format)
+            let meetings = [];
+            try {
+                if (data.metadata?.meetings_structured) {
+                    meetings = data.metadata.meetings_structured;
+                }
+            } catch {}
+
+            if (meetings.length > 0) {
+                meetings.forEach(m => addMeetingCard(m.title || '', m.notes || ''));
+            } else {
+                // Fall back: split markdown by "## " headings to find meetings
+                const md = data.meetings;
+                const sections = md.split(/^## /gm).filter(s => s.trim());
+                if (sections.length > 0 && md.includes('## ')) {
+                    sections.forEach(section => {
+                        const lines = section.split('\n');
+                        const title = lines[0].trim();
+                        const notes = lines.slice(1).join('\n').trim();
+                        addMeetingCard(title, notes);
+                    });
+                } else if (md.trim()) {
+                    // No headings — put it all in one card
+                    addMeetingCard('', md);
+                }
+            }
+        }
+    }
+
+    function addMeetingCard(title, content) {
+        const container = document.getElementById('meetingCardsContainer');
+        if (!container) return;
+
+        const id = ++meetingIdCounter;
+        const cardEl = document.createElement('div');
+        cardEl.className = 'meeting-card';
+        cardEl.id = `meeting-card-${id}`;
+
+        cardEl.innerHTML = `
+            <div class="meeting-card-header">
+                <input type="text" class="meeting-card-title" placeholder="Meeting title..." value="${(title || '').replace(/"/g, '&quot;')}" data-meeting-id="${id}">
+                <button class="meeting-card-remove" data-meeting-id="${id}" title="Remove meeting">\u00d7</button>
+            </div>
+            <div class="daily-toolbar" id="meetingToolbar-${id}"></div>
+            <div class="daily-editor-wrap" id="meetingEditor-${id}"></div>
+        `;
+
+        container.appendChild(cardEl);
+
+        // Wire remove button
+        cardEl.querySelector('.meeting-card-remove').onclick = () => removeMeetingCard(id);
+
+        // Wire title input to trigger save
+        cardEl.querySelector('.meeting-card-title').addEventListener('input', () => {
+            scheduleDailySave();
+            updateSaveStatus('unsaved');
+        });
+
+        // Create editor after DOM is ready
+        requestAnimationFrame(() => {
+            const editorEl = document.getElementById(`meetingEditor-${id}`);
+            if (!editorEl) return;
+
+            const editor = createEditor(editorEl, 'Meeting notes...', content || '');
+            meetingCards.push({ id, editor });
+
+            // Build toolbar
+            requestAnimationFrame(() => {
+                buildToolbar(`meetingToolbar-${id}`, editor);
+            });
+        });
+    }
+
+    function removeMeetingCard(id) {
+        const idx = meetingCards.findIndex(mc => mc.id === id);
+        if (idx !== -1) {
+            meetingCards[idx].editor?.destroy();
+            meetingCards.splice(idx, 1);
+        }
+        const cardEl = document.getElementById(`meeting-card-${id}`);
+        if (cardEl) cardEl.remove();
+        scheduleDailySave();
+        updateSaveStatus('unsaved');
+    }
+
+    function getMeetingsData() {
+        // Collect structured meeting data
+        const structured = meetingCards.map(mc => {
+            const titleEl = document.querySelector(`.meeting-card-title[data-meeting-id="${mc.id}"]`);
+            return {
+                title: titleEl?.value?.trim() || '',
+                notes: getEditorMarkdown(mc.editor),
+            };
+        }).filter(m => m.title || m.notes);
+
+        // Also build a combined markdown string for the meetings column (backward compatible)
+        const markdown = structured.map(m => {
+            const heading = m.title ? `## ${m.title}\n\n` : '';
+            return heading + m.notes;
+        }).join('\n\n---\n\n');
+
+        return { markdown, structured };
     }
 
     function buildToolbar(containerId, editor) {
@@ -1747,14 +1997,15 @@
             }
         });
 
-        // Update active states on editor changes
         editor.on('selectionUpdate', () => updateToolbarActive(container, buttons));
         editor.on('update', () => updateToolbarActive(container, buttons));
     }
 
     function updateToolbarActive(container, buttons) {
-        container.querySelectorAll('button').forEach((btn, i) => {
-            btn.classList.toggle('is-active', buttons[i].active());
+        const btns = container.querySelectorAll('button[data-idx]');
+        btns.forEach(btn => {
+            const b = buttons[parseInt(btn.dataset.idx)];
+            if (b && b.active) btn.classList.toggle('is-active', b.active());
         });
     }
 
@@ -1767,23 +2018,23 @@
     async function saveDailyNote() {
         if (!dailyNoteDate) return;
 
-        const status = document.getElementById('dailySaveStatus');
-        if (status) {
-            status.textContent = 'saving...';
-            status.className = 'daily-save-status saving';
-        }
+        updateSaveStatus('saving');
+
+        const meetingsData = getMeetingsData();
 
         const payload = {
             note_date: dailyNoteDate,
             tasks: getEditorMarkdown(dailyEditors.tasks),
             notes: getEditorMarkdown(dailyEditors.notes),
-            meetings: getEditorMarkdown(dailyEditors.meetings),
+            meetings: meetingsData.markdown,
+            metadata: { meetings_structured: meetingsData.structured },
         };
 
         try {
             const res = await fetch('/api/daily-notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
                 body: JSON.stringify(payload),
             });
 
@@ -1792,20 +2043,12 @@
             const result = await res.json();
             dailyNoteId = result.daily_note?.id || dailyNoteId;
             dailyIsDirty = false;
-
-            if (status) {
-                status.textContent = 'saved \u2713';
-                status.className = 'daily-save-status saved';
-                setTimeout(() => {
-                    if (status.textContent === 'saved \u2713') status.textContent = '';
-                }, 2000);
-            }
+            updateSaveStatus('saved');
         } catch (err) {
-            if (status) {
-                status.textContent = 'save failed';
-                status.className = 'daily-save-status error';
-            }
+            updateSaveStatus('error', 'save failed — retry in 5s');
             console.error('Daily note save failed:', err);
+            // Auto-retry once after 5 seconds
+            setTimeout(() => { if (dailyIsDirty) saveDailyNote(); }, 5000);
         }
     }
 

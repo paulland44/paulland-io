@@ -90,7 +90,7 @@ async function handleUpdateTags(request, env) {
 }
 
 async function handleUpsertDailyNote(request, env) {
-  const { note_date, tasks, notes, meetings } = await request.json();
+  const { note_date, tasks, notes, meetings, metadata } = await request.json();
 
   if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
     return json({ error: 'Invalid or missing note_date (YYYY-MM-DD)' }, 400);
@@ -101,6 +101,18 @@ async function handleUpsertDailyNote(request, env) {
 
   if (!supabaseUrl || !serviceKey) {
     return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const body = {
+    note_date,
+    tasks: tasks ?? '',
+    notes: notes ?? '',
+    meetings: meetings ?? '',
+  };
+
+  // Merge metadata if provided (preserves existing keys)
+  if (metadata && typeof metadata === 'object') {
+    body.metadata = metadata;
   }
 
   // Upsert via PostgREST — merge-duplicates resolves on the unique note_date constraint
@@ -114,12 +126,7 @@ async function handleUpsertDailyNote(request, env) {
         'Content-Type': 'application/json',
         'Prefer': 'resolution=merge-duplicates,return=representation',
       },
-      body: JSON.stringify({
-        note_date,
-        tasks: tasks ?? '',
-        notes: notes ?? '',
-        meetings: meetings ?? '',
-      }),
+      body: JSON.stringify(body),
     }
   );
 
