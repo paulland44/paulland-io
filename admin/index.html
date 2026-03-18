@@ -965,6 +965,27 @@
             color: var(--text-muted);
         }
 
+        .meeting-add-header-btn {
+            margin-left: auto;
+            padding: 0.2rem 0.6rem;
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.75rem;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: none;
+        }
+
+        .meeting-add-header-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-dim);
+        }
+
         .daily-toolbar {
             display: flex;
             gap: 0.25rem;
@@ -1779,11 +1800,9 @@
                     <div class="daily-section-header">
                         <span>\u25CE</span>
                         <span>Meetings & Conversations</span>
+                        <button class="meeting-add-header-btn" id="addMeetingBtn">+ Add</button>
                     </div>
                     <div class="meeting-cards" id="meetingCardsContainer"></div>
-                    <div style="padding: 0 1rem 0.75rem;">
-                        <button class="meeting-add-btn" id="addMeetingBtn">+ Add Meeting</button>
-                    </div>
                 </div>
             </div>
         `;
