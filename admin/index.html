@@ -1174,8 +1174,8 @@
         .meeting-cards {
             display: flex;
             flex-direction: column;
-            gap: 0.75rem;
-            padding: 0.75rem 1rem;
+            gap: 0.35rem;
+            padding: 0.5rem 1rem;
         }
 
         .meeting-card {
@@ -1189,23 +1189,55 @@
             align-items: center;
             gap: 0.5rem;
             padding: 0.5rem 0.75rem;
-            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s;
         }
 
-        .meeting-card-title {
-            flex: 1;
-            background: none;
-            border: none;
-            color: var(--star);
-            font-family: var(--mono);
-            font-size: 0.95rem;
-            font-weight: 400;
-            outline: none;
+        .meeting-card-header:hover {
+            background: rgba(200, 191, 168, 0.03);
         }
 
-        .meeting-card-title::placeholder {
+        .meeting-card-chevron {
             color: var(--text-muted);
-            opacity: 0.5;
+            font-size: 0.75rem;
+            transition: transform 0.2s;
+            flex-shrink: 0;
+            width: 0.8rem;
+        }
+
+        .meeting-card.expanded .meeting-card-chevron {
+            transform: rotate(90deg);
+        }
+
+        .meeting-card-time {
+            color: var(--accent);
+            font-size: 0.8rem;
+            font-weight: 400;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .meeting-card-title-display {
+            flex: 1;
+            color: var(--star);
+            font-size: 0.9rem;
+            font-weight: 400;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .meeting-card-indicator {
+            color: var(--accent);
+            font-size: 0.5rem;
+            flex-shrink: 0;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+
+        .meeting-card-indicator.has-notes {
+            opacity: 1;
         }
 
         .meeting-card-remove {
@@ -1216,13 +1248,48 @@
             cursor: pointer;
             padding: 0.2rem 0.4rem;
             line-height: 1;
-            opacity: 0.5;
+            opacity: 0;
             transition: all 0.15s;
+        }
+
+        .meeting-card.expanded .meeting-card-remove {
+            opacity: 0.5;
         }
 
         .meeting-card-remove:hover {
             color: var(--red);
-            opacity: 1;
+            opacity: 1 !important;
+        }
+
+        /* Expanded state — show title input, toolbar, editor */
+        .meeting-card-expanded-content {
+            display: none;
+        }
+
+        .meeting-card.expanded .meeting-card-expanded-content {
+            display: block;
+        }
+
+        .meeting-card.expanded .meeting-card-header {
+            border-bottom: 1px solid var(--border);
+        }
+
+        .meeting-card-title-input {
+            width: 100%;
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            color: var(--star);
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            font-weight: 400;
+            outline: none;
+            padding: 0.4rem 0.75rem;
+        }
+
+        .meeting-card-title-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.5;
         }
 
         .meeting-card .daily-toolbar {
@@ -1868,7 +1935,7 @@
         const todayBtn = document.getElementById('dailyToday');
         if (todayBtn) todayBtn.onclick = () => loadDailyNote();
         document.getElementById('dailyDateBtn').onclick = openDailyDatePicker;
-        document.getElementById('addMeetingBtn').onclick = () => addMeetingCard('', '');
+        document.getElementById('addMeetingBtn').onclick = () => addMeetingCard('', '', { expanded: true });
 
         // Show loading state
         document.querySelectorAll('.daily-editor-wrap').forEach(el => {
@@ -1944,7 +2011,7 @@
 
             if (meetings.length > 0) {
                 meetings.forEach(m => {
-                    savedMeetings.push({ title: m.title || '', notes: m.notes || '', fromCalendar: false });
+                    savedMeetings.push({ title: m.title || '', notes: m.notes || '', time: m.time || '', fromCalendar: false });
                 });
             } else {
                 const md = data.meetings;
@@ -1988,9 +2055,9 @@
             console.warn('Calendar fetch failed:', err);
         }
 
-        // 3. Create cards for saved meetings (await each to ensure editors init)
+        // 3. Create cards for saved meetings (collapsed by default)
         for (const m of savedMeetings) {
-            await addMeetingCard(m.title, m.notes);
+            await addMeetingCard(m.title, m.notes, { time: m.time || '' });
         }
 
         // 4. Add calendar events that don't already have a matching card
@@ -2005,16 +2072,18 @@
             // Skip if we already have a card with a similar title
             if (existingTitles.has(title.toLowerCase().trim())) continue;
 
-            // Build a pre-populated note with meeting details
-            let prefill = '';
+            // Build time string for header
+            let timeStr = '';
             if (evt.startTime && evt.endTime) {
-                prefill += `**${evt.startTime} - ${evt.endTime}**\n\n`;
+                timeStr = `${evt.startTime}-${evt.endTime}`;
             } else if (evt.startTime) {
-                prefill += `**${evt.startTime}**\n\n`;
+                timeStr = evt.startTime;
+            } else if (evt.allDay) {
+                timeStr = 'All day';
             }
-            if (evt.allDay) {
-                prefill += `*All day*\n\n`;
-            }
+
+            // Build pre-populated note with meeting details
+            let prefill = '';
             if (evt.location) {
                 prefill += `*${evt.location}*\n\n`;
             }
@@ -2022,56 +2091,119 @@
                 prefill += `Attendees: ${evt.attendees.slice(0, 8).join(', ')}\n\n`;
             }
 
-            await addMeetingCard(title, prefill);
+            await addMeetingCard(title, prefill, { time: timeStr });
             existingTitles.add(title.toLowerCase().trim());
         }
     }
 
-    function addMeetingCard(title, content) {
+    function addMeetingCard(title, content, options = {}) {
         const container = document.getElementById('meetingCardsContainer');
         if (!container) return Promise.resolve();
 
         const id = ++meetingIdCounter;
+        const startExpanded = options.expanded || false;
+        const timeStr = options.time || '';
+        const hasContent = !!(content && content.trim());
+
         const cardEl = document.createElement('div');
-        cardEl.className = 'meeting-card';
+        cardEl.className = 'meeting-card' + (startExpanded ? ' expanded' : '');
         cardEl.id = `meeting-card-${id}`;
 
+        const safeTitle = (title || '').replace(/"/g, '&quot;');
+
         cardEl.innerHTML = `
-            <div class="meeting-card-header">
-                <input type="text" class="meeting-card-title" placeholder="Meeting title..." value="${(title || '').replace(/"/g, '&quot;')}" data-meeting-id="${id}">
+            <div class="meeting-card-header" data-meeting-id="${id}">
+                <span class="meeting-card-chevron">&#x25B8;</span>
+                ${timeStr ? `<span class="meeting-card-time">${timeStr}</span>` : ''}
+                <span class="meeting-card-title-display">${title || 'Untitled Meeting'}</span>
+                <span class="meeting-card-indicator ${hasContent ? 'has-notes' : ''}" id="meetingIndicator-${id}">\u25CF</span>
                 <button class="meeting-card-remove" data-meeting-id="${id}" title="Remove meeting">\u00d7</button>
             </div>
-            <div class="daily-toolbar" id="meetingToolbar-${id}"></div>
-            <div class="daily-editor-wrap" id="meetingEditor-${id}"></div>
+            <div class="meeting-card-expanded-content">
+                <input type="text" class="meeting-card-title-input" placeholder="Meeting title..." value="${safeTitle}" data-meeting-id="${id}">
+                <div class="daily-toolbar" id="meetingToolbar-${id}"></div>
+                <div class="daily-editor-wrap" id="meetingEditor-${id}"></div>
+            </div>
         `;
 
         container.appendChild(cardEl);
 
-        // Wire remove button
-        cardEl.querySelector('.meeting-card-remove').onclick = () => removeMeetingCard(id);
+        // Wire header click to toggle
+        cardEl.querySelector('.meeting-card-header').addEventListener('click', (e) => {
+            // Don't toggle if clicking the remove button
+            if (e.target.closest('.meeting-card-remove')) return;
+            toggleMeetingCard(id);
+        });
 
-        // Wire title input to trigger save
-        cardEl.querySelector('.meeting-card-title').addEventListener('input', () => {
+        // Wire remove button
+        cardEl.querySelector('.meeting-card-remove').onclick = (e) => {
+            e.stopPropagation();
+            removeMeetingCard(id);
+        };
+
+        // Wire title input to update display title and trigger save
+        cardEl.querySelector('.meeting-card-title-input').addEventListener('input', (e) => {
+            const displayEl = cardEl.querySelector('.meeting-card-title-display');
+            if (displayEl) displayEl.textContent = e.target.value || 'Untitled Meeting';
             scheduleDailySave();
             updateSaveStatus('unsaved');
         });
 
-        // Create editor after DOM is ready — return a promise so callers can await
+        // Store card reference (editor created lazily on first expand)
+        meetingCards.push({ id, editor: null, content: content || '', time: timeStr });
+
+        // If starting expanded, init editor immediately
+        if (startExpanded) {
+            return initMeetingEditor(id);
+        }
+        return Promise.resolve();
+    }
+
+    function toggleMeetingCard(id) {
+        const cardEl = document.getElementById(`meeting-card-${id}`);
+        if (!cardEl) return;
+
+        const isExpanded = cardEl.classList.toggle('expanded');
+
+        if (isExpanded) {
+            // Lazy init editor on first expand
+            const mc = meetingCards.find(m => m.id === id);
+            if (mc && !mc.editor) {
+                initMeetingEditor(id);
+            }
+        } else {
+            // Update has-notes indicator when collapsing
+            updateMeetingIndicator(id);
+        }
+    }
+
+    function initMeetingEditor(id) {
         return new Promise(resolve => {
             requestAnimationFrame(() => {
                 const editorEl = document.getElementById(`meetingEditor-${id}`);
                 if (!editorEl) { resolve(); return; }
 
-                const editor = createEditor(editorEl, 'Meeting notes...', content || '');
-                meetingCards.push({ id, editor });
+                const mc = meetingCards.find(m => m.id === id);
+                if (!mc || mc.editor) { resolve(); return; }
 
-                // Build toolbar
+                const editor = createEditor(editorEl, 'Meeting notes...', mc.content || '');
+                mc.editor = editor;
+
                 requestAnimationFrame(() => {
                     buildToolbar(`meetingToolbar-${id}`, editor);
                     resolve();
                 });
             });
         });
+    }
+
+    function updateMeetingIndicator(id) {
+        const mc = meetingCards.find(m => m.id === id);
+        const indicator = document.getElementById(`meetingIndicator-${id}`);
+        if (!mc || !indicator) return;
+
+        const hasNotes = mc.editor ? !!(getEditorMarkdown(mc.editor).trim()) : !!(mc.content && mc.content.trim());
+        indicator.classList.toggle('has-notes', hasNotes);
     }
 
     function removeMeetingCard(id) {
@@ -2089,10 +2221,12 @@
     function getMeetingsData() {
         // Collect structured meeting data
         const structured = meetingCards.map(mc => {
-            const titleEl = document.querySelector(`.meeting-card-title[data-meeting-id="${mc.id}"]`);
+            const titleEl = document.querySelector(`.meeting-card-title-input[data-meeting-id="${mc.id}"]`);
+            const notes = mc.editor ? getEditorMarkdown(mc.editor) : (mc.content || '');
             return {
                 title: titleEl?.value?.trim() || '',
-                notes: getEditorMarkdown(mc.editor),
+                notes: notes,
+                time: mc.time || '',
             };
         }).filter(m => m.title || m.notes);
 
