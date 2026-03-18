@@ -1867,18 +1867,19 @@
 
         buildToolbar('toolbarNotes', dailyEditors.notes);
 
-        // Parse meetings from stored markdown — each meeting is separated by "---" or stored as JSON in metadata
-        parseMeetingsAndCreateCards(data);
+        // Load meetings: first from saved data, then merge with calendar events
+        await loadMeetingsWithCalendar(data);
     }
 
-    function parseMeetingsAndCreateCards(data) {
+    async function loadMeetingsWithCalendar(data) {
         meetingCards = [];
         const container = document.getElementById('meetingCardsContainer');
         if (!container) return;
         container.innerHTML = '';
 
+        // 1. Restore saved meeting cards
+        const savedMeetings = [];
         if (data?.meetings) {
-            // Try to parse from metadata first (structured format)
             let meetings = [];
             try {
                 if (data.metadata?.meetings_structured) {
@@ -1887,9 +1888,10 @@
             } catch {}
 
             if (meetings.length > 0) {
-                meetings.forEach(m => addMeetingCard(m.title || '', m.notes || ''));
+                meetings.forEach(m => {
+                    savedMeetings.push({ title: m.title || '', notes: m.notes || '', fromCalendar: false });
+                });
             } else {
-                // Fall back: split markdown by "## " headings to find meetings
                 const md = data.meetings;
                 const sections = md.split(/^## /gm).filter(s => s.trim());
                 if (sections.length > 0 && md.includes('## ')) {
@@ -1897,14 +1899,58 @@
                         const lines = section.split('\n');
                         const title = lines[0].trim();
                         const notes = lines.slice(1).join('\n').trim();
-                        addMeetingCard(title, notes);
+                        savedMeetings.push({ title, notes, fromCalendar: false });
                     });
                 } else if (md.trim()) {
-                    // No headings — put it all in one card
-                    addMeetingCard('', md);
+                    savedMeetings.push({ title: '', notes: md, fromCalendar: false });
                 }
             }
         }
+
+        // 2. Fetch calendar events for this date
+        let calendarEvents = [];
+        try {
+            const res = await fetch(`/api/calendar-events?date=${dailyNoteDate}`, {
+                credentials: 'same-origin',
+            });
+            if (res.ok) {
+                const result = await res.json();
+                calendarEvents = result.events || [];
+            }
+        } catch (err) {
+            console.warn('Calendar fetch failed:', err);
+        }
+
+        // 3. Create cards for saved meetings
+        savedMeetings.forEach(m => addMeetingCard(m.title, m.notes));
+
+        // 4. Add calendar events that don't already have a matching card
+        const existingTitles = new Set(savedMeetings.map(m => m.title.toLowerCase().trim()));
+        calendarEvents.forEach(evt => {
+            const title = evt.title || '';
+            // Skip if we already have a card with a similar title
+            if (existingTitles.has(title.toLowerCase().trim())) return;
+
+            // Build a pre-populated note with meeting details
+            let prefill = '';
+            if (evt.startTime && evt.endTime) {
+                prefill += `**${evt.startTime} - ${evt.endTime}**\n\n`;
+            } else if (evt.startTime) {
+                prefill += `**${evt.startTime}**\n\n`;
+            }
+            if (evt.allDay) {
+                prefill += `*All day*\n\n`;
+            }
+            if (evt.location) {
+                prefill += `*${evt.location}*\n\n`;
+            }
+            if (evt.attendees && evt.attendees.length > 0) {
+                prefill += `Attendees: ${evt.attendees.slice(0, 8).join(', ')}\n\n`;
+            }
+
+            addMeetingCard(title, prefill);
+            existingTitles.add(title.toLowerCase().trim());
+        });
     }
 
     function addMeetingCard(title, content) {
