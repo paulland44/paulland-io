@@ -6,7 +6,8 @@
  * server-side while allowing authenticated writes from the admin UI.
  *
  * Routes:
- *   POST /api/content/tags  — Update tags on a content item
+ *   POST /api/content/tags   — Update tags on a content item
+ *   POST /api/daily-notes    — Create or update a daily note (upsert by date)
  */
 
 export async function onRequest(context) {
@@ -37,6 +38,8 @@ export async function onRequest(context) {
   switch (path) {
     case 'content/tags':
       return handleUpdateTags(request, env);
+    case 'daily-notes':
+      return handleUpsertDailyNote(request, env);
     default:
       return json({ error: 'Not found' }, 404);
   }
@@ -84,6 +87,49 @@ async function handleUpdateTags(request, env) {
   }
 
   return json({ ok: true, tags: cleanTags });
+}
+
+async function handleUpsertDailyNote(request, env) {
+  const { note_date, tasks, notes, meetings } = await request.json();
+
+  if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
+    return json({ error: 'Invalid or missing note_date (YYYY-MM-DD)' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  // Upsert via PostgREST — merge-duplicates resolves on the unique note_date constraint
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify({
+        note_date,
+        tasks: tasks ?? '',
+        notes: notes ?? '',
+        meetings: meetings ?? '',
+      }),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+
+  const data = await res.json();
+  return json({ ok: true, daily_note: data[0] });
 }
 
 // ─── JWT validation ──────────────────────────────────────────
@@ -185,7 +231,7 @@ function json(data, status = 200) {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }

@@ -893,6 +893,241 @@
             border-radius: 2px;
         }
 
+        /* ─── Daily Note ─── */
+        .daily-nav {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .daily-nav-btn {
+            padding: 0.35rem 0.8rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .daily-nav-btn:hover { border-color: var(--border-hover); color: var(--star); }
+
+        .daily-nav-date {
+            padding: 0.35rem 1rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            color: var(--accent);
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            font-weight: 400;
+            cursor: pointer;
+        }
+
+        .daily-save-status {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            margin-left: auto;
+            transition: opacity 0.3s;
+        }
+
+        .daily-save-status.saving { color: var(--yellow); }
+        .daily-save-status.saved { color: var(--accent); }
+        .daily-save-status.error { color: var(--red); }
+
+        .daily-sections {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .daily-section {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+        }
+
+        .daily-section-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.6rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.8rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+        }
+
+        .daily-section-header .daily-toolbar {
+            margin-left: auto;
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .daily-toolbar button {
+            padding: 0.2rem 0.45rem;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            line-height: 1;
+        }
+
+        .daily-toolbar button:hover {
+            border-color: var(--border-hover);
+            color: var(--star);
+        }
+
+        .daily-toolbar button.is-active {
+            color: var(--accent);
+            border-color: var(--accent);
+            background: var(--accent-dim);
+        }
+
+        .daily-editor-wrap {
+            min-height: 120px;
+            padding: 0.75rem 1rem;
+        }
+
+        /* Tiptap ProseMirror editor styling */
+        .daily-editor-wrap .ProseMirror {
+            outline: none;
+            color: var(--text-body);
+            font-family: var(--mono);
+            font-size: 0.95rem;
+            font-weight: 300;
+            line-height: 1.7;
+            min-height: 80px;
+        }
+
+        .daily-editor-wrap .ProseMirror:focus {
+            color: var(--star);
+        }
+
+        .daily-editor-wrap .ProseMirror p {
+            margin-bottom: 0.4rem;
+        }
+
+        .daily-editor-wrap .ProseMirror h2 {
+            font-size: 1.1rem;
+            font-weight: 400;
+            color: var(--accent);
+            margin: 0.8rem 0 0.4rem;
+        }
+
+        .daily-editor-wrap .ProseMirror h3 {
+            font-size: 1rem;
+            font-weight: 400;
+            color: var(--star);
+            margin: 0.6rem 0 0.3rem;
+        }
+
+        .daily-editor-wrap .ProseMirror strong { color: var(--star); font-weight: 500; }
+        .daily-editor-wrap .ProseMirror em { font-style: italic; }
+
+        .daily-editor-wrap .ProseMirror ul,
+        .daily-editor-wrap .ProseMirror ol {
+            padding-left: 1.4rem;
+            margin-bottom: 0.4rem;
+        }
+
+        .daily-editor-wrap .ProseMirror li { margin-bottom: 0.15rem; }
+        .daily-editor-wrap .ProseMirror li::marker { color: var(--accent); }
+
+        /* Task list (checkboxes) */
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.5rem;
+            margin-bottom: 0.2rem;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li > label {
+            flex-shrink: 0;
+            margin-top: 0.25rem;
+            cursor: pointer;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"] {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border: 1px solid var(--text-muted);
+            border-radius: 2px;
+            background: transparent;
+            cursor: pointer;
+            position: relative;
+            vertical-align: middle;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked {
+            border-color: var(--accent);
+            background: var(--accent);
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li > label input[type="checkbox"]:checked::after {
+            content: '\2713';
+            position: absolute;
+            top: -1px;
+            left: 2px;
+            font-size: 12px;
+            color: var(--void);
+            font-weight: 700;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div > p {
+            text-decoration: line-through;
+            color: var(--text-muted);
+        }
+
+        /* Placeholder */
+        .daily-editor-wrap .ProseMirror p.is-editor-empty:first-child::before {
+            content: attr(data-placeholder);
+            float: left;
+            color: var(--text-muted);
+            opacity: 0.5;
+            pointer-events: none;
+            height: 0;
+        }
+
+        /* Blockquote */
+        .daily-editor-wrap .ProseMirror blockquote {
+            border-left: 2px solid var(--accent);
+            padding-left: 1rem;
+            color: var(--text-muted);
+            font-style: italic;
+            margin: 0.5rem 0;
+        }
+
+        /* Code */
+        .daily-editor-wrap .ProseMirror code {
+            background: var(--void-lighter);
+            padding: 0.15rem 0.35rem;
+            border-radius: 2px;
+            font-size: 0.88rem;
+        }
+
+        /* Horizontal rule */
+        .daily-editor-wrap .ProseMirror hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 1rem 0;
+        }
+
         /* ─── Responsive ─── */
         @media (max-width: 1400px) {
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
@@ -940,6 +1175,10 @@
 
             .content-modal-title { font-size: 1.15rem; }
             .content-modal-body { font-size: 1rem; }
+
+            .daily-nav { flex-wrap: wrap; gap: 0.3rem; }
+            .daily-editor-wrap .ProseMirror { font-size: 16px; min-height: 80px; }
+            .page-header { flex-direction: column; gap: 0.75rem; align-items: flex-start !important; }
         }
     </style>
 </head>
@@ -953,6 +1192,9 @@
             <div class="sidebar-nav">
                 <button class="nav-item active" data-view="overview">
                     Overview
+                </button>
+                <button class="nav-item" data-view="daily-note">
+                    Daily Note
                 </button>
                 <button class="nav-item" data-view="articles">
                     Articles <span class="count" id="countArticles">-</span>
@@ -1015,6 +1257,11 @@
     let db;
     let currentView = 'overview';
     let allTags = [];
+    let dailyNoteDate = null;
+    let dailyNoteId = null;
+    let dailySaveTimer = null;
+    let dailyIsDirty = false;
+    let dailyEditors = { tasks: null, notes: null, meetings: null };
 
     function init() {
         if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -1032,6 +1279,12 @@
         // Wire up nav
         document.querySelectorAll('.nav-item').forEach(btn => {
             btn.addEventListener('click', () => {
+                // Flush pending daily note save before navigating away
+                if (currentView === 'daily-note' && dailyIsDirty) {
+                    clearTimeout(dailySaveTimer);
+                    saveDailyNote();
+                }
+                if (currentView === 'daily-note') destroyDailyEditors();
                 document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 currentView = btn.dataset.view;
@@ -1073,6 +1326,7 @@
         closeContentModal();
         switch (view) {
             case 'overview': return loadOverview();
+            case 'daily-note': return loadDailyNote();
             case 'articles': return loadArticles();
             case 'thoughts': return loadThoughts();
             case 'reflections': return loadReflections();
@@ -1253,6 +1507,314 @@
                 loadArticles(tag);
             });
         });
+    }
+
+    // ─── Daily Note ─────────────────────────────────────────────
+
+    // Tiptap modules — loaded on first use
+    let TiptapCore = null;
+    let TiptapStarterKit = null;
+    let TiptapTaskList = null;
+    let TiptapTaskItem = null;
+    let TiptapPlaceholder = null;
+    let TiptapMarkdown = null;
+
+    async function loadTiptap() {
+        if (TiptapCore) return; // Already loaded
+        try {
+            [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder, TiptapMarkdown] = await Promise.all([
+                import('https://esm.sh/@tiptap/core@2?bundle'),
+                import('https://esm.sh/@tiptap/starter-kit@2?bundle'),
+                import('https://esm.sh/@tiptap/extension-task-list@2?bundle'),
+                import('https://esm.sh/@tiptap/extension-task-item@2?bundle'),
+                import('https://esm.sh/@tiptap/extension-placeholder@2?bundle'),
+                import('https://esm.sh/tiptap-markdown@0.8?bundle'),
+            ]);
+        } catch (err) {
+            console.error('Failed to load Tiptap:', err);
+            throw err;
+        }
+    }
+
+    function createEditor(element, placeholder, content) {
+        const Editor = TiptapCore.Editor || TiptapCore.default?.Editor;
+        const StarterKit = TiptapStarterKit.StarterKit || TiptapStarterKit.default;
+        const TaskList = TiptapTaskList.TaskList || TiptapTaskList.default;
+        const TaskItem = TiptapTaskItem.TaskItem || TiptapTaskItem.default;
+        const Placeholder = TiptapPlaceholder.Placeholder || TiptapPlaceholder.default;
+        const Markdown = TiptapMarkdown.Markdown || TiptapMarkdown.default;
+
+        return new Editor({
+            element,
+            extensions: [
+                StarterKit.configure({ heading: { levels: [2, 3] } }),
+                TaskList,
+                TaskItem.configure({ nested: true }),
+                Placeholder.configure({ placeholder }),
+                Markdown,
+            ],
+            content: content || '',
+            onUpdate: () => scheduleDailySave(),
+        });
+    }
+
+    function destroyDailyEditors() {
+        Object.keys(dailyEditors).forEach(key => {
+            if (dailyEditors[key]) {
+                dailyEditors[key].destroy();
+                dailyEditors[key] = null;
+            }
+        });
+    }
+
+    function getEditorMarkdown(editor) {
+        if (!editor) return '';
+        try {
+            return editor.storage.markdown?.getMarkdown() || '';
+        } catch {
+            return editor.getText() || '';
+        }
+    }
+
+    function formatDateDisplay(dateStr) {
+        const d = new Date(dateStr + 'T12:00:00');
+        return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+    }
+
+    function todayStr() {
+        const now = new Date();
+        return `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`;
+    }
+
+    async function loadDailyNote(dateStr) {
+        const main = document.getElementById('mainContent');
+
+        if (!dateStr) dateStr = todayStr();
+        dailyNoteDate = dateStr;
+        dailyIsDirty = false;
+
+        const isToday = dateStr === todayStr();
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Daily Note</h2>
+                <div class="daily-nav">
+                    <button class="daily-nav-btn" id="dailyPrev">\u2190 prev</button>
+                    <button class="daily-nav-date" id="dailyDateBtn">${formatDateDisplay(dateStr)}</button>
+                    <button class="daily-nav-btn" id="dailyNext">next \u2192</button>
+                    ${isToday ? '' : '<button class="daily-nav-btn" id="dailyToday">today</button>'}
+                </div>
+                <span class="daily-save-status" id="dailySaveStatus"></span>
+            </div>
+
+            <div class="daily-sections" id="dailySections">
+                <div class="daily-section">
+                    <div class="daily-section-header">
+                        <span>\u2610</span>
+                        <span>Tasks</span>
+                        <div class="daily-toolbar" id="toolbarTasks"></div>
+                    </div>
+                    <div class="daily-editor-wrap" id="editorTasks"></div>
+                </div>
+                <div class="daily-section">
+                    <div class="daily-section-header">
+                        <span>\u270E</span>
+                        <span>Notes & Thoughts</span>
+                        <div class="daily-toolbar" id="toolbarNotes"></div>
+                    </div>
+                    <div class="daily-editor-wrap" id="editorNotes"></div>
+                </div>
+                <div class="daily-section">
+                    <div class="daily-section-header">
+                        <span>\u25CE</span>
+                        <span>Meetings & Conversations</span>
+                        <div class="daily-toolbar" id="toolbarMeetings"></div>
+                    </div>
+                    <div class="daily-editor-wrap" id="editorMeetings"></div>
+                </div>
+            </div>
+        `;
+
+        // Wire date nav
+        document.getElementById('dailyPrev').onclick = () => navigateDailyNote(-1);
+        document.getElementById('dailyNext').onclick = () => navigateDailyNote(1);
+        const todayBtn = document.getElementById('dailyToday');
+        if (todayBtn) todayBtn.onclick = () => loadDailyNote();
+        document.getElementById('dailyDateBtn').onclick = openDailyDatePicker;
+
+        // Show loading state
+        document.querySelectorAll('.daily-editor-wrap').forEach(el => {
+            el.innerHTML = '<div style="color: var(--text-muted); opacity: 0.5; padding: 0.5rem 0;">Loading editor...</div>';
+        });
+
+        // Load Tiptap modules (cached after first load)
+        try {
+            await loadTiptap();
+        } catch (err) {
+            document.querySelectorAll('.daily-editor-wrap').forEach(el => {
+                el.innerHTML = '<div style="color: var(--red); padding: 0.5rem 0;">Failed to load editor. Check your connection and refresh.</div>';
+            });
+            return;
+        }
+
+        // Fetch existing note for this date
+        const { data } = await db
+            .from('daily_notes')
+            .select('*')
+            .eq('note_date', dailyNoteDate)
+            .maybeSingle();
+
+        dailyNoteId = data?.id || null;
+
+        // Clear loading and create editors
+        document.getElementById('editorTasks').innerHTML = '';
+        document.getElementById('editorNotes').innerHTML = '';
+        document.getElementById('editorMeetings').innerHTML = '';
+
+        destroyDailyEditors();
+
+        dailyEditors.tasks = createEditor(
+            document.getElementById('editorTasks'),
+            'Add tasks... (try typing "- [ ] " for a checkbox)',
+            data?.tasks || ''
+        );
+        dailyEditors.notes = createEditor(
+            document.getElementById('editorNotes'),
+            'Quick thoughts, ideas, observations...',
+            data?.notes || ''
+        );
+        dailyEditors.meetings = createEditor(
+            document.getElementById('editorMeetings'),
+            'Meeting notes, conversations, decisions...',
+            data?.meetings || ''
+        );
+
+        // Build toolbars for each editor
+        buildToolbar('toolbarTasks', dailyEditors.tasks);
+        buildToolbar('toolbarNotes', dailyEditors.notes);
+        buildToolbar('toolbarMeetings', dailyEditors.meetings);
+    }
+
+    function buildToolbar(containerId, editor) {
+        const container = document.getElementById(containerId);
+        if (!container || !editor) return;
+
+        const buttons = [
+            { label: 'B', cmd: () => editor.chain().focus().toggleBold().run(), active: () => editor.isActive('bold'), title: 'Bold (Cmd+B)' },
+            { label: 'I', cmd: () => editor.chain().focus().toggleItalic().run(), active: () => editor.isActive('italic'), title: 'Italic (Cmd+I)' },
+            { label: 'H', cmd: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor.isActive('heading', { level: 2 }), title: 'Heading' },
+            { label: '\u2022', cmd: () => editor.chain().focus().toggleBulletList().run(), active: () => editor.isActive('bulletList'), title: 'Bullet list' },
+            { label: '\u2610', cmd: () => editor.chain().focus().toggleTaskList().run(), active: () => editor.isActive('taskList'), title: 'Task list' },
+        ];
+
+        container.innerHTML = buttons.map((b, i) =>
+            `<button title="${b.title}" data-idx="${i}">${b.label}</button>`
+        ).join('');
+
+        container.querySelectorAll('button').forEach(btn => {
+            const b = buttons[parseInt(btn.dataset.idx)];
+            btn.addEventListener('click', (e) => {
+                e.preventDefault();
+                b.cmd();
+            });
+        });
+
+        // Update active states on editor changes
+        editor.on('selectionUpdate', () => updateToolbarActive(container, buttons));
+        editor.on('update', () => updateToolbarActive(container, buttons));
+    }
+
+    function updateToolbarActive(container, buttons) {
+        container.querySelectorAll('button').forEach((btn, i) => {
+            btn.classList.toggle('is-active', buttons[i].active());
+        });
+    }
+
+    function scheduleDailySave() {
+        dailyIsDirty = true;
+        if (dailySaveTimer) clearTimeout(dailySaveTimer);
+        dailySaveTimer = setTimeout(saveDailyNote, 1000);
+    }
+
+    async function saveDailyNote() {
+        if (!dailyNoteDate) return;
+
+        const status = document.getElementById('dailySaveStatus');
+        if (status) {
+            status.textContent = 'saving...';
+            status.className = 'daily-save-status saving';
+        }
+
+        const payload = {
+            note_date: dailyNoteDate,
+            tasks: getEditorMarkdown(dailyEditors.tasks),
+            notes: getEditorMarkdown(dailyEditors.notes),
+            meetings: getEditorMarkdown(dailyEditors.meetings),
+        };
+
+        try {
+            const res = await fetch('/api/daily-notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) throw new Error(await res.text());
+
+            const result = await res.json();
+            dailyNoteId = result.daily_note?.id || dailyNoteId;
+            dailyIsDirty = false;
+
+            if (status) {
+                status.textContent = 'saved \u2713';
+                status.className = 'daily-save-status saved';
+                setTimeout(() => {
+                    if (status.textContent === 'saved \u2713') status.textContent = '';
+                }, 2000);
+            }
+        } catch (err) {
+            if (status) {
+                status.textContent = 'save failed';
+                status.className = 'daily-save-status error';
+            }
+            console.error('Daily note save failed:', err);
+        }
+    }
+
+    function navigateDailyNote(offset) {
+        if (dailyIsDirty) {
+            clearTimeout(dailySaveTimer);
+            saveDailyNote();
+        }
+        destroyDailyEditors();
+
+        const d = new Date(dailyNoteDate + 'T12:00:00');
+        d.setDate(d.getDate() + offset);
+        const newDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        loadDailyNote(newDate);
+    }
+
+    function openDailyDatePicker() {
+        const input = document.createElement('input');
+        input.type = 'date';
+        input.value = dailyNoteDate;
+        input.style.cssText = 'position:absolute;opacity:0;pointer-events:none;';
+        document.body.appendChild(input);
+
+        input.addEventListener('change', () => {
+            if (input.value) {
+                if (dailyIsDirty) {
+                    clearTimeout(dailySaveTimer);
+                    saveDailyNote();
+                }
+                destroyDailyEditors();
+                loadDailyNote(input.value);
+            }
+            input.remove();
+        });
+        input.addEventListener('blur', () => setTimeout(() => input.remove(), 200));
+
+        try { input.showPicker(); } catch { input.click(); }
     }
 
     // ─── Articles ─────────────────────────────────────────────
@@ -1787,6 +2349,24 @@
     document.getElementById('contentClose').addEventListener('click', closeContentModal);
     document.addEventListener('keydown', e => {
         if (e.key === 'Escape') closeContentModal();
+    });
+
+    // ─── Keyboard shortcuts ──────────────────────────────────────
+    document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 's' && currentView === 'daily-note') {
+            e.preventDefault();
+            clearTimeout(dailySaveTimer);
+            saveDailyNote();
+        }
+    });
+
+    // Save before unload
+    window.addEventListener('beforeunload', (e) => {
+        if (dailyIsDirty && currentView === 'daily-note') {
+            saveDailyNote();
+            e.preventDefault();
+            e.returnValue = '';
+        }
     });
 
     // ─── Boot ─────────────────────────────────────────────────
