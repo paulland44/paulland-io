@@ -278,25 +278,32 @@ function parseICSForDate(icsText, dateStr) {
 }
 
 function extractDateTimeValue(line) {
+  // DTSTART;TZID=Romance Standard Time:20260318T110000
   // DTSTART;TZID=Europe/London:20260318T100000
   // DTSTART:20260318T100000Z
   // DTSTART;VALUE=DATE:20260318
-  const colonIdx = line.indexOf(':');
-  if (colonIdx === -1) return null;
+  //
+  // The colon separator can appear inside TZID values (e.g. "Standard Time:"),
+  // so we find the date value by matching a date pattern after the last colon,
+  // or use the last colon as separator.
 
-  const params = line.substring(0, colonIdx);
-  const value = line.substring(colonIdx + 1).trim();
+  // Find the date value — always 8+ digits, possibly followed by T and time
+  const dateMatch = line.match(/(\d{8})(T\d{6}Z?)?$/);
+  if (!dateMatch) return null;
 
-  const allDay = params.includes('VALUE=DATE') || (value.length === 8 && /^\d{8}$/.test(value));
-  const dateOnly = value.substring(0, 8); // YYYYMMDD
+  const rawValue = dateMatch[0];
+  const params = line.substring(0, line.lastIndexOf(rawValue));
+
+  const allDay = params.includes('VALUE=DATE') || rawValue.length === 8;
+  const dateOnly = rawValue.substring(0, 8); // YYYYMMDD
 
   let time = '';
-  if (!allDay && value.length >= 15) {
-    // Extract HH:MM from HHMMSS
-    time = value.substring(9, 11) + ':' + value.substring(11, 13);
+  if (!allDay && rawValue.length >= 15) {
+    // Extract HH:MM from THHMMSS
+    time = rawValue.substring(9, 11) + ':' + rawValue.substring(11, 13);
   }
 
-  return { dateOnly, time, allDay, raw: value };
+  return { dateOnly, time, allDay, raw: rawValue };
 }
 
 function extractParam(line, paramName) {
