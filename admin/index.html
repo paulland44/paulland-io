@@ -7,6 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         :root {
             --void: #08080c;
@@ -33,7 +34,7 @@
             background: var(--void);
             color: var(--star);
             font-family: var(--mono);
-            font-size: 0.8rem;
+            font-size: 0.95rem;
             font-weight: 300;
             line-height: 1.6;
             min-height: 100vh;
@@ -65,7 +66,7 @@
         }
 
         .sidebar-brand a {
-            font-size: 0.7rem;
+            font-size: 0.8rem;
             font-weight: 400;
             letter-spacing: 0.15em;
             text-transform: uppercase;
@@ -92,7 +93,7 @@
             padding: 0.6rem 1.5rem;
             color: var(--text-muted);
             text-decoration: none;
-            font-size: 0.75rem;
+            font-size: 0.9rem;
             font-weight: 400;
             letter-spacing: 0.04em;
             cursor: pointer;
@@ -108,14 +109,14 @@
 
         .nav-item .count {
             margin-left: auto;
-            font-size: 0.65rem;
+            font-size: 0.8rem;
             opacity: 0.5;
         }
 
         .sidebar-footer {
             padding: 1rem 1.5rem;
             border-top: 1px solid var(--border);
-            font-size: 0.6rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
         }
 
@@ -136,7 +137,7 @@
         }
 
         .page-title {
-            font-size: 1.1rem;
+            font-size: 1.4rem;
             font-weight: 400;
             letter-spacing: 0.06em;
         }
@@ -157,7 +158,7 @@
         }
 
         .stat-label {
-            font-size: 0.6rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
             letter-spacing: 0.1em;
             text-transform: uppercase;
@@ -179,7 +180,7 @@
             border-radius: 2px;
             color: var(--text-muted);
             font-family: var(--mono);
-            font-size: 0.65rem;
+            font-size: 0.8rem;
             font-weight: 400;
             letter-spacing: 0.06em;
             cursor: pointer;
@@ -196,11 +197,11 @@
             border-radius: 2px;
             color: var(--star);
             font-family: var(--mono);
-            font-size: 0.65rem;
+            font-size: 0.85rem;
             font-weight: 300;
             letter-spacing: 0.04em;
             outline: none;
-            width: 200px;
+            width: 240px;
             margin-left: auto;
             transition: border-color 0.2s;
         }
@@ -221,7 +222,7 @@
         th {
             text-align: left;
             padding: 0.6rem 0.8rem;
-            font-size: 0.6rem;
+            font-size: 0.75rem;
             font-weight: 400;
             letter-spacing: 0.12em;
             text-transform: uppercase;
@@ -250,7 +251,7 @@
         }
 
         .title-url {
-            font-size: 0.65rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
             text-decoration: none;
             display: block;
@@ -267,7 +268,7 @@
             display: inline-block;
             padding: 0.15rem 0.5rem;
             border-radius: 2px;
-            font-size: 0.6rem;
+            font-size: 0.75rem;
             font-weight: 400;
             letter-spacing: 0.06em;
         }
@@ -284,19 +285,19 @@
             background: var(--accent-dim);
             color: var(--accent);
             border-radius: 2px;
-            font-size: 0.6rem;
+            font-size: 0.75rem;
             margin: 0.1rem;
         }
 
         .date-cell {
             white-space: nowrap;
             color: var(--text-muted);
-            font-size: 0.7rem;
+            font-size: 0.85rem;
         }
 
         .source-cell {
             color: var(--text-body);
-            font-size: 0.7rem;
+            font-size: 0.85rem;
             max-width: 140px;
             overflow: hidden;
             text-overflow: ellipsis;
@@ -324,13 +325,124 @@
         }
 
         .expanded-content {
-            max-height: 300px;
+            max-height: 400px;
             overflow-y: auto;
             color: var(--text-body);
-            font-size: 0.75rem;
+            font-size: 0.9rem;
             line-height: 1.8;
-            white-space: pre-wrap;
             padding-right: 1rem;
+        }
+
+        /* ─── Markdown rendering ─── */
+        .expanded-content h1,
+        .expanded-content h2,
+        .expanded-content h3,
+        .expanded-content h4 {
+            color: var(--star);
+            font-weight: 400;
+            letter-spacing: 0.04em;
+            margin: 1.2em 0 0.5em;
+        }
+
+        .expanded-content h1 { font-size: 1.2rem; }
+        .expanded-content h2 { font-size: 1.1rem; }
+        .expanded-content h3 { font-size: 1rem; color: var(--accent); }
+        .expanded-content h4 { font-size: 0.95rem; color: var(--text-body); }
+
+        .expanded-content p {
+            margin: 0.6em 0;
+        }
+
+        .expanded-content strong {
+            color: var(--star);
+            font-weight: 500;
+        }
+
+        .expanded-content em {
+            font-style: italic;
+            color: var(--star);
+            opacity: 0.85;
+        }
+
+        .expanded-content a {
+            color: var(--accent);
+            text-decoration: none;
+            border-bottom: 1px solid var(--accent-dim);
+            transition: border-color 0.2s;
+        }
+
+        .expanded-content a:hover {
+            border-color: var(--accent);
+        }
+
+        .expanded-content ul,
+        .expanded-content ol {
+            padding-left: 1.5em;
+            margin: 0.6em 0;
+        }
+
+        .expanded-content li {
+            margin: 0.3em 0;
+        }
+
+        .expanded-content li::marker {
+            color: var(--accent);
+        }
+
+        .expanded-content blockquote {
+            border-left: 2px solid var(--accent);
+            padding-left: 1em;
+            margin: 0.8em 0;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .expanded-content code {
+            background: var(--void-lighter);
+            padding: 0.1em 0.35em;
+            border-radius: 2px;
+            font-size: 0.9em;
+        }
+
+        .expanded-content pre {
+            background: var(--void-lighter);
+            padding: 0.8em 1em;
+            border-radius: 2px;
+            overflow-x: auto;
+            margin: 0.8em 0;
+        }
+
+        .expanded-content pre code {
+            background: none;
+            padding: 0;
+        }
+
+        .expanded-content hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 1em 0;
+        }
+
+        .expanded-content table {
+            border-collapse: collapse;
+            margin: 0.8em 0;
+            font-size: 0.85rem;
+        }
+
+        .expanded-content table th,
+        .expanded-content table td {
+            border: 1px solid var(--border);
+            padding: 0.4em 0.6em;
+        }
+
+        .expanded-content table th {
+            background: var(--void-lighter);
+        }
+
+        .expanded-content img {
+            max-width: 100%;
+            border-radius: 2px;
+            margin: 0.5em 0;
         }
 
         .expanded-meta {
@@ -339,7 +451,7 @@
             margin-top: 1rem;
             padding-top: 0.8rem;
             border-top: 1px solid var(--border);
-            font-size: 0.65rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
         }
 
@@ -473,6 +585,16 @@
     </div>
 
     <script>
+    // ─── Markdown config ────────────────────────────────────────
+    if (typeof marked !== 'undefined') {
+        const renderer = new marked.Renderer();
+        const origLink = renderer.link.bind(renderer);
+        renderer.link = function({ href, title, text }) {
+            return `<a href="${href}" target="_blank" rel="noopener"${title ? ` title="${title}"` : ''}>${text}</a>`;
+        };
+        marked.setOptions({ renderer, breaks: true });
+    }
+
     // ─── Supabase config ──────────────────────────────────────
     // These are safe to include: anon key is read-only via RLS,
     // and this page is protected by Cloudflare Access.
@@ -625,7 +747,7 @@
                 expRow.dataset.parent = id;
                 expRow.innerHTML = `
                     <td colspan="5">
-                        <div class="expanded-content">${esc(item.body || 'No content.').substring(0, 3000)}</div>
+                        <div class="expanded-content">${renderBody(item.body)}</div>
                         <div class="expanded-meta">
                             ${item.author ? `<span>Author: ${esc(item.author)}</span>` : ''}
                             ${item.url ? `<span><a href="${esc(item.url)}" target="_blank" rel="noopener">Open original</a></span>` : ''}
@@ -689,7 +811,7 @@
                 const expRow = document.createElement('tr');
                 expRow.className = 'expanded-row';
                 expRow.dataset.parent = id;
-                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${esc(item.body || '')}</div></td>`;
+                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${renderBody(item.body)}</div></td>`;
                 row.after(expRow);
             });
         });
@@ -745,7 +867,7 @@
                 const expRow = document.createElement('tr');
                 expRow.className = 'expanded-row';
                 expRow.dataset.parent = id;
-                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${esc(item.body || '')}</div></td>`;
+                expRow.innerHTML = `<td colspan="4"><div class="expanded-content">${renderBody(item.body)}</div></td>`;
                 row.after(expRow);
             });
         });
@@ -906,6 +1028,18 @@
         const el = document.createElement('span');
         el.textContent = str;
         return el.innerHTML;
+    }
+
+    function renderBody(text) {
+        if (!text) return '<em style="color:var(--text-muted)">No content.</em>';
+        // If the text looks like markdown (has headings, bold, links, lists)
+        // render it as markdown; otherwise treat as plain text with paragraphs
+        const hasMarkdown = /^#{1,4}\s|^\*\*|\[.+\]\(.+\)|^- |^\d+\.\s/m.test(text);
+        if (hasMarkdown && typeof marked !== 'undefined') {
+            return marked.parse(text);
+        }
+        // Plain text: convert line breaks to paragraphs
+        return text.split(/\n\n+/).map(p => `<p>${esc(p.trim())}</p>`).join('');
     }
 
     function formatDate(iso) {
