@@ -3433,46 +3433,92 @@
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading</div>';
 
-        const { data, error } = await db
-            .from('content')
-            .select('id, title, tags, status, captured_at, body, metadata')
-            .eq('type', 'reflection')
-            .order('captured_at', { ascending: false })
-            .limit(50);
+        // Fetch both content reflections AND reflections_log (from AI reviews)
+        const [contentResult, logResult] = await Promise.all([
+            db.from('content')
+                .select('id, title, tags, status, captured_at, body, metadata')
+                .eq('type', 'reflection')
+                .order('captured_at', { ascending: false })
+                .limit(50),
+            db.from('reflections_log')
+                .select('id, note_date, observation, coach_perspective, category')
+                .order('note_date', { ascending: false })
+                .limit(50),
+        ]);
 
-        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No reflections yet. Use /reflect in the bot.</div>'; return; }
+        const contentData = contentResult.data || [];
+        const logData = logResult.data || [];
 
-        main.innerHTML = `
+        if (!contentData.length && !logData.length) {
+            main.innerHTML = '<div class="empty">No reflections yet.</div>';
+            return;
+        }
+
+        let html = `
             <div class="page-header">
                 <h2 class="page-title">Reflections</h2>
             </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr><th>Title</th><th>Mode</th><th>Tags</th><th>Date</th></tr>
-                    </thead>
-                    <tbody id="reflectionsBody"></tbody>
-                </table>
-            </div>
         `;
 
-        const tbody = document.getElementById('reflectionsBody');
-        tbody.innerHTML = data.map(r => `
-            <tr class="expandable" data-id="${r.id}">
-                <td class="title-cell"><div class="title-text">${esc(r.title)}</div></td>
-                <td><span class="type-badge type-reflection">${r.metadata?.mode || 'quick'}</span></td>
-                <td>${(r.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
-                <td class="date-cell">${formatDate(r.captured_at)}</td>
-            </tr>
-        `).join('');
+        // AI Review reflections (from reflections_log)
+        if (logData.length) {
+            html += `
+                <h3 style="font-size: 1rem; font-weight: 400; color: var(--text-muted); margin: 1rem 0 0.5rem; letter-spacing: 0.06em;">From Daily Reviews</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Observation</th><th>Coach Perspective</th><th>Category</th><th>Date</th></tr>
+                        </thead>
+                        <tbody>
+                            ${logData.map(r => `
+                                <tr>
+                                    <td style="max-width: 400px; white-space: normal; line-height: 1.5;">${esc(r.observation)}</td>
+                                    <td style="max-width: 400px; white-space: normal; line-height: 1.5; color: var(--text-muted); font-style: italic;">${esc(r.coach_perspective || '')}</td>
+                                    <td><span class="type-badge type-reflection">${esc(r.category || 'leadership')}</span></td>
+                                    <td class="date-cell">${r.note_date}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
 
-        tbody.querySelectorAll('tr.expandable').forEach(row => {
-            row.addEventListener('click', () => {
-                const item = data.find(r => r.id === row.dataset.id);
-                if (item) openContentModal(item);
+        // Content reflections (from Telegram bot)
+        if (contentData.length) {
+            html += `
+                <h3 style="font-size: 1rem; font-weight: 400; color: var(--text-muted); margin: 1.5rem 0 0.5rem; letter-spacing: 0.06em;">From Capture Bot</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr><th>Title</th><th>Mode</th><th>Tags</th><th>Date</th></tr>
+                        </thead>
+                        <tbody id="reflectionsBody"></tbody>
+                    </table>
+                </div>
+            `;
+        }
+
+        main.innerHTML = html;
+
+        if (contentData.length) {
+            const tbody = document.getElementById('reflectionsBody');
+            tbody.innerHTML = contentData.map(r => `
+                <tr class="expandable" data-id="${r.id}">
+                    <td class="title-cell"><div class="title-text">${esc(r.title)}</div></td>
+                    <td><span class="type-badge type-reflection">${r.metadata?.mode || 'quick'}</span></td>
+                    <td>${(r.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
+                    <td class="date-cell">${formatDate(r.captured_at)}</td>
+                </tr>
+            `).join('');
+
+            tbody.querySelectorAll('tr.expandable').forEach(row => {
+                row.addEventListener('click', () => {
+                    const item = contentData.find(r => r.id === row.dataset.id);
+                    if (item) openContentModal(item);
+                });
             });
-        });
+        }
     }
 
     // ─── Feed Items ───────────────────────────────────────────

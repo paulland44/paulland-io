@@ -448,7 +448,7 @@ function buildReviewSystemPrompt(peopleNames, productNames, projectNames) {
 
 Your job is to process his daily note and extract structured information into a JSON response. You must identify:
 
-1. **People entries**: Notes about specific people mentioned. Match names to the known people list.
+1. **People entries**: Notes about specific people from meetings and notes sections ONLY. Do NOT extract people entries from tasks — tasks are action items, not observations. Only extract people entries when there is a genuine observation, decision, or insight about that person from a meeting or note.
 2. **Product evidence**: Evidence, learnings, or feedback about specific products.
 3. **Product decisions**: Decisions made about products (strategic, not tactical).
 4. **Project updates**: Updates about specific projects.
@@ -509,7 +509,8 @@ IMPORTANT:
 - Match person/product/project names EXACTLY to the known lists above. If unsure, use the closest match.
 - For people entries, focus on actionable notes: decisions, action items, observations about the person's work.
 - Keep entries concise but complete. Each entry should stand on its own without needing the daily note for context.
-- The review_summary should capture the day's themes, not list every meeting.`;
+- The review_summary should capture the day's themes, not list every meeting.
+- CRITICAL: Do NOT create people entries from tasks. Tasks like "Follow up with X" or "Speak to Y about Z" are action items, not observations. People entries should ONLY come from actual meeting notes, conversations, or written observations.`;
 }
 
 function buildReviewUserPrompt(dailyNote, noteDate) {
