@@ -563,6 +563,24 @@
         .add-entry-form { margin: 0.75rem 0; padding: 0.75rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; }
         .add-entry-form .modal-actions { border-top: none; margin-top: 0.5rem; padding-top: 0; }
 
+        /* Product modal tabs */
+        .modal-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: 1rem 0 0; }
+        .modal-tab { padding: 0.5rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--mono); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
+        .modal-tab:hover { color: var(--star); }
+        .modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .modal-tab-content { display: none; padding: 1rem 0; }
+        .modal-tab-content.active { display: block; }
+        .product-overview-content { color: var(--text-body); line-height: 1.7; font-size: 0.9rem; }
+        .product-overview-content h1, .product-overview-content h2 { color: var(--accent); font-weight: 400; margin: 1.2rem 0 0.5rem; font-size: 1.1rem; }
+        .product-overview-content h3 { color: var(--star); font-weight: 400; margin: 0.8rem 0 0.4rem; font-size: 1rem; }
+        .product-overview-content ul, .product-overview-content ol { padding-left: 1.4rem; margin: 0.4rem 0; }
+        .product-overview-content li { margin-bottom: 0.2rem; }
+        .product-overview-content strong { color: var(--star); font-weight: 500; }
+        .product-overview-content a { color: var(--accent); }
+        .product-overview-content table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; font-size: 0.85rem; }
+        .product-overview-content th, .product-overview-content td { padding: 0.3rem 0.5rem; border: 1px solid var(--border); text-align: left; }
+        .product-overview-content th { background: var(--void-lighter); color: var(--star); font-weight: 400; }
+
         .content-modal-body {
             color: var(--text-body);
             font-size: 1.05rem;
@@ -2112,21 +2130,45 @@
 
     function mdToHtml(md) {
         if (!md || !md.trim()) return '';
-        // Convert task list markdown to HTML that Tiptap understands
-        // - [ ] task → open
-        // - [x] task → done
-        // - [>] task → migrated
-        // - [-] task → cancelled
-        let html = marked.parse(md);
-        // marked renders - [ ] as list items with checkbox text — convert to tiptap format
-        html = html.replace(/<li>\[[ ]\]\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
-        html = html.replace(/<li>\[x\]\s*/gi, '<li data-type="taskItem" data-checked="true"><p>');
-        html = html.replace(/<li>\[&gt;\]\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
-        html = html.replace(/<li>\[-\]\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
-        // Close <p> tags for task items
-        html = html.replace(/(data-type="taskItem"[^>]*><p>[^<]*?)(<\/li>)/g, '$1</p>$2');
+        // Pre-process: convert task checkboxes to markers BEFORE marked.parse
+        // This avoids issues with marked's GFM checkbox rendering interfering
+        let processed = md;
+        processed = processed.replace(/^(\s*)- \[ \] /gm, '$1- __TASK_OPEN__ ');
+        processed = processed.replace(/^(\s*)- \[x\] /gmi, '$1- __TASK_DONE__ ');
+        processed = processed.replace(/^(\s*)- \[>\] /gm, '$1- __TASK_MIGRATED__ ');
+        processed = processed.replace(/^(\s*)- \[-\] /gm, '$1- __TASK_CANCELLED__ ');
+
+        let html = marked.parse(processed);
+
+        // Post-process: convert markers to Tiptap task item format
+        html = html.replace(/<li>__TASK_OPEN__\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
+        html = html.replace(/<li>__TASK_DONE__\s*/g, '<li data-type="taskItem" data-checked="true"><p>');
+        html = html.replace(/<li>__TASK_MIGRATED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
+        html = html.replace(/<li>__TASK_CANCELLED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
+
+        // Also handle any that marked rendered with <p> wrappers inside <li>
+        html = html.replace(/<li><p>__TASK_OPEN__\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
+        html = html.replace(/<li><p>__TASK_DONE__\s*/g, '<li data-type="taskItem" data-checked="true"><p>');
+        html = html.replace(/<li><p>__TASK_MIGRATED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
+        html = html.replace(/<li><p>__TASK_CANCELLED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
+
+        // Close <p> tags for task items (handle both single-line and multi-line content)
+        html = html.replace(/(data-type="taskItem"[^>]*><p>)([\s\S]*?)(<\/li>)/g, function(match, prefix, content, suffix) {
+            // If content doesn't already end with </p>, add it
+            if (!content.trim().endsWith('</p>')) {
+                return prefix + content + '</p>' + suffix;
+            }
+            return match;
+        });
+
         // Wrap task list items in a task list
         html = html.replace(/<ul>\s*(<li data-type="taskItem")/g, '<ul data-type="taskList">$1');
+
+        // Also handle cases where a non-task <ul> contains task items (mixed lists after headers)
+        html = html.replace(/<li data-type="taskItem"/g, function(match) {
+            return match; // Keep as-is, the wrapper will be added below
+        });
+
         return html;
     }
 
@@ -3707,21 +3749,22 @@
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
-        // Fetch evidence and decisions in parallel
-        const [evidenceRes, decisionsRes] = await Promise.all([
+        // Fetch product overview, evidence, and decisions in parallel
+        const [productRes, evidenceRes, decisionsRes] = await Promise.all([
+            db.from('products').select('overview').eq('id', product.id).single(),
             db.from('product_evidence').select('note_date, evidence, evidence_type').eq('product_id', product.id).order('note_date', { ascending: false }),
             db.from('product_decisions').select('note_date, decision, context').eq('product_id', product.id).order('note_date', { ascending: false }),
         ]);
 
-        // Build editable form
+        const overview = productRes.data?.overview || '';
+        const evidenceData = evidenceRes.data || [];
+        const decisionsData = decisionsRes.data || [];
+
+        // Build header: editable name, status, tags
         let html = `
             <div class="modal-edit-field">
                 <div class="modal-edit-label">Name</div>
                 <input class="modal-edit-input" id="editProductName" value="${esc(product.name || '')}">
-            </div>
-            <div class="modal-edit-field">
-                <div class="modal-edit-label">Description</div>
-                <textarea class="modal-edit-textarea" id="editProductDesc">${esc(product.description || '')}</textarea>
             </div>
             <div class="modal-edit-field">
                 <div class="modal-edit-label">Status</div>
@@ -3741,37 +3784,67 @@
             </div>
         `;
 
-        // Evidence Log (read-only)
-        html += '<div class="section-heading">Evidence Log</div>';
+        // Tabs
+        html += `
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="overview">Overview</button>
+                <button class="modal-tab" data-tab="evidence">Evidence (${evidenceData.length})</button>
+                <button class="modal-tab" data-tab="decisions">Decisions (${decisionsData.length})</button>
+            </div>
+        `;
+
+        // Overview tab
+        html += `<div class="modal-tab-content active" data-tab-content="overview">`;
+        if (overview.trim()) {
+            html += `<div class="product-overview-content">${marked.parse(overview)}</div>`;
+        } else {
+            html += `<em style="color:var(--text-muted)">No overview content available.</em>`;
+        }
+        html += `</div>`;
+
+        // Evidence tab
+        html += `<div class="modal-tab-content" data-tab-content="evidence">`;
         if (evidenceRes.error) {
             html += `<div class="empty">Error: ${evidenceRes.error.message}</div>`;
-        } else if (!evidenceRes.data?.length) {
+        } else if (!evidenceData.length) {
             html += '<em style="color:var(--text-muted)">No evidence entries.</em>';
         } else {
-            html += evidenceRes.data.map(e => `
+            html += evidenceData.map(e => `
                 <div class="log-entry">
                     <div class="log-date">${esc(e.note_date || '-')} <span class="type-badge evidence-${(e.evidence_type || '').replace(/\s+/g, '_')}">${esc(e.evidence_type || '-')}</span></div>
                     <div class="log-body">${e.evidence ? marked.parse(e.evidence) : ''}</div>
                 </div>
             `).join('');
         }
+        html += `</div>`;
 
-        // Decisions (read-only)
-        html += '<div class="section-heading">Decisions</div>';
+        // Decisions tab
+        html += `<div class="modal-tab-content" data-tab-content="decisions">`;
         if (decisionsRes.error) {
             html += `<div class="empty">Error: ${decisionsRes.error.message}</div>`;
-        } else if (!decisionsRes.data?.length) {
+        } else if (!decisionsData.length) {
             html += '<em style="color:var(--text-muted)">No decisions.</em>';
         } else {
-            html += decisionsRes.data.map(d => `
+            html += decisionsData.map(d => `
                 <div class="log-entry">
                     <div class="log-date">${esc(d.note_date || '-')}</div>
                     <div class="log-body"><strong>${esc(d.decision || '')}</strong>${d.context ? `<br><span style="color:var(--text-muted);font-size:0.9rem">${esc(d.context)}</span>` : ''}</div>
                 </div>
             `).join('');
         }
+        html += `</div>`;
 
         document.getElementById('contentModalBody').innerHTML = html;
+
+        // Wire tab switching
+        document.querySelectorAll('.modal-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.querySelector(`[data-tab-content="${tab.dataset.tab}"]`).classList.add('active');
+            });
+        });
 
         // Wire save button
         document.getElementById('saveProductBtn').addEventListener('click', async () => {
@@ -3781,7 +3854,6 @@
             try {
                 const updates = {
                     name: document.getElementById('editProductName').value.trim(),
-                    description: document.getElementById('editProductDesc').value.trim(),
                     status: document.getElementById('editProductStatus').value,
                     tags: getEntityTags('product'),
                 };
