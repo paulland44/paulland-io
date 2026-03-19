@@ -1307,6 +1307,43 @@
             min-height: 40px;
         }
 
+        /* ─── Drag and drop ─── */
+        .meeting-card {
+            transition: opacity 0.15s, border-style 0.15s;
+        }
+
+        .meeting-card.dragging {
+            opacity: 0.35;
+            border-style: dashed;
+        }
+
+        .meeting-card.drag-over-top {
+            border-top: 2px solid var(--accent);
+        }
+
+        .meeting-card.drag-over-bottom {
+            border-bottom: 2px solid var(--accent);
+        }
+
+        .meeting-card-drag-handle {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            opacity: 0;
+            transition: opacity 0.15s;
+            cursor: grab;
+            flex-shrink: 0;
+            user-select: none;
+            padding: 0 0.15rem;
+        }
+
+        .meeting-card-header:hover .meeting-card-drag-handle {
+            opacity: 0.4;
+        }
+
+        .meeting-card-drag-handle:active {
+            cursor: grabbing;
+        }
+
         .meeting-add-btn {
             display: flex;
             align-items: center;
@@ -2094,6 +2131,9 @@
             await addMeetingCard(title, prefill, { time: timeStr });
             existingTitles.add(title.toLowerCase().trim());
         }
+
+        // Init drag and drop (event delegation handles future cards too)
+        initMeetingDragDrop();
     }
 
     function addMeetingCard(title, content, options = {}) {
@@ -2111,8 +2151,11 @@
 
         const safeTitle = (title || '').replace(/"/g, '&quot;');
 
+        cardEl.draggable = true;
+
         cardEl.innerHTML = `
             <div class="meeting-card-header" data-meeting-id="${id}">
+                <span class="meeting-card-drag-handle" title="Drag to reorder">\u2261</span>
                 <span class="meeting-card-chevron">&#x25B8;</span>
                 ${timeStr ? `<span class="meeting-card-time">${timeStr}</span>` : ''}
                 <span class="meeting-card-title-display">${title || 'Untitled Meeting'}</span>
@@ -2126,7 +2169,12 @@
             </div>
         `;
 
-        container.appendChild(cardEl);
+        // Manually added cards go to top, loaded/calendar cards go to bottom
+        if (startExpanded) {
+            container.prepend(cardEl);
+        } else {
+            container.appendChild(cardEl);
+        }
 
         // Wire header click to toggle
         cardEl.querySelector('.meeting-card-header').addEventListener('click', (e) => {
@@ -2150,7 +2198,11 @@
         });
 
         // Store card reference (editor created lazily on first expand)
-        meetingCards.push({ id, editor: null, content: content || '', time: timeStr });
+        if (startExpanded) {
+            meetingCards.unshift({ id, editor: null, content: content || '', time: timeStr });
+        } else {
+            meetingCards.push({ id, editor: null, content: content || '', time: timeStr });
+        }
 
         // If starting expanded, init editor immediately
         if (startExpanded) {
@@ -2204,6 +2256,96 @@
 
         const hasNotes = mc.editor ? !!(getEditorMarkdown(mc.editor).trim()) : !!(mc.content && mc.content.trim());
         indicator.classList.toggle('has-notes', hasNotes);
+    }
+
+    function initMeetingDragDrop() {
+        const container = document.getElementById('meetingCardsContainer');
+        if (!container) return;
+
+        let draggedCard = null;
+
+        container.addEventListener('dragstart', (e) => {
+            const card = e.target.closest('.meeting-card');
+            if (!card) return;
+            draggedCard = card;
+            card.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', card.id);
+        });
+
+        container.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            const card = e.target.closest('.meeting-card');
+            if (!card || card === draggedCard) return;
+
+            // Clear all drag indicators
+            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
+                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
+            );
+
+            // Drop above or below midpoint
+            const rect = card.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            if (e.clientY < midY) {
+                card.classList.add('drag-over-top');
+            } else {
+                card.classList.add('drag-over-bottom');
+            }
+        });
+
+        container.addEventListener('dragleave', (e) => {
+            const card = e.target.closest('.meeting-card');
+            if (card) card.classList.remove('drag-over-top', 'drag-over-bottom');
+        });
+
+        container.addEventListener('drop', (e) => {
+            e.preventDefault();
+            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
+                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
+            );
+
+            const targetCard = e.target.closest('.meeting-card');
+            if (!targetCard || !draggedCard || targetCard === draggedCard) return;
+
+            const rect = targetCard.getBoundingClientRect();
+            const midY = rect.top + rect.height / 2;
+            if (e.clientY < midY) {
+                container.insertBefore(draggedCard, targetCard);
+            } else {
+                container.insertBefore(draggedCard, targetCard.nextSibling);
+            }
+
+            syncMeetingCardsOrder();
+            scheduleDailySave();
+            updateSaveStatus('unsaved');
+        });
+
+        container.addEventListener('dragend', () => {
+            if (draggedCard) {
+                draggedCard.classList.remove('dragging');
+                draggedCard = null;
+            }
+            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
+                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
+            );
+        });
+    }
+
+    function syncMeetingCardsOrder() {
+        const container = document.getElementById('meetingCardsContainer');
+        if (!container) return;
+
+        const newOrder = [];
+        container.querySelectorAll('.meeting-card').forEach(el => {
+            const idMatch = el.id.match(/meeting-card-(\d+)/);
+            if (idMatch) {
+                const mcId = parseInt(idMatch[1]);
+                const mc = meetingCards.find(m => m.id === mcId);
+                if (mc) newOrder.push(mc);
+            }
+        });
+        meetingCards = newOrder;
     }
 
     function removeMeetingCard(id) {
