@@ -4286,7 +4286,7 @@
                                 style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
                             <div>
                                 <div style="font-size: 0.95rem; color: var(--star);">Show article thumbnails</div>
-                                <div style="font-size: 0.8rem; color: var(--text-muted);">Display og:image thumbnails in article lists, overview, and article modals</div>
+                                <div style="font-size: 0.8rem; color: var(--text-muted);">Show thumbnails in article lists and overview. Images always display when viewing an article.</div>
                             </div>
                         </label>
                     </div>
@@ -4317,7 +4317,7 @@
         document.getElementById('contentModalMeta').innerHTML = meta.join('');
         wireTagEditor();
 
-        const heroImg = (appSettings.showThumbnails && item.metadata?.image_url)
+        const heroImg = item.metadata?.image_url
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
         document.getElementById('contentModalBody').innerHTML = heroImg + renderBody(item.body);
