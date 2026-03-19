@@ -1817,7 +1817,12 @@
                 </button>
             </div>
             <div class="sidebar-footer">
-                Last refreshed: <span id="lastRefresh">-</span>
+                <button class="nav-item" data-view="settings" style="padding: 0.4rem 1.5rem; font-size: 0.8rem; opacity: 0.6;">
+                    ⚙ Settings
+                </button>
+                <div style="padding: 0.3rem 1.5rem; font-size: 0.75rem;">
+                    Last refreshed: <span id="lastRefresh">-</span>
+                </div>
             </div>
         </nav>
 
@@ -1858,6 +1863,21 @@
     let db;
     let currentView = 'overview';
     let allTags = [];
+
+    // ─── Settings (persisted in localStorage) ────────────────
+    const DEFAULT_SETTINGS = { showThumbnails: true };
+    let appSettings = { ...DEFAULT_SETTINGS };
+
+    function loadSettings() {
+        try {
+            const saved = localStorage.getItem('paulland_admin_settings');
+            if (saved) appSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+        } catch {}
+    }
+
+    function saveSettings() {
+        try { localStorage.setItem('paulland_admin_settings', JSON.stringify(appSettings)); } catch {}
+    }
     let dailyNoteDate = null;
     let dailyNoteId = null;
     let dailySaveTimer = null;
@@ -1877,6 +1897,7 @@
         }
 
         db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+        loadSettings();
 
         // Wire up nav
         document.querySelectorAll('.nav-item').forEach(btn => {
@@ -1944,6 +1965,7 @@
             case 'contacts': return loadContacts();
             case 'products': return loadProducts();
             case 'projects': return loadProjects();
+            case 'settings': return loadSettingsView();
         }
     }
 
@@ -2015,7 +2037,9 @@
             activityHtml += `
                 <div class="activity-item" data-id="${item.id}">
                     ${item.type === 'article' && item.metadata?.image_url
-                        ? `<img src="${item.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
+                        ? (appSettings.showThumbnails
+                            ? `<img src="${item.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
+                            : `<span class="type-badge type-${item.type}">${item.type}</span>`)
                         : `<span class="type-badge type-${item.type}">${item.type}</span>`}
                     <span class="activity-title">${esc(item.title)}</span>
                     ${item.source ? `<span class="activity-source">${esc(item.source)}</span>` : ''}
@@ -3281,9 +3305,11 @@
         tbody.innerHTML = data.map(a => `
             <tr class="expandable" data-id="${a.id}">
                 <td class="title-cell" style="display: flex; align-items: center; gap: 0.5rem;">
-                    ${a.metadata?.image_url
-                        ? `<img src="${a.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
-                        : '<span class="article-thumb-placeholder">📄</span>'}
+                    ${appSettings.showThumbnails
+                        ? (a.metadata?.image_url
+                            ? `<img src="${a.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
+                            : '<span class="article-thumb-placeholder">📄</span>')
+                        : ''}
                     <div>
                         <div class="title-text">${esc(a.title)}</div>
                         ${a.url ? `<a class="title-url" href="${esc(a.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(truncUrl(a.url))}</a>` : ''}
@@ -4241,6 +4267,39 @@
         } catch { return url.substring(0, 60); }
     }
 
+    // ─── Settings ─────────────────────────────────────────────
+
+    function loadSettingsView() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Settings</h2>
+            </div>
+            <div style="max-width: 600px;">
+                <div class="daily-section" style="margin-bottom: 1.5rem;">
+                    <div class="daily-section-header">
+                        <span>Display</span>
+                    </div>
+                    <div style="padding: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; color: var(--text-body);">
+                            <input type="checkbox" id="settingShowThumbnails" ${appSettings.showThumbnails ? 'checked' : ''}
+                                style="width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;">
+                            <div>
+                                <div style="font-size: 0.95rem; color: var(--star);">Show article thumbnails</div>
+                                <div style="font-size: 0.8rem; color: var(--text-muted);">Display og:image thumbnails in article lists, overview, and article modals</div>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('settingShowThumbnails').addEventListener('change', (e) => {
+            appSettings.showThumbnails = e.target.checked;
+            saveSettings();
+        });
+    }
+
     // ─── Content modal ─────────────────────────────────────────
     let currentModalItem = null;
 
@@ -4258,7 +4317,7 @@
         document.getElementById('contentModalMeta').innerHTML = meta.join('');
         wireTagEditor();
 
-        const heroImg = item.metadata?.image_url
+        const heroImg = (appSettings.showThumbnails && item.metadata?.image_url)
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
         document.getElementById('contentModalBody').innerHTML = heroImg + renderBody(item.body);
