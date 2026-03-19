@@ -10,6 +10,8 @@
  *   POST /api/daily-notes      — Create or update a daily note (upsert by date)
  *   POST /api/daily-review     — AI end-of-day review (extract & distribute content)
  *   GET  /api/calendar-events  — Fetch calendar events for a date from ICS feed
+ *   POST /api/entity-update    — Update any entity (people, products, projects)
+ *   POST /api/entity-log       — Add a log entry (people_log, project_updates)
  */
 
 export async function onRequest(context) {
@@ -49,6 +51,10 @@ export async function onRequest(context) {
         return handleUpsertDailyNote(request, env);
       case 'daily-review':
         return handleDailyReview(request, env);
+      case 'entity-update':
+        return handleEntityUpdate(request, env);
+      case 'entity-log':
+        return handleEntityLog(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -99,6 +105,89 @@ async function handleUpdateTags(request, env) {
   }
 
   return json({ ok: true, tags: cleanTags });
+}
+
+async function handleEntityUpdate(request, env) {
+  const { table, id, updates } = await request.json();
+
+  const allowedTables = ['people', 'products', 'projects'];
+  if (!table || !allowedTables.includes(table)) {
+    return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
+  }
+  if (!id) {
+    return json({ error: 'Missing id' }, 400);
+  }
+  if (!updates || typeof updates !== 'object') {
+    return json({ error: 'Missing updates object' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(updates),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+
+  return json({ ok: true });
+}
+
+async function handleEntityLog(request, env) {
+  const { table, data } = await request.json();
+
+  const allowedTables = ['people_log', 'project_updates'];
+  if (!table || !allowedTables.includes(table)) {
+    return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
+  }
+  if (!data || typeof data !== 'object') {
+    return json({ error: 'Missing data object' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/${table}`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+
+  return json({ ok: true });
 }
 
 async function handleUpsertDailyNote(request, env) {

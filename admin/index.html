@@ -542,6 +542,27 @@
             position: relative;
         }
 
+        /* ─── Editable modal fields ─── */
+        .modal-edit-field { margin-bottom: 0.75rem; }
+        .modal-edit-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem; letter-spacing: 0.08em; }
+        .modal-edit-input { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; transition: border-color 0.2s; }
+        .modal-edit-input:focus { border-color: var(--accent); }
+        .modal-edit-select { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; transition: border-color 0.2s; }
+        .modal-edit-select:focus { border-color: var(--accent); }
+        .modal-edit-textarea { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; min-height: 80px; resize: vertical; transition: border-color 0.2s; }
+        .modal-edit-textarea:focus { border-color: var(--accent); }
+        .modal-save-btn { padding: 0.4rem 1rem; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 2px; color: var(--accent); font-family: var(--mono); cursor: pointer; font-size: 0.85rem; transition: all 0.2s; }
+        .modal-save-btn:hover { background: var(--accent); color: var(--void); }
+        .modal-save-status { font-size: 0.8rem; margin-left: 0.5rem; }
+        .modal-save-status.saving { color: var(--text-muted); }
+        .modal-save-status.saved { color: var(--accent); }
+        .modal-save-status.error { color: var(--red); }
+        .modal-actions { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+        .modal-add-btn { padding: 0.35rem 0.8rem; background: none; border: 1px solid var(--border); border-radius: 2px; color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+        .modal-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .add-entry-form { margin: 0.75rem 0; padding: 0.75rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; }
+        .add-entry-form .modal-actions { border-top: none; margin-top: 0.5rem; padding-top: 0; }
+
         .content-modal-body {
             color: var(--text-body);
             font-size: 1.05rem;
@@ -1739,8 +1760,8 @@
                 <button class="nav-item" data-view="tags">
                     Tags
                 </button>
-                <button class="nav-item" data-view="people">
-                    People <span class="count" id="countPeople">-</span>
+                <button class="nav-item" data-view="contacts">
+                    Contacts <span class="count" id="countContacts">-</span>
                 </button>
                 <button class="nav-item" data-view="products">
                     Products <span class="count" id="countProducts">-</span>
@@ -1850,7 +1871,7 @@
         document.getElementById('countReflections').textContent = reflections.count || 0;
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
-        document.getElementById('countPeople').textContent = people.count || 0;
+        document.getElementById('countContacts').textContent = people.count || 0;
         document.getElementById('countProducts').textContent = products.count || 0;
         document.getElementById('countProjects').textContent = projects.count || 0;
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
@@ -1874,7 +1895,7 @@
             case 'feed-items': return loadFeedItems();
             case 'feeds': return loadFeeds();
             case 'tags': return loadTags();
-            case 'people': return loadPeople();
+            case 'contacts': return loadContacts();
             case 'products': return loadProducts();
             case 'projects': return loadProjects();
         }
@@ -3373,10 +3394,13 @@
         `).join('');
     }
 
-    // ─── People ────────────────────────────────────────────────
-    async function loadPeople() {
+    // ─── Contacts ────────────────────────────────────────────────
+    let contactsData = [];
+    let contactsFilter = 'all';
+
+    async function loadContacts() {
         const main = document.getElementById('mainContent');
-        main.innerHTML = '<div class="loading">Loading people</div>';
+        main.innerHTML = '<div class="loading">Loading contacts</div>';
 
         const { data, error } = await db
             .from('people')
@@ -3384,12 +3408,21 @@
             .order('name', { ascending: true });
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No people yet.</div>'; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No contacts yet.</div>'; return; }
+
+        contactsData = data;
+        contactsFilter = 'all';
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">People</h2>
-                <input type="text" class="search-input" placeholder="Filter by name..." id="searchPeople">
+                <h2 class="page-title">Contacts</h2>
+            </div>
+            <div class="filters">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="person">People</button>
+                <button class="filter-btn" data-filter="customer">Customers</button>
+                <button class="filter-btn" data-filter="competitor">Competitors</button>
+                <input class="search-input" placeholder="Search contacts..." id="contactSearch">
             </div>
             <div class="table-wrap">
                 <table>
@@ -3401,24 +3434,49 @@
                             <th>Tags</th>
                         </tr>
                     </thead>
-                    <tbody id="peopleBody"></tbody>
+                    <tbody id="contactsBody"></tbody>
                 </table>
             </div>
         `;
 
-        renderPeopleRows(data);
+        applyContactsFilters();
 
-        document.getElementById('searchPeople').addEventListener('input', e => {
-            const q = e.target.value.toLowerCase();
-            const filtered = data.filter(p =>
-                (p.name || '').toLowerCase().includes(q)
-            );
-            renderPeopleRows(filtered);
+        // Wire filter buttons
+        main.querySelectorAll('.filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                main.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                contactsFilter = btn.dataset.filter;
+                applyContactsFilters();
+            });
         });
+
+        document.getElementById('contactSearch').addEventListener('input', () => applyContactsFilters());
     }
 
-    function renderPeopleRows(data) {
-        const tbody = document.getElementById('peopleBody');
+    function applyContactsFilters() {
+        const q = (document.getElementById('contactSearch')?.value || '').toLowerCase();
+        let filtered = contactsData;
+
+        // Tag filter
+        if (contactsFilter !== 'all') {
+            filtered = filtered.filter(p => (p.tags || []).includes(contactsFilter));
+        }
+
+        // Search filter
+        if (q) {
+            filtered = filtered.filter(p =>
+                (p.name || '').toLowerCase().includes(q) ||
+                (p.role || '').toLowerCase().includes(q) ||
+                (p.organization || '').toLowerCase().includes(q)
+            );
+        }
+
+        renderContactRows(filtered);
+    }
+
+    function renderContactRows(data) {
+        const tbody = document.getElementById('contactsBody');
         tbody.innerHTML = data.map(p => `
             <tr class="expandable" data-id="${p.id}">
                 <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
@@ -3432,47 +3490,151 @@
             row.addEventListener('click', async () => {
                 const person = data.find(p => String(p.id) === row.dataset.id);
                 if (!person) return;
-                await openPersonModal(person);
+                await openContactModal(person);
             });
         });
     }
 
-    async function openPersonModal(person) {
-        const meta = [];
-        if (person.role) meta.push(`<span>Role: ${esc(person.role)}</span>`);
-        if (person.organization) meta.push(`<span>Organisation: ${esc(person.organization)}</span>`);
-        if (person.tags?.length) meta.push(`<span>${person.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
+    async function openContactModal(person) {
+        document.getElementById('contentModalTitle').textContent = 'Edit Contact';
+        document.getElementById('contentModalMeta').innerHTML = '';
 
-        document.getElementById('contentModalTitle').textContent = person.name || 'Untitled';
-        document.getElementById('contentModalMeta').innerHTML = meta.join('');
-
-        // Fetch log entries
-        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading log entries...</div>';
+        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading contact...</div>';
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
+        // Fetch log entries
         const { data: logs, error } = await db
             .from('people_log')
             .select('note_date, entry, source')
             .eq('person_id', person.id)
             .order('note_date', { ascending: false });
 
-        if (error) {
-            document.getElementById('contentModalBody').innerHTML = `<div class="empty">Error loading log: ${error.message}</div>`;
-            return;
-        }
-
-        if (!logs || !logs.length) {
-            document.getElementById('contentModalBody').innerHTML = '<em style="color:var(--text-muted)">No log entries.</em>';
-            return;
-        }
-
-        document.getElementById('contentModalBody').innerHTML = logs.map(l => `
-            <div class="log-entry">
-                <div class="log-date">${esc(l.note_date || '-')}${l.source ? `<span class="log-source">${esc(l.source)}</span>` : ''}</div>
-                <div class="log-body">${l.entry ? marked.parse(l.entry) : ''}</div>
+        // Build editable form
+        let html = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Name</div>
+                <input class="modal-edit-input" id="editContactName" value="${esc(person.name || '')}">
             </div>
-        `).join('');
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Role</div>
+                <input class="modal-edit-input" id="editContactRole" value="${esc(person.role || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Organisation</div>
+                <input class="modal-edit-input" id="editContactOrg" value="${esc(person.organization || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Tags</div>
+                ${buildEntityTagEditor(person.tags || [], 'contact')}
+            </div>
+            <div class="modal-actions">
+                <button class="modal-save-btn" id="saveContactBtn">Save</button>
+                <span class="modal-save-status" id="contactSaveStatus"></span>
+            </div>
+        `;
+
+        // Log entries section
+        html += '<div class="section-heading">Log Entries</div>';
+        html += '<div id="contactLogAddArea"><button class="modal-add-btn" id="addContactLogBtn">+ Add Log Entry</button></div>';
+        html += '<div id="contactLogForm" style="display:none"></div>';
+
+        if (error) {
+            html += `<div class="empty">Error loading log: ${error.message}</div>`;
+        } else if (!logs || !logs.length) {
+            html += '<em style="color:var(--text-muted)">No log entries.</em>';
+        } else {
+            html += logs.map(l => `
+                <div class="log-entry">
+                    <div class="log-date">${esc(l.note_date || '-')}${l.source ? `<span class="log-source">${esc(l.source)}</span>` : ''}</div>
+                    <div class="log-body">${l.entry ? marked.parse(l.entry) : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('contentModalBody').innerHTML = html;
+
+        // Wire save button
+        document.getElementById('saveContactBtn').addEventListener('click', async () => {
+            const status = document.getElementById('contactSaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+            try {
+                const updates = {
+                    name: document.getElementById('editContactName').value.trim(),
+                    role: document.getElementById('editContactRole').value.trim(),
+                    organization: document.getElementById('editContactOrg').value.trim(),
+                    tags: getEntityTags('contact'),
+                };
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'people', id: person.id, updates }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                // Update in-memory data
+                Object.assign(person, updates);
+                applyContactsFilters();
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 1500);
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Contact save failed:', err);
+            }
+        });
+
+        // Wire add log entry button
+        document.getElementById('addContactLogBtn').addEventListener('click', () => {
+            const formArea = document.getElementById('contactLogForm');
+            formArea.style.display = 'block';
+            formArea.innerHTML = `
+                <div class="add-entry-form">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Date</div>
+                        <input type="date" class="modal-edit-input" id="newLogDate" value="${new Date().toISOString().slice(0, 10)}">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Entry</div>
+                        <textarea class="modal-edit-textarea" id="newLogEntry" placeholder="Log entry..."></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="modal-save-btn" id="saveNewLogBtn">Add Entry</button>
+                        <button class="modal-add-btn" id="cancelNewLogBtn">Cancel</button>
+                        <span class="modal-save-status" id="newLogStatus"></span>
+                    </div>
+                </div>
+            `;
+            document.getElementById('cancelNewLogBtn').addEventListener('click', () => { formArea.style.display = 'none'; });
+            document.getElementById('saveNewLogBtn').addEventListener('click', async () => {
+                const status = document.getElementById('newLogStatus');
+                const entry = document.getElementById('newLogEntry').value.trim();
+                const noteDate = document.getElementById('newLogDate').value;
+                if (!entry) return;
+                status.textContent = 'saving...';
+                status.className = 'modal-save-status saving';
+                try {
+                    const res = await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'people_log', data: { person_id: person.id, note_date: noteDate, entry, source: 'manual' } }),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    status.textContent = 'added';
+                    status.className = 'modal-save-status saved';
+                    // Refresh modal to show new entry
+                    setTimeout(() => openContactModal(person), 800);
+                } catch (err) {
+                    status.textContent = 'failed';
+                    status.className = 'modal-save-status error';
+                    console.error('Log entry save failed:', err);
+                }
+            });
+        });
+
+        // Wire entity tag editor
+        wireEntityTagEditor('contact');
     }
 
     // ─── Products ──────────────────────────────────────────────
@@ -3538,12 +3700,8 @@
     }
 
     async function openProductModal(product) {
-        const meta = [];
-        if (product.status) meta.push(`<span>Status: <span class="type-badge status-${(product.status || '').replace(/\s+/g, '_')}">${esc(product.status)}</span></span>`);
-        if (product.tags?.length) meta.push(`<span>${product.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
-
-        document.getElementById('contentModalTitle').textContent = product.name || 'Untitled';
-        document.getElementById('contentModalMeta').innerHTML = meta.join('');
+        document.getElementById('contentModalTitle').textContent = 'Edit Product';
+        document.getElementById('contentModalMeta').innerHTML = '';
 
         document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading product details...</div>';
         document.querySelector('.content-modal-scroll').scrollTop = 0;
@@ -3555,21 +3713,42 @@
             db.from('product_decisions').select('note_date, decision, context').eq('product_id', product.id).order('note_date', { ascending: false }),
         ]);
 
-        let body = '';
+        // Build editable form
+        let html = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Name</div>
+                <input class="modal-edit-input" id="editProductName" value="${esc(product.name || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Description</div>
+                <textarea class="modal-edit-textarea" id="editProductDesc">${esc(product.description || '')}</textarea>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Status</div>
+                <select class="modal-edit-select" id="editProductStatus">
+                    <option value="active"${product.status === 'active' ? ' selected' : ''}>active</option>
+                    <option value="sunset"${product.status === 'sunset' ? ' selected' : ''}>sunset</option>
+                    <option value="planned"${product.status === 'planned' ? ' selected' : ''}>planned</option>
+                </select>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Tags</div>
+                ${buildEntityTagEditor(product.tags || [], 'product')}
+            </div>
+            <div class="modal-actions">
+                <button class="modal-save-btn" id="saveProductBtn">Save</button>
+                <span class="modal-save-status" id="productSaveStatus"></span>
+            </div>
+        `;
 
-        // Description
-        if (product.description) {
-            body += `<div class="log-body">${marked.parse(product.description)}</div>`;
-        }
-
-        // Evidence Log
-        body += '<div class="section-heading">Evidence Log</div>';
+        // Evidence Log (read-only)
+        html += '<div class="section-heading">Evidence Log</div>';
         if (evidenceRes.error) {
-            body += `<div class="empty">Error: ${evidenceRes.error.message}</div>`;
+            html += `<div class="empty">Error: ${evidenceRes.error.message}</div>`;
         } else if (!evidenceRes.data?.length) {
-            body += '<em style="color:var(--text-muted)">No evidence entries.</em>';
+            html += '<em style="color:var(--text-muted)">No evidence entries.</em>';
         } else {
-            body += evidenceRes.data.map(e => `
+            html += evidenceRes.data.map(e => `
                 <div class="log-entry">
                     <div class="log-date">${esc(e.note_date || '-')} <span class="type-badge evidence-${(e.evidence_type || '').replace(/\s+/g, '_')}">${esc(e.evidence_type || '-')}</span></div>
                     <div class="log-body">${e.evidence ? marked.parse(e.evidence) : ''}</div>
@@ -3577,14 +3756,14 @@
             `).join('');
         }
 
-        // Decisions
-        body += '<div class="section-heading">Decisions</div>';
+        // Decisions (read-only)
+        html += '<div class="section-heading">Decisions</div>';
         if (decisionsRes.error) {
-            body += `<div class="empty">Error: ${decisionsRes.error.message}</div>`;
+            html += `<div class="empty">Error: ${decisionsRes.error.message}</div>`;
         } else if (!decisionsRes.data?.length) {
-            body += '<em style="color:var(--text-muted)">No decisions.</em>';
+            html += '<em style="color:var(--text-muted)">No decisions.</em>';
         } else {
-            body += decisionsRes.data.map(d => `
+            html += decisionsRes.data.map(d => `
                 <div class="log-entry">
                     <div class="log-date">${esc(d.note_date || '-')}</div>
                     <div class="log-body"><strong>${esc(d.decision || '')}</strong>${d.context ? `<br><span style="color:var(--text-muted);font-size:0.9rem">${esc(d.context)}</span>` : ''}</div>
@@ -3592,7 +3771,39 @@
             `).join('');
         }
 
-        document.getElementById('contentModalBody').innerHTML = body;
+        document.getElementById('contentModalBody').innerHTML = html;
+
+        // Wire save button
+        document.getElementById('saveProductBtn').addEventListener('click', async () => {
+            const status = document.getElementById('productSaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+            try {
+                const updates = {
+                    name: document.getElementById('editProductName').value.trim(),
+                    description: document.getElementById('editProductDesc').value.trim(),
+                    status: document.getElementById('editProductStatus').value,
+                    tags: getEntityTags('product'),
+                };
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'products', id: product.id, updates }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                Object.assign(product, updates);
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 1500);
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Product save failed:', err);
+            }
+        });
+
+        // Wire entity tag editor
+        wireEntityTagEditor('product');
     }
 
     // ─── Projects ──────────────────────────────────────────────
@@ -3666,15 +3877,10 @@
     }
 
     async function openProjectModal(project, productMap) {
-        const meta = [];
-        if (project.status) meta.push(`<span>Status: <span class="type-badge status-${(project.status || '').replace(/\s+/g, '_')}">${esc(project.status)}</span></span>`);
-        if (project.product_id && productMap[project.product_id]) meta.push(`<span>Product: ${esc(productMap[project.product_id])}</span>`);
-        if (project.tags?.length) meta.push(`<span>${project.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
+        document.getElementById('contentModalTitle').textContent = 'Edit Project';
+        document.getElementById('contentModalMeta').innerHTML = '';
 
-        document.getElementById('contentModalTitle').textContent = project.name || 'Untitled';
-        document.getElementById('contentModalMeta').innerHTML = meta.join('');
-
-        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading project updates...</div>';
+        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading project details...</div>';
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
@@ -3684,21 +3890,44 @@
             .eq('project_id', project.id)
             .order('note_date', { ascending: false });
 
-        let body = '';
+        // Build editable form
+        const statusOptions = ['active', 'planning', 'in_progress', 'on_hold', 'completed'];
+        let html = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Name</div>
+                <input class="modal-edit-input" id="editProjectName" value="${esc(project.name || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Description</div>
+                <textarea class="modal-edit-textarea" id="editProjectDesc">${esc(project.description || '')}</textarea>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Status</div>
+                <select class="modal-edit-select" id="editProjectStatus">
+                    ${statusOptions.map(s => `<option value="${s}"${project.status === s ? ' selected' : ''}>${s}</option>`).join('')}
+                </select>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Tags</div>
+                ${buildEntityTagEditor(project.tags || [], 'project')}
+            </div>
+            <div class="modal-actions">
+                <button class="modal-save-btn" id="saveProjectBtn">Save</button>
+                <span class="modal-save-status" id="projectSaveStatus"></span>
+            </div>
+        `;
 
-        // Description
-        if (project.description) {
-            body += `<div class="log-body">${marked.parse(project.description)}</div>`;
-        }
+        // Updates section (read-only)
+        html += '<div class="section-heading">Updates</div>';
+        html += '<div id="projectUpdateAddArea"><button class="modal-add-btn" id="addProjectUpdateBtn">+ Add Update</button></div>';
+        html += '<div id="projectUpdateForm" style="display:none"></div>';
 
-        // Updates
-        body += '<div class="section-heading">Updates</div>';
         if (error) {
-            body += `<div class="empty">Error: ${error.message}</div>`;
+            html += `<div class="empty">Error: ${error.message}</div>`;
         } else if (!updates?.length) {
-            body += '<em style="color:var(--text-muted)">No updates.</em>';
+            html += '<em style="color:var(--text-muted)">No updates.</em>';
         } else {
-            body += updates.map(u => `
+            html += updates.map(u => `
                 <div class="log-entry">
                     <div class="log-date">${esc(u.note_date || '-')}</div>
                     <div class="log-body">${u.update_text ? marked.parse(u.update_text) : ''}</div>
@@ -3706,7 +3935,86 @@
             `).join('');
         }
 
-        document.getElementById('contentModalBody').innerHTML = body;
+        document.getElementById('contentModalBody').innerHTML = html;
+
+        // Wire save button
+        document.getElementById('saveProjectBtn').addEventListener('click', async () => {
+            const status = document.getElementById('projectSaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+            try {
+                const updates = {
+                    name: document.getElementById('editProjectName').value.trim(),
+                    description: document.getElementById('editProjectDesc').value.trim(),
+                    status: document.getElementById('editProjectStatus').value,
+                    tags: getEntityTags('project'),
+                };
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'projects', id: project.id, updates }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                Object.assign(project, updates);
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 1500);
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Project save failed:', err);
+            }
+        });
+
+        // Wire add update button
+        document.getElementById('addProjectUpdateBtn').addEventListener('click', () => {
+            const formArea = document.getElementById('projectUpdateForm');
+            formArea.style.display = 'block';
+            formArea.innerHTML = `
+                <div class="add-entry-form">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Date</div>
+                        <input type="date" class="modal-edit-input" id="newUpdateDate" value="${new Date().toISOString().slice(0, 10)}">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Update</div>
+                        <textarea class="modal-edit-textarea" id="newUpdateText" placeholder="Project update..."></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button class="modal-save-btn" id="saveNewUpdateBtn">Add Update</button>
+                        <button class="modal-add-btn" id="cancelNewUpdateBtn">Cancel</button>
+                        <span class="modal-save-status" id="newUpdateStatus"></span>
+                    </div>
+                </div>
+            `;
+            document.getElementById('cancelNewUpdateBtn').addEventListener('click', () => { formArea.style.display = 'none'; });
+            document.getElementById('saveNewUpdateBtn').addEventListener('click', async () => {
+                const status = document.getElementById('newUpdateStatus');
+                const updateText = document.getElementById('newUpdateText').value.trim();
+                const noteDate = document.getElementById('newUpdateDate').value;
+                if (!updateText) return;
+                status.textContent = 'saving...';
+                status.className = 'modal-save-status saving';
+                try {
+                    const res = await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'project_updates', data: { project_id: project.id, note_date: noteDate, update_text: updateText, source_ref: { source: 'manual' } } }),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    status.textContent = 'added';
+                    status.className = 'modal-save-status saved';
+                    setTimeout(() => openProjectModal(project, productMap), 800);
+                } catch (err) {
+                    status.textContent = 'failed';
+                    status.className = 'modal-save-status error';
+                    console.error('Update save failed:', err);
+                }
+            });
+        });
+
+        // Wire entity tag editor
+        wireEntityTagEditor('project');
     }
 
     // ─── Tags ─────────────────────────────────────────────────
@@ -3813,7 +4121,132 @@
         document.body.classList.remove('content-open');
     }
 
-    // ─── Tag editor ─────────────────────────────────────────────
+    // ─── Entity tag editor (for contacts, products, projects) ──
+    let entityTagsMap = {}; // keyed by prefix, e.g. { contact: ['tag1', 'tag2'] }
+
+    function buildEntityTagEditor(tags, prefix) {
+        entityTagsMap[prefix] = [...tags];
+        const pills = tags.map(t =>
+            `<span class="tag">${esc(t)}<span class="tag-remove" data-tag="${esc(t)}" data-prefix="${prefix}">×</span></span>`
+        ).join('');
+        return `<div class="tag-editor" id="${prefix}TagEditor">
+            ${pills}
+            <span class="tag-input-wrap">
+                <input type="text" class="tag-input" id="${prefix}TagInput" placeholder="add tag..." autocomplete="off">
+                <div class="tag-suggestions" id="${prefix}TagSuggestions"></div>
+            </span>
+        </div>`;
+    }
+
+    function getEntityTags(prefix) {
+        return entityTagsMap[prefix] || [];
+    }
+
+    function wireEntityTagEditor(prefix) {
+        const input = document.getElementById(`${prefix}TagInput`);
+        const sugBox = document.getElementById(`${prefix}TagSuggestions`);
+        if (!input || !sugBox) return;
+        let activeIdx = -1;
+
+        function currentTags() { return entityTagsMap[prefix] || []; }
+
+        function rerender() {
+            const editor = document.getElementById(`${prefix}TagEditor`);
+            if (!editor) return;
+            const tags = currentTags();
+            const pills = tags.map(t =>
+                `<span class="tag">${esc(t)}<span class="tag-remove" data-tag="${esc(t)}" data-prefix="${prefix}">×</span></span>`
+            ).join('');
+            editor.innerHTML = `${pills}<span class="tag-input-wrap"><input type="text" class="tag-input" id="${prefix}TagInput" placeholder="add tag..." autocomplete="off"><div class="tag-suggestions" id="${prefix}TagSuggestions"></div></span>`;
+            wireEntityTagEditor(prefix);
+        }
+
+        function showSuggestions() {
+            const val = input.value.trim().toLowerCase();
+            const tags = currentTags();
+            const matches = allTags
+                .filter(t => !tags.includes(t) && t.includes(val))
+                .slice(0, 8);
+
+            if (!val || matches.length === 0) {
+                sugBox.classList.remove('visible');
+                sugBox.innerHTML = '';
+                activeIdx = -1;
+                return;
+            }
+
+            activeIdx = -1;
+            sugBox.innerHTML = matches.map(t =>
+                `<div class="tag-suggestion" data-tag="${esc(t)}">${esc(t)}</div>`
+            ).join('');
+            sugBox.classList.add('visible');
+
+            sugBox.querySelectorAll('.tag-suggestion').forEach(el => {
+                el.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    addEntityTag(prefix, el.dataset.tag);
+                });
+            });
+        }
+
+        input.addEventListener('input', showSuggestions);
+        input.addEventListener('focus', showSuggestions);
+        input.addEventListener('blur', () => {
+            setTimeout(() => sugBox.classList.remove('visible'), 150);
+        });
+
+        input.addEventListener('keydown', e => {
+            const items = sugBox.querySelectorAll('.tag-suggestion');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                activeIdx = Math.min(activeIdx + 1, items.length - 1);
+                items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+                return;
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                activeIdx = Math.max(activeIdx - 1, -1);
+                items.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+                return;
+            }
+            if (e.key === 'Escape') {
+                sugBox.classList.remove('visible');
+                activeIdx = -1;
+                return;
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                let tag;
+                if (activeIdx >= 0 && items[activeIdx]) {
+                    tag = items[activeIdx].dataset.tag;
+                } else {
+                    tag = input.value.trim().toLowerCase().replace(/[^a-z0-9\-]/g, '-').replace(/-+/g, '-');
+                }
+                if (tag) addEntityTag(prefix, tag);
+            }
+        });
+
+        function addEntityTag(pfx, tag) {
+            if (!tag) return;
+            const tags = entityTagsMap[pfx] || [];
+            if (tags.includes(tag)) return;
+            entityTagsMap[pfx] = [...tags, tag];
+            if (!allTags.includes(tag)) { allTags.push(tag); allTags.sort(); }
+            rerender();
+        }
+
+        // Wire remove buttons
+        document.querySelectorAll(`.tag-remove[data-prefix="${prefix}"]`).forEach(btn => {
+            btn.addEventListener('click', e => {
+                e.stopPropagation();
+                const tag = btn.dataset.tag;
+                entityTagsMap[prefix] = (entityTagsMap[prefix] || []).filter(t => t !== tag);
+                rerender();
+            });
+        });
+    }
+
+    // ─── Tag editor (for content items) ─────────────────────────
     function buildTagEditor(tags) {
         const pills = tags.map(t =>
             `<span class="tag">${esc(t)}<span class="tag-remove" data-tag="${esc(t)}">×</span></span>`
