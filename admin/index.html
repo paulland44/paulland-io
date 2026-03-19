@@ -192,6 +192,62 @@
         .filter-btn:hover { border-color: var(--border-hover); color: var(--star); }
         .filter-btn.active { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
 
+        .filter-group { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+
+        .filter-select {
+            padding: 0.35rem 0.8rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+            cursor: pointer;
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='rgba(200,191,168,0.4)'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.6rem center;
+            padding-right: 2rem;
+            transition: all 0.2s;
+        }
+        .filter-select:hover { border-color: var(--border-hover); color: var(--star); }
+        .filter-select:focus { outline: none; border-color: var(--accent); }
+
+        .articles-count { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.04em; white-space: nowrap; }
+
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            margin-top: 1.5rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border);
+        }
+        .pagination button {
+            padding: 0.35rem 0.8rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .pagination button:hover:not(:disabled) { border-color: var(--border-hover); color: var(--star); }
+        .pagination button:disabled { opacity: 0.3; cursor: default; }
+        .pagination-info { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.04em; }
+
+        @media (max-width: 768px) {
+            .filters { flex-direction: column; align-items: stretch; }
+            .filter-select { width: 100%; }
+            .filter-group { width: 100%; }
+        }
+
         .search-input {
             padding: 0.35rem 0.8rem;
             background: var(--void-lighter);
@@ -1890,6 +1946,14 @@
     let currentView = 'overview';
     let allTags = [];
 
+    // ─── Article filter state ──────────────────────────────────
+    const ARTICLES_PER_PAGE = 50;
+    let articleFilters = { source: null, tag: null, dateRange: null, status: null, page: 1 };
+    let articlesTotalCount = 0;
+    let articlesData = [];
+    let articleSources = [];
+    let articleTopTags = [];
+
     // ─── Settings (persisted in localStorage) ────────────────
     const DEFAULT_SETTINGS = { showThumbnails: true };
     let appSettings = { ...DEFAULT_SETTINGS };
@@ -2163,11 +2227,12 @@
         document.getElementById('overviewTagCloud')?.querySelectorAll('.tag').forEach(el => {
             el.addEventListener('click', () => {
                 const tag = el.dataset.tag;
-                // Switch to articles view and pre-filter
+                // Switch to articles view and pre-filter by tag
+                articleFilters = { source: null, tag: tag, dateRange: null, status: null, page: 1 };
                 document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
                 document.querySelector('[data-view="articles"]').classList.add('active');
                 currentView = 'articles';
-                loadArticles(tag);
+                loadArticles();
             });
         });
     }
@@ -3299,27 +3364,208 @@
     }
 
     // ─── Articles ─────────────────────────────────────────────
-    async function loadArticles(filterTag) {
+    async function fetchArticles() {
+        const f = articleFilters;
+        const from = (f.page - 1) * ARTICLES_PER_PAGE;
+        const to = from + ARTICLES_PER_PAGE - 1;
+
+        let query = db.from('content')
+            .select('id, title, url, source, author, tags, status, captured_at, body, metadata', { count: 'exact' })
+            .eq('type', 'article')
+            .order('captured_at', { ascending: false })
+            .range(from, to);
+
+        if (f.status) query = query.eq('status', f.status);
+        if (f.source) query = query.eq('source', f.source);
+        if (f.tag) query = query.contains('tags', [f.tag]);
+        if (f.dateRange) {
+            const d = new Date();
+            d.setDate(d.getDate() - f.dateRange);
+            query = query.gte('captured_at', d.toISOString());
+        }
+
+        const { data, count, error } = await query;
+        return { data, count, error };
+    }
+
+    async function loadArticleFilterOptions() {
+        if (articleSources.length && articleTopTags.length) return;
+
+        // Fetch unique sources
+        const { data: srcData } = await db.from('content')
+            .select('source')
+            .eq('type', 'article')
+            .not('source', 'is', null)
+            .order('source');
+        const srcSet = new Set();
+        (srcData || []).forEach(r => { if (r.source) srcSet.add(r.source); });
+        articleSources = [...srcSet].sort();
+
+        // Fetch top tags via all articles' tags arrays
+        const { data: tagData } = await db.from('content')
+            .select('tags')
+            .eq('type', 'article')
+            .not('tags', 'is', null);
+        const tagCounts = {};
+        (tagData || []).forEach(r => (r.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+        articleTopTags = Object.entries(tagCounts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 30)
+            .map(([tag, count]) => ({ tag, count }));
+    }
+
+    function populateArticleDropdowns() {
+        const srcSel = document.getElementById('articleSourceFilter');
+        const tagSel = document.getElementById('articleTagFilter');
+        if (!srcSel || !tagSel) return;
+
+        srcSel.innerHTML = '<option value="">All sources</option>' +
+            articleSources.map(s => `<option value="${esc(s)}"${articleFilters.source === s ? ' selected' : ''}>${esc(s)}</option>`).join('');
+        tagSel.innerHTML = '<option value="">All tags</option>' +
+            articleTopTags.map(t => `<option value="${esc(t.tag)}"${articleFilters.tag === t.tag ? ' selected' : ''}>${esc(t.tag)} (${t.count})</option>`).join('');
+    }
+
+    function updateArticlesCount() {
+        const el = document.getElementById('articlesCount');
+        if (!el) return;
+        if (articlesTotalCount === 0) { el.textContent = 'No articles'; return; }
+        const from = (articleFilters.page - 1) * ARTICLES_PER_PAGE + 1;
+        const to = Math.min(articleFilters.page * ARTICLES_PER_PAGE, articlesTotalCount);
+        el.textContent = `Showing ${from}\u2013${to} of ${articlesTotalCount}`;
+    }
+
+    function updatePagination(totalPages) {
+        const prev = document.getElementById('articlePrev');
+        const next = document.getElementById('articleNext');
+        const info = document.getElementById('articlePageInfo');
+        if (!prev || !next || !info) return;
+        prev.disabled = articleFilters.page <= 1;
+        next.disabled = articleFilters.page >= totalPages;
+        info.textContent = totalPages > 0 ? `Page ${articleFilters.page} of ${totalPages}` : '';
+    }
+
+    async function reloadArticles() {
+        const tbody = document.getElementById('articlesBody');
+        if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--text-muted)">Loading...</td></tr>';
+
+        const { data, count, error } = await fetchArticles();
+        if (error) {
+            if (tbody) tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:2rem;color:var(--red)">Error: ${esc(error.message)}</td></tr>`;
+            return;
+        }
+
+        articlesData = data || [];
+        articlesTotalCount = count || 0;
+        const totalPages = Math.ceil(articlesTotalCount / ARTICLES_PER_PAGE);
+
+        renderArticleRows(articlesData);
+        updateArticlesCount();
+        updatePagination(totalPages);
+    }
+
+    function wireArticleFilterEvents() {
+        // Status buttons
+        document.querySelectorAll('.article-status-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.article-status-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                articleFilters.status = btn.dataset.status || null;
+                articleFilters.page = 1;
+                reloadArticles();
+            });
+        });
+
+        // Date range buttons
+        document.querySelectorAll('.article-date-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.article-date-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                articleFilters.dateRange = btn.dataset.days ? parseInt(btn.dataset.days) : null;
+                articleFilters.page = 1;
+                reloadArticles();
+            });
+        });
+
+        // Source dropdown
+        const srcSel = document.getElementById('articleSourceFilter');
+        if (srcSel) srcSel.addEventListener('change', () => {
+            articleFilters.source = srcSel.value || null;
+            articleFilters.page = 1;
+            reloadArticles();
+        });
+
+        // Tag dropdown
+        const tagSel = document.getElementById('articleTagFilter');
+        if (tagSel) tagSel.addEventListener('change', () => {
+            articleFilters.tag = tagSel.value || null;
+            articleFilters.page = 1;
+            reloadArticles();
+        });
+
+        // Pagination
+        const prev = document.getElementById('articlePrev');
+        const next = document.getElementById('articleNext');
+        if (prev) prev.addEventListener('click', () => { if (articleFilters.page > 1) { articleFilters.page--; reloadArticles(); } });
+        if (next) next.addEventListener('click', () => {
+            const totalPages = Math.ceil(articlesTotalCount / ARTICLES_PER_PAGE);
+            if (articleFilters.page < totalPages) { articleFilters.page++; reloadArticles(); }
+        });
+
+        // Client-side search on current page
+        const search = document.getElementById('searchArticles');
+        if (search) search.addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            if (!q) { renderArticleRows(articlesData); return; }
+            const filtered = articlesData.filter(a =>
+                a.title.toLowerCase().includes(q) ||
+                (a.source || '').toLowerCase().includes(q) ||
+                (a.tags || []).some(t => t.toLowerCase().includes(q))
+            );
+            renderArticleRows(filtered);
+        });
+    }
+
+    async function loadArticles() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading articles</div>';
 
-        let query = db.from('content')
-            .select('id, title, url, source, author, tags, status, captured_at, body, metadata')
-            .eq('type', 'article')
-            .order('captured_at', { ascending: false })
-            .limit(100);
+        // Load filter options and first page in parallel
+        const [_, result] = await Promise.all([
+            loadArticleFilterOptions(),
+            fetchArticles()
+        ]);
 
-        if (filterTag) query = query.contains('tags', [filterTag]);
+        if (result.error) { main.innerHTML = `<div class="empty">Error: ${result.error.message}</div>`; return; }
 
-        const { data, error } = await query;
+        articlesData = result.data || [];
+        articlesTotalCount = result.count || 0;
+        const totalPages = Math.ceil(articlesTotalCount / ARTICLES_PER_PAGE);
 
-        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = `<div class="empty">${filterTag ? `No articles tagged "${esc(filterTag)}"` : 'No articles captured yet.'}</div>`; return; }
+        // Determine active states for buttons
+        const statusAll = !articleFilters.status;
+        const dateAll = !articleFilters.dateRange;
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">Articles${filterTag ? ` — ${esc(filterTag)}` : ''}</h2>
-                <input type="text" class="search-input" placeholder="Filter articles..." id="searchArticles" value="${filterTag ? esc(filterTag) : ''}">
+                <h2 class="page-title">Articles</h2>
+                <span class="articles-count" id="articlesCount"></span>
+                <input type="text" class="search-input" placeholder="Search this page..." id="searchArticles">
+            </div>
+            <div class="filters">
+                <div class="filter-group">
+                    <button class="filter-btn article-status-btn${statusAll ? ' active' : ''}" data-status="">All</button>
+                    <button class="filter-btn article-status-btn${articleFilters.status === 'new' ? ' active' : ''}" data-status="new">New</button>
+                    <button class="filter-btn article-status-btn${articleFilters.status === 'read' ? ' active' : ''}" data-status="read">Read</button>
+                    <button class="filter-btn article-status-btn${articleFilters.status === 'archived' ? ' active' : ''}" data-status="archived">Archived</button>
+                </div>
+                <div class="filter-group">
+                    <button class="filter-btn article-date-btn${dateAll ? ' active' : ''}" data-days="">All time</button>
+                    <button class="filter-btn article-date-btn${articleFilters.dateRange === 7 ? ' active' : ''}" data-days="7">7d</button>
+                    <button class="filter-btn article-date-btn${articleFilters.dateRange === 30 ? ' active' : ''}" data-days="30">30d</button>
+                    <button class="filter-btn article-date-btn${articleFilters.dateRange === 90 ? ' active' : ''}" data-days="90">90d</button>
+                </div>
+                <select class="filter-select" id="articleSourceFilter"><option value="">All sources</option></select>
+                <select class="filter-select" id="articleTagFilter"><option value="">All tags</option></select>
             </div>
             <div class="table-wrap">
                 <table>
@@ -3335,19 +3581,18 @@
                     <tbody id="articlesBody"></tbody>
                 </table>
             </div>
+            <div class="pagination">
+                <button id="articlePrev" disabled>&larr; Prev</button>
+                <span class="pagination-info" id="articlePageInfo"></span>
+                <button id="articleNext"${totalPages <= 1 ? ' disabled' : ''}>Next &rarr;</button>
+            </div>
         `;
 
-        renderArticleRows(data);
-
-        document.getElementById('searchArticles').addEventListener('input', e => {
-            const q = e.target.value.toLowerCase();
-            const filtered = data.filter(a =>
-                a.title.toLowerCase().includes(q) ||
-                (a.source || '').toLowerCase().includes(q) ||
-                (a.tags || []).some(t => t.toLowerCase().includes(q))
-            );
-            renderArticleRows(filtered);
-        });
+        populateArticleDropdowns();
+        renderArticleRows(articlesData);
+        updateArticlesCount();
+        updatePagination(totalPages);
+        wireArticleFilterEvents();
     }
 
     function renderArticleRows(data) {
