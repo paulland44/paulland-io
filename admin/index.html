@@ -1772,37 +1772,30 @@
             margin-bottom: 1rem;
         }
 
-        /* Voice capture */
-        .voice-btn {
-            padding: 0.2rem 0.45rem;
-            background: none;
-            border: 1px solid transparent;
-            border-radius: 2px;
+        .section-chevron {
+            font-size: 0.7rem;
             color: var(--text-muted);
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: all 0.15s;
-            line-height: 1;
+            transition: transform 0.2s;
+            width: 0.8rem;
+            flex-shrink: 0;
         }
 
-        .voice-btn:hover {
-            border-color: var(--border-hover);
-            color: var(--star);
+        .daily-section:not(.expanded) .section-chevron {
+            transform: rotate(-90deg);
         }
 
-        .voice-btn.recording {
-            color: var(--red);
-            border-color: var(--red);
-            animation: voice-pulse 1.2s ease-in-out infinite;
-        }
-
-        @keyframes voice-pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        .voice-btn.unsupported {
+        .daily-section:not(.expanded) .daily-section-content {
             display: none;
+        }
+
+        .review-entity-link {
+            color: var(--accent);
+            cursor: pointer;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+        .review-entity-link:hover {
+            color: var(--star);
         }
 
     </style>
@@ -2477,29 +2470,38 @@
                         </div>
                     </div>
                 </div>
-                <div class="daily-section">
-                    <div class="daily-section-header">
+                <div class="daily-section expanded" id="sectionTasks">
+                    <div class="daily-section-header" onclick="toggleDailySection('sectionTasks')">
+                        <span class="section-chevron">&#x25BE;</span>
                         <span>\u2610</span>
                         <span>Tasks</span>
+                        <div class="daily-toolbar" id="toolbarTasks" onclick="event.stopPropagation()"></div>
                     </div>
-                    <div class="daily-toolbar" id="toolbarTasks"></div>
-                    <div class="daily-editor-wrap" id="editorTasks"></div>
+                    <div class="daily-section-content">
+                        <div class="daily-editor-wrap" id="editorTasks"></div>
+                    </div>
                 </div>
-                <div class="daily-section">
-                    <div class="daily-section-header">
+                <div class="daily-section expanded" id="sectionNotes">
+                    <div class="daily-section-header" onclick="toggleDailySection('sectionNotes')">
+                        <span class="section-chevron">&#x25BE;</span>
                         <span>\u270E</span>
                         <span>Notes & Thoughts</span>
+                        <div class="daily-toolbar" id="toolbarNotes" onclick="event.stopPropagation()"></div>
                     </div>
-                    <div class="daily-toolbar" id="toolbarNotes"></div>
-                    <div class="daily-editor-wrap" id="editorNotes"></div>
+                    <div class="daily-section-content">
+                        <div class="daily-editor-wrap" id="editorNotes"></div>
+                    </div>
                 </div>
-                <div class="daily-section">
-                    <div class="daily-section-header">
+                <div class="daily-section expanded" id="sectionMeetings">
+                    <div class="daily-section-header" onclick="toggleDailySection('sectionMeetings')">
+                        <span class="section-chevron">&#x25BE;</span>
                         <span>\u25CE</span>
                         <span>Meetings & Conversations</span>
-                        <button class="meeting-add-header-btn" id="addMeetingBtn">+ Add</button>
+                        <button class="meeting-add-header-btn" id="addMeetingBtn" onclick="event.stopPropagation()">+ Add</button>
                     </div>
-                    <div class="meeting-cards" id="meetingCardsContainer"></div>
+                    <div class="daily-section-content">
+                        <div class="meeting-cards" id="meetingCardsContainer"></div>
+                    </div>
                 </div>
             </div>
         `;
@@ -2637,7 +2639,7 @@
         );
 
         // Build toolbars
-        buildToolbar('toolbarTasks', dailyEditors.tasks, { voice: false });
+        buildToolbar('toolbarTasks', dailyEditors.tasks);
 
         await new Promise(r => requestAnimationFrame(r));
 
@@ -2996,7 +2998,7 @@
         return { markdown, structured };
     }
 
-    function buildToolbar(containerId, editor, options = {}) {
+    function buildToolbar(containerId, editor) {
         const container = document.getElementById(containerId);
         if (!container || !editor) return;
 
@@ -3029,14 +3031,6 @@
                 });
             }
         });
-
-        // Add voice button for notes and meeting editors
-        if (options.voice !== false) {
-            const sep = document.createElement('span');
-            sep.className = 'daily-toolbar-sep';
-            container.appendChild(sep);
-            container.appendChild(createVoiceButton(editor));
-        }
 
         editor.on('selectionUpdate', () => updateToolbarActive(container, buttons));
         editor.on('update', () => updateToolbarActive(container, buttons));
@@ -3144,6 +3138,32 @@
         }
     }
 
+    function toggleDailySection(sectionId) {
+        const section = document.getElementById(sectionId);
+        if (section) section.classList.toggle('expanded');
+    }
+
+    function navigateToEntity(view, name) {
+        // Navigate to the entity view and highlight/scroll to the named entity
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        const navBtn = document.querySelector(`[data-view="${view}"]`);
+        if (navBtn) navBtn.classList.add('active');
+        currentView = view;
+        loadView(view);
+        // After load, try to find and highlight the entity
+        setTimeout(() => {
+            const rows = document.querySelectorAll('.expandable');
+            for (const row of rows) {
+                if (row.textContent.toLowerCase().includes(name.toLowerCase())) {
+                    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    row.style.background = 'var(--accent-dim)';
+                    setTimeout(() => row.style.background = '', 2000);
+                    break;
+                }
+            }
+        }, 500);
+    }
+
     function displayReviewResults(result) {
         const review = result.review || {};
         const writes = result.writes || {};
@@ -3177,7 +3197,6 @@
         if (writes.product_decisions) html += `<span class="review-stat"><strong>${writes.product_decisions}</strong> decisions</span>`;
         if (writes.project_updates) html += `<span class="review-stat"><strong>${writes.project_updates}</strong> project updates</span>`;
         if (writes.reflections) html += `<span class="review-stat"><strong>${writes.reflections}</strong> reflections</span>`;
-        if (writes.tasks_migrated) html += `<span class="review-stat"><strong>${writes.tasks_migrated}</strong> tasks migrated</span>`;
         html += `</div>`;
 
         // People entries
@@ -3185,7 +3204,7 @@
             html += `<div class="review-section">
                 <div class="review-section-title">People (${review.people_entries.length})</div>`;
             for (const e of review.people_entries) {
-                html += `<div class="review-item"><span class="review-item-label">${e.person_name}:</span> ${e.entry}</div>`;
+                html += `<div class="review-item"><a class="review-entity-link" onclick="navigateToEntity('contacts', '${e.person_name}')">${e.person_name}:</a> ${e.entry}</div>`;
             }
             html += `</div>`;
         }
@@ -3195,7 +3214,7 @@
             html += `<div class="review-section">
                 <div class="review-section-title">Product Evidence (${review.product_evidence.length})</div>`;
             for (const e of review.product_evidence) {
-                html += `<div class="review-item"><span class="review-item-label">${e.product_name}:</span> ${e.evidence}</div>`;
+                html += `<div class="review-item"><a class="review-entity-link" onclick="navigateToEntity('products', '${e.product_name}')">${e.product_name}:</a> ${e.evidence}</div>`;
             }
             html += `</div>`;
         }
@@ -3205,7 +3224,7 @@
             html += `<div class="review-section">
                 <div class="review-section-title">Decisions (${review.product_decisions.length})</div>`;
             for (const e of review.product_decisions) {
-                html += `<div class="review-item"><span class="review-item-label">${e.product_name || 'General'}:</span> ${e.decision}</div>`;
+                html += `<div class="review-item"><a class="review-entity-link" onclick="navigateToEntity('products', '${e.product_name || 'General'}')">${e.product_name || 'General'}:</a> ${e.decision}</div>`;
             }
             html += `</div>`;
         }
@@ -3215,7 +3234,7 @@
             html += `<div class="review-section">
                 <div class="review-section-title">Project Updates (${review.project_updates.length})</div>`;
             for (const e of review.project_updates) {
-                html += `<div class="review-item"><span class="review-item-label">${e.project_name}:</span> ${e.update}</div>`;
+                html += `<div class="review-item"><a class="review-entity-link" onclick="navigateToEntity('projects', '${e.project_name}')">${e.project_name}:</a> ${e.update}</div>`;
             }
             html += `</div>`;
         }
@@ -3229,16 +3248,6 @@
                     <div>${e.observation}</div>
                     ${e.coach_perspective ? `<div style="margin-top: 0.3rem; color: var(--text-muted); font-style: italic;">Coach: ${e.coach_perspective}</div>` : ''}
                 </div>`;
-            }
-            html += `</div>`;
-        }
-
-        // Migrated tasks
-        if (review.migrated_tasks?.length) {
-            html += `<div class="review-section">
-                <div class="review-section-title">Carry Forward (${review.migrated_tasks.length})</div>`;
-            for (const t of review.migrated_tasks) {
-                html += `<div class="review-item">→ ${t}</div>`;
             }
             html += `</div>`;
         }
@@ -4339,138 +4348,6 @@
             appSettings.showThumbnails = e.target.checked;
             saveSettings();
         });
-    }
-
-    // ─── Voice Capture ──────────────────────────────────────────
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    let activeRecognition = null;
-
-    function createVoiceButton(editor) {
-        const btn = document.createElement('button');
-        btn.className = 'voice-btn' + (SpeechRecognition ? '' : ' unsupported');
-        btn.title = SpeechRecognition ? 'Voice capture (click to start/stop)' : 'Speech recognition not supported in this browser';
-        btn.textContent = '🎤';
-
-        if (!SpeechRecognition) return btn;
-
-        btn.addEventListener('click', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (btn.classList.contains('recording')) {
-                stopVoiceCapture(btn);
-            } else {
-                startVoiceCapture(btn, editor);
-            }
-        });
-
-        return btn;
-    }
-
-    function startVoiceCapture(btn, editor) {
-        // Stop any other active recording
-        if (activeRecognition) {
-            try { activeRecognition.abort(); } catch {}
-            activeRecognition = null;
-            document.querySelectorAll('.voice-btn.recording').forEach(b => b.classList.remove('recording'));
-        }
-
-        btn.classList.add('recording');
-        btn.title = 'Recording... click to stop';
-
-        let wantRecording = true;
-        let restartTimer = null;
-        let gotResult = false;
-        let startCount = 0;
-
-        // Detect if continuous mode works by tracking rapid restarts
-        const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent);
-
-        function createAndStart() {
-            if (!wantRecording) return;
-            startCount++;
-
-            // If we've restarted 3+ times without getting a result, continuous mode is broken
-            // Switch to showing a message
-            if (startCount > 3 && !gotResult) {
-                console.warn('Speech recognition: continuous mode not working, switching to single-shot');
-            }
-
-            const recognition = new SpeechRecognition();
-            // Only use continuous on actual Chrome (not Edge/other Chromium)
-            recognition.continuous = isChrome;
-            recognition.interimResults = false; // Only final results — more reliable cross-browser
-            recognition.lang = 'en-GB';
-            recognition.maxAlternatives = 1;
-
-            recognition.onresult = (event) => {
-                gotResult = true;
-                startCount = 0; // Reset restart counter on success
-                for (let i = event.resultIndex; i < event.results.length; i++) {
-                    const transcript = event.results[i][0].transcript;
-                    if (editor && transcript.trim()) {
-                        editor.chain().focus().insertContent(transcript + ' ').run();
-                        scheduleDailySave();
-                        updateSaveStatus('unsaved');
-                    }
-                }
-            };
-
-            recognition.onerror = (event) => {
-                console.warn('Speech recognition error:', event.error);
-                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                    wantRecording = false;
-                    btn.classList.remove('recording');
-                    btn.title = 'Voice capture (click to start/stop)';
-                    activeRecognition = null;
-                    alert('Microphone access denied. Please allow microphone access in your browser settings.');
-                }
-                // no-speech is normal — user paused. Let onend restart.
-            };
-
-            recognition.onend = () => {
-                if (wantRecording && btn.classList.contains('recording')) {
-                    // Increase delay if we haven't got results (avoids tight loop)
-                    const delay = gotResult ? 100 : Math.min(1000 * startCount, 3000);
-                    restartTimer = setTimeout(() => {
-                        if (wantRecording) createAndStart();
-                    }, delay);
-                }
-            };
-
-            try {
-                recognition.start();
-                activeRecognition = recognition;
-            } catch (err) {
-                console.error('Failed to start speech recognition:', err);
-                if (wantRecording) {
-                    restartTimer = setTimeout(() => {
-                        if (wantRecording) createAndStart();
-                    }, 2000);
-                }
-            }
-        }
-
-        btn._voiceCleanup = () => {
-            wantRecording = false;
-            if (restartTimer) clearTimeout(restartTimer);
-            if (activeRecognition) {
-                try { activeRecognition.abort(); } catch {}
-                activeRecognition = null;
-            }
-        };
-
-        createAndStart();
-    }
-
-    function stopVoiceCapture(btn) {
-        if (btn._voiceCleanup) {
-            btn._voiceCleanup();
-            btn._voiceCleanup = null;
-        }
-        btn.classList.remove('recording');
-        btn.title = 'Voice capture (click to start/stop)';
     }
 
     // ─── Content modal ─────────────────────────────────────────
