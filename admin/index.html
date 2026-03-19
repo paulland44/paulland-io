@@ -1307,41 +1307,63 @@
             min-height: 40px;
         }
 
-        /* ─── Drag and drop ─── */
-        .meeting-card {
-            transition: opacity 0.15s, border-style 0.15s;
-        }
-
-        .meeting-card.dragging {
-            opacity: 0.35;
-            border-style: dashed;
-        }
-
-        .meeting-card.drag-over-top {
-            border-top: 2px solid var(--accent);
-        }
-
-        .meeting-card.drag-over-bottom {
-            border-bottom: 2px solid var(--accent);
-        }
-
-        .meeting-card-drag-handle {
-            color: var(--text-muted);
-            font-size: 0.85rem;
+        /* ─── Move buttons ─── */
+        .meeting-card-move-btns {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            margin-left: auto;
             opacity: 0;
             transition: opacity 0.15s;
-            cursor: grab;
-            flex-shrink: 0;
-            user-select: none;
-            padding: 0 0.15rem;
         }
 
-        .meeting-card-header:hover .meeting-card-drag-handle {
-            opacity: 0.4;
+        .meeting-card-header:hover .meeting-card-move-btns {
+            opacity: 0.6;
         }
 
-        .meeting-card-drag-handle:active {
-            cursor: grabbing;
+        .meeting-move-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 0.6rem;
+            cursor: pointer;
+            padding: 0 0.3rem;
+            line-height: 1;
+            transition: color 0.15s;
+        }
+
+        .meeting-move-btn:hover {
+            color: var(--accent);
+        }
+
+        /* ─── Editable time in expanded view ─── */
+        .meeting-card-time-input {
+            background: none;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            font-weight: 400;
+            outline: none;
+            padding: 0.3rem 0.75rem;
+            width: auto;
+            max-width: 180px;
+        }
+
+        .meeting-card-time-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.5;
+        }
+
+        .meeting-card-time-input:focus {
+            border-bottom-color: var(--accent);
+        }
+
+        .meeting-card-meta-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
         }
 
         .meeting-add-btn {
@@ -2132,8 +2154,6 @@
             existingTitles.add(title.toLowerCase().trim());
         }
 
-        // Init drag and drop (event delegation handles future cards too)
-        initMeetingDragDrop();
     }
 
     function addMeetingCard(title, content, options = {}) {
@@ -2151,19 +2171,25 @@
 
         const safeTitle = (title || '').replace(/"/g, '&quot;');
 
-        cardEl.draggable = true;
+        const safeTime = (timeStr || '').replace(/"/g, '&quot;');
 
         cardEl.innerHTML = `
             <div class="meeting-card-header" data-meeting-id="${id}">
-                <span class="meeting-card-drag-handle" title="Drag to reorder">\u2261</span>
                 <span class="meeting-card-chevron">&#x25B8;</span>
                 ${timeStr ? `<span class="meeting-card-time">${timeStr}</span>` : ''}
                 <span class="meeting-card-title-display">${title || 'Untitled Meeting'}</span>
                 <span class="meeting-card-indicator ${hasContent ? 'has-notes' : ''}" id="meetingIndicator-${id}">\u25CF</span>
+                <div class="meeting-card-move-btns">
+                    <button class="meeting-move-btn" data-dir="up" data-meeting-id="${id}" title="Move up">\u25B2</button>
+                    <button class="meeting-move-btn" data-dir="down" data-meeting-id="${id}" title="Move down">\u25BC</button>
+                </div>
                 <button class="meeting-card-remove" data-meeting-id="${id}" title="Remove meeting">\u00d7</button>
             </div>
             <div class="meeting-card-expanded-content">
-                <input type="text" class="meeting-card-title-input" placeholder="Meeting title..." value="${safeTitle}" data-meeting-id="${id}">
+                <div class="meeting-card-meta-row">
+                    <input type="text" class="meeting-card-title-input" placeholder="Meeting title..." value="${safeTitle}" data-meeting-id="${id}">
+                    <input type="text" class="meeting-card-time-input" placeholder="e.g. 09:00-10:00" value="${safeTime}" data-meeting-id="${id}">
+                </div>
                 <div class="daily-toolbar" id="meetingToolbar-${id}"></div>
                 <div class="daily-editor-wrap" id="meetingEditor-${id}"></div>
             </div>
@@ -2176,10 +2202,9 @@
             container.appendChild(cardEl);
         }
 
-        // Wire header click to toggle
+        // Wire header click to toggle (ignore clicks on buttons)
         cardEl.querySelector('.meeting-card-header').addEventListener('click', (e) => {
-            // Don't toggle if clicking the remove button
-            if (e.target.closest('.meeting-card-remove')) return;
+            if (e.target.closest('.meeting-card-remove') || e.target.closest('.meeting-move-btn')) return;
             toggleMeetingCard(id);
         });
 
@@ -2189,10 +2214,39 @@
             removeMeetingCard(id);
         };
 
+        // Wire move buttons
+        cardEl.querySelectorAll('.meeting-move-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                moveMeetingCard(id, btn.dataset.dir);
+            });
+        });
+
         // Wire title input to update display title and trigger save
         cardEl.querySelector('.meeting-card-title-input').addEventListener('input', (e) => {
             const displayEl = cardEl.querySelector('.meeting-card-title-display');
             if (displayEl) displayEl.textContent = e.target.value || 'Untitled Meeting';
+            scheduleDailySave();
+            updateSaveStatus('unsaved');
+        });
+
+        // Wire time input to update header time and trigger save
+        cardEl.querySelector('.meeting-card-time-input').addEventListener('input', (e) => {
+            const headerTimeEl = cardEl.querySelector('.meeting-card-time');
+            const mc = meetingCards.find(m => m.id === id);
+            if (mc) mc.time = e.target.value.trim();
+            if (headerTimeEl) {
+                headerTimeEl.textContent = e.target.value.trim();
+            } else if (e.target.value.trim()) {
+                // Add time span to header if it didn't have one
+                const chevron = cardEl.querySelector('.meeting-card-chevron');
+                if (chevron) {
+                    const timeSpan = document.createElement('span');
+                    timeSpan.className = 'meeting-card-time';
+                    timeSpan.textContent = e.target.value.trim();
+                    chevron.after(timeSpan);
+                }
+            }
             scheduleDailySave();
             updateSaveStatus('unsaved');
         });
@@ -2258,84 +2312,20 @@
         indicator.classList.toggle('has-notes', hasNotes);
     }
 
-    function initMeetingDragDrop() {
+    function moveMeetingCard(id, direction) {
+        const cardEl = document.getElementById(`meeting-card-${id}`);
         const container = document.getElementById('meetingCardsContainer');
-        if (!container) return;
+        if (!cardEl || !container) return;
 
-        let draggedCard = null;
+        if (direction === 'up' && cardEl.previousElementSibling) {
+            container.insertBefore(cardEl, cardEl.previousElementSibling);
+        } else if (direction === 'down' && cardEl.nextElementSibling) {
+            container.insertBefore(cardEl, cardEl.nextElementSibling.nextSibling);
+        } else {
+            return; // Can't move further
+        }
 
-        container.addEventListener('dragstart', (e) => {
-            const card = e.target.closest('.meeting-card');
-            if (!card) return;
-            draggedCard = card;
-            card.classList.add('dragging');
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', card.id);
-        });
-
-        container.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'move';
-            const card = e.target.closest('.meeting-card');
-            if (!card || card === draggedCard) return;
-
-            // Clear all drag indicators
-            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
-                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
-            );
-
-            // Drop above or below midpoint
-            const rect = card.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            if (e.clientY < midY) {
-                card.classList.add('drag-over-top');
-            } else {
-                card.classList.add('drag-over-bottom');
-            }
-        });
-
-        container.addEventListener('dragleave', (e) => {
-            const card = e.target.closest('.meeting-card');
-            if (card) card.classList.remove('drag-over-top', 'drag-over-bottom');
-        });
-
-        container.addEventListener('drop', (e) => {
-            e.preventDefault();
-            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
-                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
-            );
-
-            const targetCard = e.target.closest('.meeting-card');
-            if (!targetCard || !draggedCard || targetCard === draggedCard) return;
-
-            const rect = targetCard.getBoundingClientRect();
-            const midY = rect.top + rect.height / 2;
-            if (e.clientY < midY) {
-                container.insertBefore(draggedCard, targetCard);
-            } else {
-                container.insertBefore(draggedCard, targetCard.nextSibling);
-            }
-
-            syncMeetingCardsOrder();
-            scheduleDailySave();
-            updateSaveStatus('unsaved');
-        });
-
-        container.addEventListener('dragend', () => {
-            if (draggedCard) {
-                draggedCard.classList.remove('dragging');
-                draggedCard = null;
-            }
-            container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(
-                el => el.classList.remove('drag-over-top', 'drag-over-bottom')
-            );
-        });
-    }
-
-    function syncMeetingCardsOrder() {
-        const container = document.getElementById('meetingCardsContainer');
-        if (!container) return;
-
+        // Sync the meetingCards array to match new DOM order
         const newOrder = [];
         container.querySelectorAll('.meeting-card').forEach(el => {
             const idMatch = el.id.match(/meeting-card-(\d+)/);
@@ -2346,6 +2336,8 @@
             }
         });
         meetingCards = newOrder;
+        scheduleDailySave();
+        updateSaveStatus('unsaved');
     }
 
     function removeMeetingCard(id) {
