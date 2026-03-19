@@ -409,6 +409,31 @@ async function handleDailyReview(request, env) {
         }
       );
     }
+
+    // 9. Mark migrated tasks as [>] on the source day
+    let updatedTasks = dailyNote.tasks || '';
+    for (const task of migratedTasks) {
+      // Find the task line with [ ] and change to [>]
+      // Match on the first 40 chars of the task text to handle slight variations
+      const searchText = task.substring(0, Math.min(40, task.length)).toLowerCase();
+      const lines = updatedTasks.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (line.includes('- [ ]') && line.toLowerCase().includes(searchText)) {
+          lines[i] = line.replace('- [ ]', '- [>]');
+          break;
+        }
+      }
+      updatedTasks = lines.join('\n');
+    }
+
+    // Update the source day's tasks
+    if (updatedTasks !== dailyNote.tasks) {
+      await supabasePatch(supabaseUrl, serviceKey,
+        `daily_notes?note_date=eq.${note_date}`, {
+          tasks: updatedTasks,
+        });
+    }
   }
 
   return json({
