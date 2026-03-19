@@ -8,6 +8,7 @@
  * Routes:
  *   POST /api/content/tags     — Update tags on a content item
  *   POST /api/daily-notes      — Create or update a daily note (upsert by date)
+ *   POST /api/daily-review     — AI end-of-day review (extract & distribute content)
  *   GET  /api/calendar-events  — Fetch calendar events for a date from ICS feed
  */
 
@@ -46,6 +47,8 @@ export async function onRequest(context) {
         return handleUpdateTags(request, env);
       case 'daily-notes':
         return handleUpsertDailyNote(request, env);
+      case 'daily-review':
+        return handleDailyReview(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -146,6 +149,361 @@ async function handleUpsertDailyNote(request, env) {
 
   const data = await res.json();
   return json({ ok: true, daily_note: data[0] });
+}
+
+// ─── AI Daily Review ─────────────────────────────────────────
+
+async function handleDailyReview(request, env) {
+  const { note_date } = await request.json();
+
+  if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
+    return json({ error: 'Invalid or missing note_date' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured (Supabase)' }, 500);
+  }
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  // 1. Fetch the daily note
+  const noteRes = await supabaseGet(supabaseUrl, serviceKey,
+    `daily_notes?note_date=eq.${note_date}&limit=1`);
+  if (!noteRes.length) {
+    return json({ error: 'No daily note found for this date' }, 404);
+  }
+  const dailyNote = noteRes[0];
+
+  // 2. Fetch context: people, products, projects
+  const [peopleRes, productsRes, projectsRes] = await Promise.all([
+    supabaseGet(supabaseUrl, serviceKey, 'people?select=id,name,role,organization&order=name'),
+    supabaseGet(supabaseUrl, serviceKey, 'products?select=id,name&order=name'),
+    supabaseGet(supabaseUrl, serviceKey, 'projects?select=id,name,product_id&order=name'),
+  ]);
+
+  const peopleNames = peopleRes.map(p => p.name);
+  const productNames = productsRes.map(p => p.name);
+  const projectNames = projectsRes.map(p => p.name);
+
+  // 3. Build the prompt
+  const systemPrompt = buildReviewSystemPrompt(peopleNames, productNames, projectNames);
+  const userPrompt = buildReviewUserPrompt(dailyNote, note_date);
+
+  // 4. Call Claude API
+  let aiResult;
+  try {
+    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }],
+      }),
+    });
+
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
+    }
+
+    const claudeData = await claudeRes.json();
+    const responseText = claudeData.content?.[0]?.text || '';
+
+    // Extract JSON from response (may be wrapped in ```json blocks)
+    const jsonMatch = responseText.match(/```json\s*([\s\S]*?)```/) ||
+                      responseText.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return json({ error: 'Could not parse AI response', raw: responseText.substring(0, 2000) }, 500);
+    }
+
+    aiResult = JSON.parse(jsonMatch[1] || jsonMatch[0]);
+  } catch (err) {
+    return json({ error: 'AI processing failed', detail: err.message }, 500);
+  }
+
+  // 5. Write results to Supabase
+  const writeResults = await writeReviewResults(supabaseUrl, serviceKey, note_date, dailyNote, aiResult, peopleRes, productsRes, projectsRes);
+
+  // 6. Create audit record
+  await supabasePost(supabaseUrl, serviceKey, 'ai_reviews', {
+    review_type: 'daily',
+    source_date: note_date,
+    status: 'completed',
+    input_snapshot: { tasks: dailyNote.tasks, notes: dailyNote.notes, meetings: dailyNote.meetings },
+    output_summary: aiResult.review_summary || '',
+    files_updated: writeResults,
+    completed_at: new Date().toISOString(),
+  });
+
+  // 7. Update daily note metadata with review results
+  const existingMeta = dailyNote.metadata || {};
+  await supabasePatch(supabaseUrl, serviceKey,
+    `daily_notes?note_date=eq.${note_date}`, {
+      metadata: {
+        ...existingMeta,
+        last_reviewed: new Date().toISOString(),
+        review_summary: aiResult.review_summary || '',
+        migrated_tasks: aiResult.migrated_tasks || [],
+        context_notes: aiResult.context_notes || [],
+      },
+    });
+
+  return json({
+    ok: true,
+    review: aiResult,
+    writes: writeResults,
+  });
+}
+
+function buildReviewSystemPrompt(peopleNames, productNames, projectNames) {
+  return `You are Paul Land's end-of-day review assistant. Paul is a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+
+Your job is to process his daily note and extract structured information into a JSON response. You must identify:
+
+1. **People entries**: Notes about specific people mentioned. Match names to the known people list.
+2. **Product evidence**: Evidence, learnings, or feedback about specific products.
+3. **Product decisions**: Decisions made about products (strategic, not tactical).
+4. **Project updates**: Updates about specific projects.
+5. **Reflections**: Leadership observations, coaching insights, self-awareness moments.
+6. **Migrated tasks**: Tasks marked [>] or still open [ ] that should carry forward to tomorrow.
+7. **Context notes**: Key context from today that would help prepare for tomorrow's meetings.
+
+## Known People
+${peopleNames.join(', ')}
+
+## Known Products
+${productNames.join(', ')}
+
+## Known Projects
+${projectNames.join(', ')}
+
+## Task Notation
+- \`[ ]\` = open (not done)
+- \`[x]\` = done
+- \`[>]\` = migrated (carry forward)
+- \`[-]\` = cancelled
+
+## Reflection Detection
+Look for reflective language: "I noticed", "I should have", "lesson learned", "in hindsight", "next time", coaching observations about team members, leadership moments, and self-awareness. Paul writes naturally without tags — you must identify reflective content by reading comprehension.
+
+For each reflection, write a brief coach's perspective: validate what worked, challenge assumptions, and ask 1-2 coaching questions. Be direct but fair — a peer-level coach, not a critic.
+
+## Output Format
+Respond with ONLY a JSON object (no markdown wrapping, no explanation) with this structure:
+
+{
+  "people_entries": [
+    { "person_name": "Exact Name", "entry": "What was discussed/observed about this person" }
+  ],
+  "product_evidence": [
+    { "product_name": "Exact Product", "evidence": "The evidence/learning", "evidence_type": "customer_feedback|metric|decision|observation" }
+  ],
+  "product_decisions": [
+    { "product_name": "Exact Product", "decision": "The decision", "context": "Why/how it was decided" }
+  ],
+  "project_updates": [
+    { "project_name": "Exact Project", "update": "What happened with this project today" }
+  ],
+  "reflections": [
+    { "observation": "The reflection/insight", "coach_perspective": "Brief coaching response", "category": "leadership|coaching|personal" }
+  ],
+  "migrated_tasks": [
+    "Task text to carry forward"
+  ],
+  "context_notes": [
+    { "meeting_title": "Meeting name", "context": "Key context for tomorrow" }
+  ],
+  "review_summary": "2-3 sentence summary of the day's key outcomes and themes"
+}
+
+IMPORTANT:
+- Only include entries where there is genuine content to extract. Empty arrays are fine.
+- Match person/product/project names EXACTLY to the known lists above. If unsure, use the closest match.
+- For people entries, focus on actionable notes: decisions, action items, observations about the person's work.
+- Keep entries concise but complete. Each entry should stand on its own without needing the daily note for context.
+- The review_summary should capture the day's themes, not list every meeting.`;
+}
+
+function buildReviewUserPrompt(dailyNote, noteDate) {
+  let prompt = `## Daily Note for ${noteDate}\n\n`;
+
+  if (dailyNote.tasks) {
+    prompt += `### Tasks\n${dailyNote.tasks}\n\n`;
+  }
+  if (dailyNote.notes) {
+    prompt += `### Notes & Thoughts\n${dailyNote.notes}\n\n`;
+  }
+  if (dailyNote.meetings) {
+    prompt += `### Meetings & Conversations\n${dailyNote.meetings}\n\n`;
+  }
+
+  // Include structured meeting data if available
+  const structured = dailyNote.metadata?.meetings_structured;
+  if (structured && structured.length > 0) {
+    prompt += `### Meeting Details (structured)\n`;
+    for (const m of structured) {
+      prompt += `#### ${m.title || 'Untitled Meeting'}${m.time ? ` (${m.time})` : ''}\n`;
+      prompt += `${m.notes || '(no notes)'}\n\n`;
+    }
+  }
+
+  // Include stoic challenge if present
+  const stoic = dailyNote.metadata?.stoic_challenge;
+  if (stoic && (stoic.frustration || stoic.reframe || stoic.opportunity)) {
+    prompt += `### Stoic Challenge\n`;
+    if (stoic.frustration) prompt += `**Frustration:** ${stoic.frustration}\n`;
+    if (stoic.reframe) prompt += `**Reframe:** ${stoic.reframe}\n`;
+    if (stoic.opportunity) prompt += `**Opportunity:** ${stoic.opportunity}\n`;
+    prompt += '\n';
+  }
+
+  prompt += `\nPlease process this daily note and extract all relevant information into the JSON format specified in your instructions.`;
+  return prompt;
+}
+
+async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, aiResult, people, products, projects) {
+  const results = { people_log: 0, product_evidence: 0, product_decisions: 0, project_updates: 0, reflections: 0 };
+
+  // Build lookup maps
+  const peopleMap = {};
+  people.forEach(p => { peopleMap[p.name.toLowerCase()] = p.id; });
+  const productMap = {};
+  products.forEach(p => { productMap[p.name.toLowerCase()] = p.id; });
+  const projectMap = {};
+  projects.forEach(p => { projectMap[p.name.toLowerCase()] = p.id; });
+
+  const sourceRef = { daily_note_date: noteDate };
+
+  // Write people log entries
+  for (const entry of (aiResult.people_entries || [])) {
+    const personId = peopleMap[entry.person_name?.toLowerCase()];
+    if (!personId || !entry.entry) continue;
+    await supabasePost(supabaseUrl, serviceKey, 'people_log', {
+      person_id: personId,
+      note_date: noteDate,
+      entry: entry.entry,
+      source: 'daily_review',
+      source_ref: sourceRef,
+    });
+    results.people_log++;
+  }
+
+  // Write product evidence
+  for (const entry of (aiResult.product_evidence || [])) {
+    const productId = productMap[entry.product_name?.toLowerCase()];
+    if (!productId || !entry.evidence) continue;
+    await supabasePost(supabaseUrl, serviceKey, 'product_evidence', {
+      product_id: productId,
+      note_date: noteDate,
+      evidence: entry.evidence,
+      evidence_type: entry.evidence_type || 'observation',
+      source_ref: sourceRef,
+    });
+    results.product_evidence++;
+  }
+
+  // Write product decisions
+  for (const entry of (aiResult.product_decisions || [])) {
+    const productId = productMap[entry.product_name?.toLowerCase()];
+    if (!entry.decision) continue;
+    await supabasePost(supabaseUrl, serviceKey, 'product_decisions', {
+      product_id: productId || null,
+      note_date: noteDate,
+      decision: entry.decision,
+      context: entry.context || '',
+      source_ref: sourceRef,
+    });
+    results.product_decisions++;
+  }
+
+  // Write project updates
+  for (const entry of (aiResult.project_updates || [])) {
+    const projectId = projectMap[entry.project_name?.toLowerCase()];
+    if (!projectId || !entry.update) continue;
+    await supabasePost(supabaseUrl, serviceKey, 'project_updates', {
+      project_id: projectId,
+      note_date: noteDate,
+      update_text: entry.update,
+      source_ref: sourceRef,
+    });
+    results.project_updates++;
+  }
+
+  // Write reflections
+  for (const entry of (aiResult.reflections || [])) {
+    if (!entry.observation) continue;
+    // Try to match a person if the reflection is about someone
+    let personId = null;
+    if (entry.category === 'coaching') {
+      for (const [name, id] of Object.entries(peopleMap)) {
+        if (entry.observation.toLowerCase().includes(name)) {
+          personId = id;
+          break;
+        }
+      }
+    }
+    await supabasePost(supabaseUrl, serviceKey, 'reflections_log', {
+      note_date: noteDate,
+      observation: entry.observation,
+      coach_perspective: entry.coach_perspective || '',
+      category: entry.category || 'leadership',
+      person_id: personId,
+      source_ref: sourceRef,
+    });
+    results.reflections++;
+  }
+
+  return results;
+}
+
+// ─── Supabase helpers ────────────────────────────────────────
+
+async function supabaseGet(url, key, path) {
+  const res = await fetch(`${url}/rest/v1/${path}`, {
+    headers: {
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
+    },
+  });
+  if (!res.ok) return [];
+  return res.json();
+}
+
+async function supabasePost(url, key, table, data) {
+  return fetch(`${url}/rest/v1/${table}`, {
+    method: 'POST',
+    headers: {
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(data),
+  });
+}
+
+async function supabasePatch(url, key, path, data) {
+  return fetch(`${url}/rest/v1/${path}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': key,
+      'Authorization': `Bearer ${key}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(data),
+  });
 }
 
 // ─── Calendar events ─────────────────────────────────────────

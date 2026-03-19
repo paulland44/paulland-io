@@ -1224,6 +1224,120 @@
             color: var(--star);
         }
 
+        /* Review Day button */
+        .daily-review-btn {
+            padding: 0.35rem 0.8rem;
+            background: var(--accent-dim);
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            color: var(--accent);
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            font-weight: 400;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+
+        .daily-review-btn:hover {
+            background: var(--accent);
+            color: var(--void);
+        }
+
+        .daily-review-btn.reviewing {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        .daily-review-btn.reviewed {
+            background: none;
+            border-color: var(--border);
+            color: var(--text-muted);
+        }
+
+        /* Review results */
+        .review-results {
+            background: var(--void-light);
+            border: 1px solid var(--accent);
+            border-radius: 2px;
+            margin-top: 1.5rem;
+            overflow: hidden;
+        }
+
+        .review-results-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--accent);
+            font-size: 0.85rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+        }
+
+        .review-results-body {
+            padding: 1rem;
+        }
+
+        .review-section {
+            margin-bottom: 1rem;
+        }
+
+        .review-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .review-section-title {
+            font-size: 0.75rem;
+            font-weight: 400;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.4rem;
+        }
+
+        .review-item {
+            padding: 0.4rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+            color: var(--text-body);
+            line-height: 1.5;
+        }
+
+        .review-item:last-child {
+            border-bottom: none;
+        }
+
+        .review-item-label {
+            color: var(--accent);
+            font-weight: 400;
+            margin-right: 0.3rem;
+        }
+
+        .review-summary {
+            color: var(--star);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            padding: 0.5rem 0;
+        }
+
+        .review-stats {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-top: 0.5rem;
+        }
+
+        .review-stat {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .review-stat strong {
+            color: var(--accent);
+        }
+
         /* Stoic Challenge */
         .stoic-section {
             border-color: rgba(200, 191, 168, 0.08);
@@ -2136,6 +2250,7 @@
                     ${isToday ? '' : '<button class="daily-nav-btn" id="dailyToday">today</button>'}
                 </div>
                 <span class="daily-save-status" id="dailySaveStatus"></span>
+                <button class="daily-review-btn" id="dailyReviewBtn" title="Run AI end-of-day review">Review Day</button>
             </div>
 
             <div class="daily-sections" id="dailySections">
@@ -2194,6 +2309,9 @@
         if (todayBtn) todayBtn.onclick = () => loadDailyNote();
         document.getElementById('dailyDateBtn').onclick = openDailyDatePicker;
         document.getElementById('addMeetingBtn').onclick = () => addMeetingCard('', '', { expanded: true });
+
+        // Wire Review Day button
+        document.getElementById('dailyReviewBtn').onclick = runDailyReview;
 
         // Wire Stoic Challenge toggle
         document.getElementById('stoicToggle').onclick = () => {
@@ -2741,6 +2859,158 @@
             console.error('Daily note save failed:', err);
             // Auto-retry once after 5 seconds
             setTimeout(() => { if (dailyIsDirty) saveDailyNote(); }, 5000);
+        }
+    }
+
+    async function runDailyReview() {
+        if (!dailyNoteDate) return;
+
+        const btn = document.getElementById('dailyReviewBtn');
+        if (!btn || btn.classList.contains('reviewing')) return;
+
+        // Save current note first
+        if (dailyIsDirty) {
+            clearTimeout(dailySaveTimer);
+            await saveDailyNote();
+        }
+
+        btn.textContent = 'Reviewing...';
+        btn.classList.add('reviewing');
+
+        try {
+            const res = await fetch('/api/daily-review', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ note_date: dailyNoteDate }),
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(err.detail || err.error || 'Review failed');
+            }
+
+            const result = await res.json();
+            btn.textContent = 'Reviewed ✓';
+            btn.classList.remove('reviewing');
+            btn.classList.add('reviewed');
+
+            // Display results
+            displayReviewResults(result);
+
+        } catch (err) {
+            btn.textContent = 'Review Day';
+            btn.classList.remove('reviewing');
+            console.error('Daily review failed:', err);
+            alert('Review failed: ' + err.message);
+        }
+    }
+
+    function displayReviewResults(result) {
+        const review = result.review || {};
+        const writes = result.writes || {};
+
+        // Remove existing results if any
+        const existing = document.getElementById('reviewResults');
+        if (existing) existing.remove();
+
+        const container = document.createElement('div');
+        container.className = 'review-results';
+        container.id = 'reviewResults';
+
+        let html = `
+            <div class="review-results-header">
+                <span>AI Review Complete</span>
+            </div>
+            <div class="review-results-body">
+        `;
+
+        // Summary
+        if (review.review_summary) {
+            html += `<div class="review-section">
+                <div class="review-summary">${review.review_summary}</div>
+            </div>`;
+        }
+
+        // Stats
+        html += `<div class="review-stats">`;
+        if (writes.people_log) html += `<span class="review-stat"><strong>${writes.people_log}</strong> people entries</span>`;
+        if (writes.product_evidence) html += `<span class="review-stat"><strong>${writes.product_evidence}</strong> product evidence</span>`;
+        if (writes.product_decisions) html += `<span class="review-stat"><strong>${writes.product_decisions}</strong> decisions</span>`;
+        if (writes.project_updates) html += `<span class="review-stat"><strong>${writes.project_updates}</strong> project updates</span>`;
+        if (writes.reflections) html += `<span class="review-stat"><strong>${writes.reflections}</strong> reflections</span>`;
+        html += `</div>`;
+
+        // People entries
+        if (review.people_entries?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">People (${review.people_entries.length})</div>`;
+            for (const e of review.people_entries) {
+                html += `<div class="review-item"><span class="review-item-label">${e.person_name}:</span> ${e.entry}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Product evidence
+        if (review.product_evidence?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Product Evidence (${review.product_evidence.length})</div>`;
+            for (const e of review.product_evidence) {
+                html += `<div class="review-item"><span class="review-item-label">${e.product_name}:</span> ${e.evidence}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Decisions
+        if (review.product_decisions?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Decisions (${review.product_decisions.length})</div>`;
+            for (const e of review.product_decisions) {
+                html += `<div class="review-item"><span class="review-item-label">${e.product_name || 'General'}:</span> ${e.decision}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Project updates
+        if (review.project_updates?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Project Updates (${review.project_updates.length})</div>`;
+            for (const e of review.project_updates) {
+                html += `<div class="review-item"><span class="review-item-label">${e.project_name}:</span> ${e.update}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Reflections
+        if (review.reflections?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Reflections (${review.reflections.length})</div>`;
+            for (const e of review.reflections) {
+                html += `<div class="review-item">
+                    <div>${e.observation}</div>
+                    ${e.coach_perspective ? `<div style="margin-top: 0.3rem; color: var(--text-muted); font-style: italic;">Coach: ${e.coach_perspective}</div>` : ''}
+                </div>`;
+            }
+            html += `</div>`;
+        }
+
+        // Migrated tasks
+        if (review.migrated_tasks?.length) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Carry Forward (${review.migrated_tasks.length})</div>`;
+            for (const t of review.migrated_tasks) {
+                html += `<div class="review-item">→ ${t}</div>`;
+            }
+            html += `</div>`;
+        }
+
+        html += `</div>`;
+        container.innerHTML = html;
+
+        // Append after the daily sections
+        const sections = document.getElementById('dailySections');
+        if (sections) {
+            sections.parentNode.insertBefore(container, sections.nextSibling);
         }
     }
 
