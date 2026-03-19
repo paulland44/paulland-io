@@ -4376,31 +4376,43 @@
             document.querySelectorAll('.voice-btn.recording').forEach(b => b.classList.remove('recording'));
         }
 
-        // Mark as recording FIRST (before creating recognition)
         btn.classList.add('recording');
         btn.title = 'Recording... click to stop';
 
         let wantRecording = true;
         let restartTimer = null;
+        let gotResult = false;
+        let startCount = 0;
+
+        // Detect if continuous mode works by tracking rapid restarts
+        const isChrome = /Chrome/.test(navigator.userAgent) && !/Edg/.test(navigator.userAgent);
 
         function createAndStart() {
             if (!wantRecording) return;
+            startCount++;
+
+            // If we've restarted 3+ times without getting a result, continuous mode is broken
+            // Switch to showing a message
+            if (startCount > 3 && !gotResult) {
+                console.warn('Speech recognition: continuous mode not working, switching to single-shot');
+            }
 
             const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
+            // Only use continuous on actual Chrome (not Edge/other Chromium)
+            recognition.continuous = isChrome;
+            recognition.interimResults = false; // Only final results — more reliable cross-browser
             recognition.lang = 'en-GB';
             recognition.maxAlternatives = 1;
 
             recognition.onresult = (event) => {
+                gotResult = true;
+                startCount = 0; // Reset restart counter on success
                 for (let i = event.resultIndex; i < event.results.length; i++) {
-                    if (event.results[i].isFinal) {
-                        const transcript = event.results[i][0].transcript;
-                        if (editor && transcript.trim()) {
-                            editor.chain().focus().insertContent(transcript + ' ').run();
-                            scheduleDailySave();
-                            updateSaveStatus('unsaved');
-                        }
+                    const transcript = event.results[i][0].transcript;
+                    if (editor && transcript.trim()) {
+                        editor.chain().focus().insertContent(transcript + ' ').run();
+                        scheduleDailySave();
+                        updateSaveStatus('unsaved');
                     }
                 }
             };
@@ -4414,16 +4426,16 @@
                     activeRecognition = null;
                     alert('Microphone access denied. Please allow microphone access in your browser settings.');
                 }
-                // For 'no-speech', 'aborted', 'network' — let onend handle restart
+                // no-speech is normal — user paused. Let onend restart.
             };
 
             recognition.onend = () => {
-                // Auto-restart if we still want to record
-                // Use a small delay to avoid rapid restart loops
                 if (wantRecording && btn.classList.contains('recording')) {
+                    // Increase delay if we haven't got results (avoids tight loop)
+                    const delay = gotResult ? 100 : Math.min(1000 * startCount, 3000);
                     restartTimer = setTimeout(() => {
                         if (wantRecording) createAndStart();
-                    }, 300);
+                    }, delay);
                 }
             };
 
@@ -4432,16 +4444,14 @@
                 activeRecognition = recognition;
             } catch (err) {
                 console.error('Failed to start speech recognition:', err);
-                // Retry after a delay
                 if (wantRecording) {
                     restartTimer = setTimeout(() => {
                         if (wantRecording) createAndStart();
-                    }, 1000);
+                    }, 2000);
                 }
             }
         }
 
-        // Store cleanup function on the button for stopVoiceCapture
         btn._voiceCleanup = () => {
             wantRecording = false;
             if (restartTimer) clearTimeout(restartTimer);
