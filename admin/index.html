@@ -281,6 +281,29 @@
         .type-reflection { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
         .type-note { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
 
+        /* Status badges */
+        .status-active { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
+        .status-on_hold { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .status-completed { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+        .status-sunset { background: rgba(196, 80, 80, 0.15); color: var(--red); }
+        .status-planning { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .status-in_progress { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
+
+        /* Evidence type badges */
+        .evidence-observation { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+        .evidence-customer_feedback { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .evidence-metric { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .evidence-decision { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
+
+        /* Log entry styling */
+        .log-entry { padding: 0.8rem 0; border-bottom: 1px solid var(--border); }
+        .log-entry:last-child { border-bottom: none; }
+        .log-date { font-size: 0.8rem; color: var(--accent); letter-spacing: 0.06em; margin-bottom: 0.3rem; }
+        .log-source { font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem; }
+        .log-body { color: var(--text-body); font-size: 0.95rem; line-height: 1.7; }
+        .section-heading { font-size: 0.85rem; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin: 1.5rem 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+        .section-heading:first-child { margin-top: 0; }
+
         .tag {
             display: inline-block;
             padding: 0.1rem 0.4rem;
@@ -1716,6 +1739,15 @@
                 <button class="nav-item" data-view="tags">
                     Tags
                 </button>
+                <button class="nav-item" data-view="people">
+                    People <span class="count" id="countPeople">-</span>
+                </button>
+                <button class="nav-item" data-view="products">
+                    Products <span class="count" id="countProducts">-</span>
+                </button>
+                <button class="nav-item" data-view="projects">
+                    Projects <span class="count" id="countProjects">-</span>
+                </button>
             </div>
             <div class="sidebar-footer">
                 Last refreshed: <span id="lastRefresh">-</span>
@@ -1801,13 +1833,16 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, feedItems, feeds] = await Promise.all([
+        const [articles, thoughts, signals, reflections, feedItems, feeds, people, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
+            db.from('people').select('id', { count: 'exact', head: true }),
+            db.from('products').select('id', { count: 'exact', head: true }),
+            db.from('projects').select('id', { count: 'exact', head: true }),
         ]);
 
         document.getElementById('countArticles').textContent = articles.count || 0;
@@ -1815,6 +1850,9 @@
         document.getElementById('countReflections').textContent = reflections.count || 0;
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
+        document.getElementById('countPeople').textContent = people.count || 0;
+        document.getElementById('countProducts').textContent = products.count || 0;
+        document.getElementById('countProjects').textContent = projects.count || 0;
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
 
         // Load all unique tags for autocomplete
@@ -1836,6 +1874,9 @@
             case 'feed-items': return loadFeedItems();
             case 'feeds': return loadFeeds();
             case 'tags': return loadTags();
+            case 'people': return loadPeople();
+            case 'products': return loadProducts();
+            case 'projects': return loadProjects();
         }
     }
 
@@ -3330,6 +3371,342 @@
                 <td class="${f.active ? 'captured-yes' : 'captured-no'}">${f.active ? 'Yes' : 'No'}</td>
             </tr>
         `).join('');
+    }
+
+    // ─── People ────────────────────────────────────────────────
+    async function loadPeople() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading people</div>';
+
+        const { data, error } = await db
+            .from('people')
+            .select('id, name, role, organization, tags')
+            .order('name', { ascending: true });
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No people yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">People</h2>
+                <input type="text" class="search-input" placeholder="Filter by name..." id="searchPeople">
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Role</th>
+                            <th>Organisation</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody id="peopleBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderPeopleRows(data);
+
+        document.getElementById('searchPeople').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            const filtered = data.filter(p =>
+                (p.name || '').toLowerCase().includes(q)
+            );
+            renderPeopleRows(filtered);
+        });
+    }
+
+    function renderPeopleRows(data) {
+        const tbody = document.getElementById('peopleBody');
+        tbody.innerHTML = data.map(p => `
+            <tr class="expandable" data-id="${p.id}">
+                <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                <td class="source-cell">${esc(p.role || '-')}</td>
+                <td class="source-cell">${esc(p.organization || '-')}</td>
+                <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', async () => {
+                const person = data.find(p => String(p.id) === row.dataset.id);
+                if (!person) return;
+                await openPersonModal(person);
+            });
+        });
+    }
+
+    async function openPersonModal(person) {
+        const meta = [];
+        if (person.role) meta.push(`<span>Role: ${esc(person.role)}</span>`);
+        if (person.organization) meta.push(`<span>Organisation: ${esc(person.organization)}</span>`);
+        if (person.tags?.length) meta.push(`<span>${person.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
+
+        document.getElementById('contentModalTitle').textContent = person.name || 'Untitled';
+        document.getElementById('contentModalMeta').innerHTML = meta.join('');
+
+        // Fetch log entries
+        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading log entries...</div>';
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        const { data: logs, error } = await db
+            .from('people_log')
+            .select('note_date, entry, source')
+            .eq('person_id', person.id)
+            .order('note_date', { ascending: false });
+
+        if (error) {
+            document.getElementById('contentModalBody').innerHTML = `<div class="empty">Error loading log: ${error.message}</div>`;
+            return;
+        }
+
+        if (!logs || !logs.length) {
+            document.getElementById('contentModalBody').innerHTML = '<em style="color:var(--text-muted)">No log entries.</em>';
+            return;
+        }
+
+        document.getElementById('contentModalBody').innerHTML = logs.map(l => `
+            <div class="log-entry">
+                <div class="log-date">${esc(l.note_date || '-')}${l.source ? `<span class="log-source">${esc(l.source)}</span>` : ''}</div>
+                <div class="log-body">${l.entry ? marked.parse(l.entry) : ''}</div>
+            </div>
+        `).join('');
+    }
+
+    // ─── Products ──────────────────────────────────────────────
+    async function loadProducts() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading products</div>';
+
+        const { data, error } = await db
+            .from('products')
+            .select('id, name, description, status, tags')
+            .order('name', { ascending: true });
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No products yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Products</h2>
+                <input type="text" class="search-input" placeholder="Filter by name..." id="searchProducts">
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderProductRows(data);
+
+        document.getElementById('searchProducts').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            const filtered = data.filter(p =>
+                (p.name || '').toLowerCase().includes(q)
+            );
+            renderProductRows(filtered);
+        });
+    }
+
+    function renderProductRows(data) {
+        const tbody = document.getElementById('productsBody');
+        tbody.innerHTML = data.map(p => `
+            <tr class="expandable" data-id="${p.id}">
+                <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                <td><span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}">${esc(p.status || '-')}</span></td>
+                <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', async () => {
+                const product = data.find(p => String(p.id) === row.dataset.id);
+                if (!product) return;
+                await openProductModal(product);
+            });
+        });
+    }
+
+    async function openProductModal(product) {
+        const meta = [];
+        if (product.status) meta.push(`<span>Status: <span class="type-badge status-${(product.status || '').replace(/\s+/g, '_')}">${esc(product.status)}</span></span>`);
+        if (product.tags?.length) meta.push(`<span>${product.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
+
+        document.getElementById('contentModalTitle').textContent = product.name || 'Untitled';
+        document.getElementById('contentModalMeta').innerHTML = meta.join('');
+
+        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading product details...</div>';
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        // Fetch evidence and decisions in parallel
+        const [evidenceRes, decisionsRes] = await Promise.all([
+            db.from('product_evidence').select('note_date, evidence, evidence_type').eq('product_id', product.id).order('note_date', { ascending: false }),
+            db.from('product_decisions').select('note_date, decision, context').eq('product_id', product.id).order('note_date', { ascending: false }),
+        ]);
+
+        let body = '';
+
+        // Description
+        if (product.description) {
+            body += `<div class="log-body">${marked.parse(product.description)}</div>`;
+        }
+
+        // Evidence Log
+        body += '<div class="section-heading">Evidence Log</div>';
+        if (evidenceRes.error) {
+            body += `<div class="empty">Error: ${evidenceRes.error.message}</div>`;
+        } else if (!evidenceRes.data?.length) {
+            body += '<em style="color:var(--text-muted)">No evidence entries.</em>';
+        } else {
+            body += evidenceRes.data.map(e => `
+                <div class="log-entry">
+                    <div class="log-date">${esc(e.note_date || '-')} <span class="type-badge evidence-${(e.evidence_type || '').replace(/\s+/g, '_')}">${esc(e.evidence_type || '-')}</span></div>
+                    <div class="log-body">${e.evidence ? marked.parse(e.evidence) : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        // Decisions
+        body += '<div class="section-heading">Decisions</div>';
+        if (decisionsRes.error) {
+            body += `<div class="empty">Error: ${decisionsRes.error.message}</div>`;
+        } else if (!decisionsRes.data?.length) {
+            body += '<em style="color:var(--text-muted)">No decisions.</em>';
+        } else {
+            body += decisionsRes.data.map(d => `
+                <div class="log-entry">
+                    <div class="log-date">${esc(d.note_date || '-')}</div>
+                    <div class="log-body"><strong>${esc(d.decision || '')}</strong>${d.context ? `<br><span style="color:var(--text-muted);font-size:0.9rem">${esc(d.context)}</span>` : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('contentModalBody').innerHTML = body;
+    }
+
+    // ─── Projects ──────────────────────────────────────────────
+    async function loadProjects() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading projects</div>';
+
+        // Fetch projects and products for name mapping
+        const [projectsRes, productsRes] = await Promise.all([
+            db.from('projects').select('id, name, product_id, status, description, tags').order('name', { ascending: true }),
+            db.from('products').select('id, name'),
+        ]);
+
+        if (projectsRes.error) { main.innerHTML = `<div class="empty">Error: ${projectsRes.error.message}</div>`; return; }
+
+        const data = projectsRes.data || [];
+        const productMap = {};
+        (productsRes.data || []).forEach(p => { productMap[p.id] = p.name; });
+
+        if (!data.length) { main.innerHTML = '<div class="empty">No projects yet.</div>'; return; }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Projects</h2>
+                <input type="text" class="search-input" placeholder="Filter by name..." id="searchProjects">
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Status</th>
+                            <th>Product</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody id="projectsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderProjectRows(data, productMap);
+
+        document.getElementById('searchProjects').addEventListener('input', e => {
+            const q = e.target.value.toLowerCase();
+            const filtered = data.filter(p =>
+                (p.name || '').toLowerCase().includes(q)
+            );
+            renderProjectRows(filtered, productMap);
+        });
+    }
+
+    function renderProjectRows(data, productMap) {
+        const tbody = document.getElementById('projectsBody');
+        tbody.innerHTML = data.map(p => `
+            <tr class="expandable" data-id="${p.id}">
+                <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                <td><span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}">${esc(p.status || '-')}</span></td>
+                <td class="source-cell">${esc(productMap[p.product_id] || '-')}</td>
+                <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', async () => {
+                const project = data.find(p => String(p.id) === row.dataset.id);
+                if (!project) return;
+                await openProjectModal(project, productMap);
+            });
+        });
+    }
+
+    async function openProjectModal(project, productMap) {
+        const meta = [];
+        if (project.status) meta.push(`<span>Status: <span class="type-badge status-${(project.status || '').replace(/\s+/g, '_')}">${esc(project.status)}</span></span>`);
+        if (project.product_id && productMap[project.product_id]) meta.push(`<span>Product: ${esc(productMap[project.product_id])}</span>`);
+        if (project.tags?.length) meta.push(`<span>${project.tags.map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</span>`);
+
+        document.getElementById('contentModalTitle').textContent = project.name || 'Untitled';
+        document.getElementById('contentModalMeta').innerHTML = meta.join('');
+
+        document.getElementById('contentModalBody').innerHTML = '<div class="loading">Loading project updates...</div>';
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        const { data: updates, error } = await db
+            .from('project_updates')
+            .select('note_date, update_text')
+            .eq('project_id', project.id)
+            .order('note_date', { ascending: false });
+
+        let body = '';
+
+        // Description
+        if (project.description) {
+            body += `<div class="log-body">${marked.parse(project.description)}</div>`;
+        }
+
+        // Updates
+        body += '<div class="section-heading">Updates</div>';
+        if (error) {
+            body += `<div class="empty">Error: ${error.message}</div>`;
+        } else if (!updates?.length) {
+            body += '<em style="color:var(--text-muted)">No updates.</em>';
+        } else {
+            body += updates.map(u => `
+                <div class="log-entry">
+                    <div class="log-date">${esc(u.note_date || '-')}</div>
+                    <div class="log-body">${u.update_text ? marked.parse(u.update_text) : ''}</div>
+                </div>
+            `).join('');
+        }
+
+        document.getElementById('contentModalBody').innerHTML = body;
     }
 
     // ─── Tags ─────────────────────────────────────────────────
