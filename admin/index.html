@@ -1772,6 +1772,39 @@
             margin-bottom: 1rem;
         }
 
+        /* Voice capture */
+        .voice-btn {
+            padding: 0.2rem 0.45rem;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 2px;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            line-height: 1;
+        }
+
+        .voice-btn:hover {
+            border-color: var(--border-hover);
+            color: var(--star);
+        }
+
+        .voice-btn.recording {
+            color: var(--red);
+            border-color: var(--red);
+            animation: voice-pulse 1.2s ease-in-out infinite;
+        }
+
+        @keyframes voice-pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .voice-btn.unsupported {
+            display: none;
+        }
+
     </style>
 </head>
 <body>
@@ -2604,7 +2637,7 @@
         );
 
         // Build toolbars
-        buildToolbar('toolbarTasks', dailyEditors.tasks);
+        buildToolbar('toolbarTasks', dailyEditors.tasks, { voice: false });
 
         await new Promise(r => requestAnimationFrame(r));
 
@@ -2963,7 +2996,7 @@
         return { markdown, structured };
     }
 
-    function buildToolbar(containerId, editor) {
+    function buildToolbar(containerId, editor, options = {}) {
         const container = document.getElementById(containerId);
         if (!container || !editor) return;
 
@@ -2996,6 +3029,14 @@
                 });
             }
         });
+
+        // Add voice button for notes and meeting editors
+        if (options.voice !== false) {
+            const sep = document.createElement('span');
+            sep.className = 'daily-toolbar-sep';
+            container.appendChild(sep);
+            container.appendChild(createVoiceButton(editor));
+        }
 
         editor.on('selectionUpdate', () => updateToolbarActive(container, buttons));
         editor.on('update', () => updateToolbarActive(container, buttons));
@@ -4298,6 +4339,99 @@
             appSettings.showThumbnails = e.target.checked;
             saveSettings();
         });
+    }
+
+    // ─── Voice Capture ──────────────────────────────────────────
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let activeRecognition = null;
+
+    function createVoiceButton(editor) {
+        const btn = document.createElement('button');
+        btn.className = 'voice-btn' + (SpeechRecognition ? '' : ' unsupported');
+        btn.title = SpeechRecognition ? 'Voice capture (click to start/stop)' : 'Speech recognition not supported in this browser';
+        btn.textContent = '🎤';
+
+        if (!SpeechRecognition) return btn;
+
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (btn.classList.contains('recording')) {
+                stopVoiceCapture(btn);
+            } else {
+                startVoiceCapture(btn, editor);
+            }
+        });
+
+        return btn;
+    }
+
+    function startVoiceCapture(btn, editor) {
+        // Stop any other active recording
+        if (activeRecognition) {
+            activeRecognition.stop();
+            document.querySelectorAll('.voice-btn.recording').forEach(b => b.classList.remove('recording'));
+        }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-GB';
+
+        let finalTranscript = '';
+
+        recognition.onresult = (event) => {
+            let interim = '';
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript + ' ';
+                    // Insert final text into editor at cursor
+                    if (editor) {
+                        editor.chain().focus().insertContent(transcript + ' ').run();
+                        scheduleDailySave();
+                        updateSaveStatus('unsaved');
+                    }
+                    finalTranscript = '';
+                }
+            }
+        };
+
+        recognition.onerror = (event) => {
+            console.warn('Speech recognition error:', event.error);
+            if (event.error === 'not-allowed') {
+                alert('Microphone access denied. Please allow microphone access in your browser settings.');
+            }
+            stopVoiceCapture(btn);
+        };
+
+        recognition.onend = () => {
+            // If still marked as recording, restart (continuous mode sometimes stops)
+            if (btn.classList.contains('recording')) {
+                try { recognition.start(); } catch {}
+            }
+        };
+
+        try {
+            recognition.start();
+            activeRecognition = recognition;
+            btn.classList.add('recording');
+            btn.title = 'Recording... click to stop';
+        } catch (err) {
+            console.error('Failed to start speech recognition:', err);
+        }
+    }
+
+    function stopVoiceCapture(btn) {
+        if (activeRecognition) {
+            btn.classList.remove('recording');
+            const rec = activeRecognition;
+            activeRecognition = null;
+            try { rec.stop(); } catch {}
+        }
+        btn.title = 'Voice capture (click to start/stop)';
     }
 
     // ─── Content modal ─────────────────────────────────────────
