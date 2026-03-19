@@ -2560,16 +2560,31 @@
         await loadMeetingsWithCalendar(data);
 
         // Restore review results if this note was already reviewed
-        if (data?.metadata?.last_reviewed && data.metadata.review_data) {
+        if (data?.metadata?.last_reviewed) {
             const btn = document.getElementById('dailyReviewBtn');
             if (btn) {
                 btn.textContent = 'Reviewed ✓';
                 btn.classList.add('reviewed');
             }
-            displayReviewResults({
-                review: data.metadata.review_data,
-                writes: data.metadata.review_writes || {},
-            });
+
+            // Full review_data available (new format)
+            if (data.metadata.review_data) {
+                displayReviewResults({
+                    review: data.metadata.review_data,
+                    writes: data.metadata.review_writes || {},
+                });
+            } else {
+                // Old format — reconstruct from available metadata
+                const partialReview = {
+                    review_summary: data.metadata.review_summary || '',
+                    migrated_tasks: data.metadata.migrated_tasks || [],
+                    context_notes: data.metadata.context_notes || [],
+                };
+                displayReviewResults({
+                    review: partialReview,
+                    writes: data.metadata.review_writes || {},
+                });
+            }
         }
     }
 
