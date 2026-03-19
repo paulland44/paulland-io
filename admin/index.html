@@ -3304,7 +3304,7 @@
         const tbody = document.getElementById('articlesBody');
         tbody.innerHTML = data.map(a => `
             <tr class="expandable" data-id="${a.id}">
-                <td class="title-cell" style="display: flex; align-items: center; gap: 0.5rem;">
+                <td class="title-cell"${appSettings.showThumbnails ? ' style="display: flex; align-items: center; gap: 0.5rem;"' : ''}>
                     ${appSettings.showThumbnails
                         ? (a.metadata?.image_url
                             ? `<img src="${a.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
