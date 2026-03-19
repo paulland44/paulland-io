@@ -1136,6 +1136,49 @@
             color: var(--text-muted);
         }
 
+        /* Extended task states: migrated [>] and cancelled [-] */
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="migrated"] > label input[type="checkbox"] {
+            border-color: var(--yellow);
+            background: var(--yellow);
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="migrated"] > label input[type="checkbox"]::after {
+            content: '▸';
+            position: absolute;
+            top: -1px;
+            left: 2px;
+            font-size: 12px;
+            color: var(--void);
+            font-weight: 700;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="migrated"] > div > p {
+            text-decoration: line-through;
+            color: var(--yellow);
+            opacity: 0.7;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="cancelled"] > label input[type="checkbox"] {
+            border-color: var(--red);
+            background: var(--red);
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="cancelled"] > label input[type="checkbox"]::after {
+            content: '—';
+            position: absolute;
+            top: -2px;
+            left: 2px;
+            font-size: 12px;
+            color: var(--void);
+            font-weight: 700;
+        }
+
+        .daily-editor-wrap .ProseMirror ul[data-type="taskList"] li[data-state="cancelled"] > div > p {
+            text-decoration: line-through;
+            color: var(--red);
+            opacity: 0.5;
+        }
+
         /* Placeholder */
         .daily-editor-wrap .ProseMirror p.is-editor-empty:first-child::before {
             content: attr(data-placeholder);
@@ -1821,14 +1864,18 @@
     function mdToHtml(md) {
         if (!md || !md.trim()) return '';
         // Convert task list markdown to HTML that Tiptap understands
-        // - [ ] task → <li data-type="taskItem" data-checked="false">task</li>
-        // - [x] task → <li data-type="taskItem" data-checked="true">task</li>
+        // - [ ] task → open
+        // - [x] task → done
+        // - [>] task → migrated
+        // - [-] task → cancelled
         let html = marked.parse(md);
         // marked renders - [ ] as list items with checkbox text — convert to tiptap format
         html = html.replace(/<li>\[[ ]\]\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
         html = html.replace(/<li>\[x\]\s*/gi, '<li data-type="taskItem" data-checked="true"><p>');
+        html = html.replace(/<li>\[&gt;\]\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
+        html = html.replace(/<li>\[-\]\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
         // Close <p> tags for task items
-        html = html.replace(/(data-checked="(?:true|false)"><p>[^<]*?)(<\/li>)/g, '$1</p>$2');
+        html = html.replace(/(data-type="taskItem"[^>]*><p>[^<]*?)(<\/li>)/g, '$1</p>$2');
         // Wrap task list items in a task list
         html = html.replace(/<ul>\s*(<li data-type="taskItem")/g, '<ul data-type="taskList">$1');
         return html;
@@ -1842,15 +1889,20 @@
             bulletListMarker: '-',
             codeBlockStyle: 'fenced',
         });
-        // Handle tiptap task list items
+        // Handle tiptap task list items with extended states
         td.addRule('taskItem', {
             filter: function(node) {
                 return node.nodeName === 'LI' && node.getAttribute('data-type') === 'taskItem';
             },
             replacement: function(content, node) {
                 const checked = node.getAttribute('data-checked') === 'true';
+                const state = node.getAttribute('data-state');
                 const text = content.replace(/^\n+/, '').replace(/\n+$/, '').trim();
-                return (checked ? '- [x] ' : '- [ ] ') + text + '\n';
+                let marker = '- [ ] ';
+                if (state === 'migrated') marker = '- [>] ';
+                else if (state === 'cancelled') marker = '- [-] ';
+                else if (checked) marker = '- [x] ';
+                return marker + text + '\n';
             }
         });
         td.addRule('taskList', {
@@ -1894,6 +1946,39 @@
                 scheduleDailySave();
                 updateSaveStatus('unsaved');
             },
+        });
+
+        // Add right-click handler to cycle task states: open → done → migrated → cancelled → open
+        element.addEventListener('contextmenu', (e) => {
+            const checkbox = e.target.closest('input[type="checkbox"]');
+            if (!checkbox) return;
+            e.preventDefault();
+            const li = checkbox.closest('li[data-type="taskItem"]');
+            if (!li) return;
+
+            const currentState = li.getAttribute('data-state');
+            const isChecked = li.getAttribute('data-checked') === 'true';
+
+            // Cycle: open → done → migrated → cancelled → open
+            if (!isChecked && !currentState) {
+                // open → done
+                li.setAttribute('data-checked', 'true');
+                checkbox.checked = true;
+            } else if (isChecked && !currentState) {
+                // done → migrated
+                li.setAttribute('data-state', 'migrated');
+            } else if (currentState === 'migrated') {
+                // migrated → cancelled
+                li.setAttribute('data-state', 'cancelled');
+            } else if (currentState === 'cancelled') {
+                // cancelled → open
+                li.setAttribute('data-checked', 'false');
+                li.removeAttribute('data-state');
+                checkbox.checked = false;
+            }
+
+            scheduleDailySave();
+            updateSaveStatus('unsaved');
         });
 
         return editor;
