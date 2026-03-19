@@ -4371,66 +4371,95 @@
     function startVoiceCapture(btn, editor) {
         // Stop any other active recording
         if (activeRecognition) {
-            activeRecognition.stop();
+            try { activeRecognition.abort(); } catch {}
+            activeRecognition = null;
             document.querySelectorAll('.voice-btn.recording').forEach(b => b.classList.remove('recording'));
         }
 
-        const recognition = new SpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-GB';
+        // Mark as recording FIRST (before creating recognition)
+        btn.classList.add('recording');
+        btn.title = 'Recording... click to stop';
 
-        let finalTranscript = '';
+        let wantRecording = true;
+        let restartTimer = null;
 
-        recognition.onresult = (event) => {
-            let interim = '';
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-                if (event.results[i].isFinal) {
-                    finalTranscript += transcript + ' ';
-                    // Insert final text into editor at cursor
-                    if (editor) {
-                        editor.chain().focus().insertContent(transcript + ' ').run();
-                        scheduleDailySave();
-                        updateSaveStatus('unsaved');
+        function createAndStart() {
+            if (!wantRecording) return;
+
+            const recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-GB';
+            recognition.maxAlternatives = 1;
+
+            recognition.onresult = (event) => {
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    if (event.results[i].isFinal) {
+                        const transcript = event.results[i][0].transcript;
+                        if (editor && transcript.trim()) {
+                            editor.chain().focus().insertContent(transcript + ' ').run();
+                            scheduleDailySave();
+                            updateSaveStatus('unsaved');
+                        }
                     }
-                    finalTranscript = '';
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.warn('Speech recognition error:', event.error);
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+                    wantRecording = false;
+                    btn.classList.remove('recording');
+                    btn.title = 'Voice capture (click to start/stop)';
+                    activeRecognition = null;
+                    alert('Microphone access denied. Please allow microphone access in your browser settings.');
+                }
+                // For 'no-speech', 'aborted', 'network' — let onend handle restart
+            };
+
+            recognition.onend = () => {
+                // Auto-restart if we still want to record
+                // Use a small delay to avoid rapid restart loops
+                if (wantRecording && btn.classList.contains('recording')) {
+                    restartTimer = setTimeout(() => {
+                        if (wantRecording) createAndStart();
+                    }, 300);
+                }
+            };
+
+            try {
+                recognition.start();
+                activeRecognition = recognition;
+            } catch (err) {
+                console.error('Failed to start speech recognition:', err);
+                // Retry after a delay
+                if (wantRecording) {
+                    restartTimer = setTimeout(() => {
+                        if (wantRecording) createAndStart();
+                    }, 1000);
                 }
             }
-        };
-
-        recognition.onerror = (event) => {
-            console.warn('Speech recognition error:', event.error);
-            if (event.error === 'not-allowed') {
-                alert('Microphone access denied. Please allow microphone access in your browser settings.');
-            }
-            stopVoiceCapture(btn);
-        };
-
-        recognition.onend = () => {
-            // If still marked as recording, restart (continuous mode sometimes stops)
-            if (btn.classList.contains('recording')) {
-                try { recognition.start(); } catch {}
-            }
-        };
-
-        try {
-            recognition.start();
-            activeRecognition = recognition;
-            btn.classList.add('recording');
-            btn.title = 'Recording... click to stop';
-        } catch (err) {
-            console.error('Failed to start speech recognition:', err);
         }
+
+        // Store cleanup function on the button for stopVoiceCapture
+        btn._voiceCleanup = () => {
+            wantRecording = false;
+            if (restartTimer) clearTimeout(restartTimer);
+            if (activeRecognition) {
+                try { activeRecognition.abort(); } catch {}
+                activeRecognition = null;
+            }
+        };
+
+        createAndStart();
     }
 
     function stopVoiceCapture(btn) {
-        if (activeRecognition) {
-            btn.classList.remove('recording');
-            const rec = activeRecognition;
-            activeRecognition = null;
-            try { rec.stop(); } catch {}
+        if (btn._voiceCleanup) {
+            btn._voiceCleanup();
+            btn._voiceCleanup = null;
         }
+        btn.classList.remove('recording');
         btn.title = 'Voice capture (click to start/stop)';
     }
 
