@@ -2130,45 +2130,56 @@
 
     function mdToHtml(md) {
         if (!md || !md.trim()) return '';
-        // Pre-process: convert task checkboxes to markers BEFORE marked.parse
-        // This avoids issues with marked's GFM checkbox rendering interfering
-        let processed = md;
-        processed = processed.replace(/^(\s*)- \[ \] /gm, '$1- __TASK_OPEN__ ');
-        processed = processed.replace(/^(\s*)- \[x\] /gmi, '$1- __TASK_DONE__ ');
-        processed = processed.replace(/^(\s*)- \[>\] /gm, '$1- __TASK_MIGRATED__ ');
-        processed = processed.replace(/^(\s*)- \[-\] /gm, '$1- __TASK_CANCELLED__ ');
 
-        let html = marked.parse(processed);
+        // Split into blocks: task-list lines vs everything else.
+        // Task lines are converted directly to Tiptap HTML (bypassing marked entirely).
+        // Non-task content goes through marked.parse() as normal.
+        const lines = md.split('\n');
+        const blocks = [];
+        let currentTask = [];
+        let currentOther = [];
 
-        // Post-process: convert markers to Tiptap task item format
-        html = html.replace(/<li>__TASK_OPEN__\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
-        html = html.replace(/<li>__TASK_DONE__\s*/g, '<li data-type="taskItem" data-checked="true"><p>');
-        html = html.replace(/<li>__TASK_MIGRATED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
-        html = html.replace(/<li>__TASK_CANCELLED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
-
-        // Also handle any that marked rendered with <p> wrappers inside <li>
-        html = html.replace(/<li><p>__TASK_OPEN__\s*/g, '<li data-type="taskItem" data-checked="false"><p>');
-        html = html.replace(/<li><p>__TASK_DONE__\s*/g, '<li data-type="taskItem" data-checked="true"><p>');
-        html = html.replace(/<li><p>__TASK_MIGRATED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="migrated"><p>');
-        html = html.replace(/<li><p>__TASK_CANCELLED__\s*/g, '<li data-type="taskItem" data-checked="true" data-state="cancelled"><p>');
-
-        // Close <p> tags for task items (handle both single-line and multi-line content)
-        html = html.replace(/(data-type="taskItem"[^>]*><p>)([\s\S]*?)(<\/li>)/g, function(match, prefix, content, suffix) {
-            // If content doesn't already end with </p>, add it
-            if (!content.trim().endsWith('</p>')) {
-                return prefix + content + '</p>' + suffix;
+        for (const line of lines) {
+            if (/^\s*- \[[ x>\-]\] /i.test(line)) {
+                if (currentOther.length) {
+                    blocks.push({ type: 'md', text: currentOther.join('\n') });
+                    currentOther = [];
+                }
+                currentTask.push(line);
+            } else {
+                if (currentTask.length) {
+                    blocks.push({ type: 'tasks', lines: currentTask });
+                    currentTask = [];
+                }
+                currentOther.push(line);
             }
-            return match;
-        });
+        }
+        if (currentTask.length) blocks.push({ type: 'tasks', lines: currentTask });
+        if (currentOther.length) blocks.push({ type: 'md', text: currentOther.join('\n') });
 
-        // Wrap task list items in a task list
-        html = html.replace(/<ul>\s*(<li data-type="taskItem")/g, '<ul data-type="taskList">$1');
-
-        // Also handle cases where a non-task <ul> contains task items (mixed lists after headers)
-        html = html.replace(/<li data-type="taskItem"/g, function(match) {
-            return match; // Keep as-is, the wrapper will be added below
-        });
-
+        let html = '';
+        for (const block of blocks) {
+            if (block.type === 'md') {
+                html += marked.parse(block.text);
+            } else {
+                // Build Tiptap task list HTML directly — no marked involved
+                html += '<ul data-type="taskList">';
+                for (const line of block.lines) {
+                    const match = line.match(/^\s*- \[([ x>\-])\] (.*)$/i);
+                    if (!match) continue;
+                    const marker = match[1];
+                    const text = match[2];
+                    let checked = 'false';
+                    let stateAttr = '';
+                    if (marker === 'x' || marker === 'X') checked = 'true';
+                    else if (marker === '>') { checked = 'true'; stateAttr = ' data-state="migrated"'; }
+                    else if (marker === '-') { checked = 'true'; stateAttr = ' data-state="cancelled"'; }
+                    const inlineHtml = marked.parseInline(text);
+                    html += '<li data-type="taskItem" data-checked="' + checked + '"' + stateAttr + '><p>' + inlineHtml + '</p></li>';
+                }
+                html += '</ul>';
+            }
+        }
         return html;
     }
 
