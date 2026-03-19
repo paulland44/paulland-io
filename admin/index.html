@@ -1170,6 +1170,17 @@
             margin: 1rem 0;
         }
 
+        .daily-editor-wrap .ProseMirror a {
+            color: var(--accent);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+            cursor: pointer;
+        }
+
+        .daily-editor-wrap .ProseMirror a:hover {
+            color: var(--star);
+        }
+
         /* Meeting cards */
         .meeting-cards {
             display: flex;
@@ -1779,6 +1790,7 @@
     let TiptapTaskList = null;
     let TiptapTaskItem = null;
     let TiptapPlaceholder = null;
+    let TiptapLink = null;
     let TiptapMarkdown = null;
     let meetingIdCounter = 0;
 
@@ -1791,12 +1803,13 @@
             // Import WITHOUT ?bundle so esm.sh deduplicates shared ProseMirror
             // dependencies. With ?bundle, each extension inlines its own copy
             // of ProseMirror, causing "keyed plugin" conflicts across editors.
-            [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder] = await Promise.all([
+            [TiptapCore, TiptapStarterKit, TiptapTaskList, TiptapTaskItem, TiptapPlaceholder, TiptapLink] = await Promise.all([
                 import('https://esm.sh/@tiptap/core@2'),
                 import('https://esm.sh/@tiptap/starter-kit@2'),
                 import('https://esm.sh/@tiptap/extension-task-list@2'),
                 import('https://esm.sh/@tiptap/extension-task-item@2'),
                 import('https://esm.sh/@tiptap/extension-placeholder@2'),
+                import('https://esm.sh/@tiptap/extension-link@2'),
             ]);
             TiptapMarkdown = null;
         } catch (err) {
@@ -1857,6 +1870,7 @@
         const TaskList = TiptapTaskList.TaskList || TiptapTaskList.default;
         const TaskItem = TiptapTaskItem.TaskItem || TiptapTaskItem.default;
         const Placeholder = TiptapPlaceholder.Placeholder || TiptapPlaceholder.default;
+        const Link = TiptapLink.Link || TiptapLink.default;
 
         // Convert markdown content to HTML for Tiptap
         const htmlContent = content ? mdToHtml(content) : '';
@@ -1868,6 +1882,12 @@
                 TaskList,
                 TaskItem.configure({ nested: true }),
                 Placeholder.configure({ placeholder }),
+                Link.configure({
+                    openOnClick: true,
+                    autolink: true,
+                    linkOnPaste: true,
+                    HTMLAttributes: { target: '_blank', rel: 'noopener' },
+                }),
             ],
             content: htmlContent,
             onUpdate: () => {
