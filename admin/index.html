@@ -2558,6 +2558,19 @@
 
         // Load meetings: first from saved data, then merge with calendar events
         await loadMeetingsWithCalendar(data);
+
+        // Restore review results if this note was already reviewed
+        if (data?.metadata?.last_reviewed && data.metadata.review_data) {
+            const btn = document.getElementById('dailyReviewBtn');
+            if (btn) {
+                btn.textContent = 'Reviewed ✓';
+                btn.classList.add('reviewed');
+            }
+            displayReviewResults({
+                review: data.metadata.review_data,
+                writes: data.metadata.review_writes || {},
+            });
+        }
     }
 
     async function loadMeetingsWithCalendar(data) {
@@ -3054,6 +3067,7 @@
         if (writes.product_decisions) html += `<span class="review-stat"><strong>${writes.product_decisions}</strong> decisions</span>`;
         if (writes.project_updates) html += `<span class="review-stat"><strong>${writes.project_updates}</strong> project updates</span>`;
         if (writes.reflections) html += `<span class="review-stat"><strong>${writes.reflections}</strong> reflections</span>`;
+        if (writes.tasks_migrated) html += `<span class="review-stat"><strong>${writes.tasks_migrated}</strong> tasks migrated</span>`;
         html += `</div>`;
 
         // People entries

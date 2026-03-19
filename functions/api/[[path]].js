@@ -335,7 +335,7 @@ async function handleDailyReview(request, env) {
     completed_at: new Date().toISOString(),
   });
 
-  // 7. Update daily note metadata with review results
+  // 7. Update daily note metadata with review results (store full review for persistence)
   const existingMeta = dailyNote.metadata || {};
   await supabasePatch(supabaseUrl, serviceKey,
     `daily_notes?note_date=eq.${note_date}`, {
@@ -345,13 +345,76 @@ async function handleDailyReview(request, env) {
         review_summary: aiResult.review_summary || '',
         migrated_tasks: aiResult.migrated_tasks || [],
         context_notes: aiResult.context_notes || [],
+        review_data: aiResult,
+        review_writes: writeResults,
       },
     });
+
+  // 8. Migrate tasks to next day
+  let tasksMigrated = 0;
+  const migratedTasks = aiResult.migrated_tasks || [];
+  if (migratedTasks.length > 0) {
+    // Calculate next day
+    const d = new Date(note_date + 'T12:00:00Z');
+    d.setDate(d.getDate() + 1);
+    const nextDate = d.toISOString().split('T')[0];
+
+    // Fetch existing next-day note (if any)
+    const nextNotes = await supabaseGet(supabaseUrl, serviceKey,
+      `daily_notes?note_date=eq.${nextDate}&limit=1`);
+    const nextNote = nextNotes.length ? nextNotes[0] : null;
+
+    // Build migrated tasks markdown
+    const migratedMd = migratedTasks.map(t => `- [ ] ${t}`).join('\n');
+    const header = `## Tasks (migrated from ${note_date})\n`;
+
+    let newTasks = '';
+    if (nextNote && nextNote.tasks && nextNote.tasks.trim()) {
+      // Append migrated tasks to existing tasks (avoid duplicates)
+      const existingLower = nextNote.tasks.toLowerCase();
+      const uniqueTasks = migratedTasks.filter(t =>
+        !existingLower.includes(t.toLowerCase().substring(0, 30))
+      );
+      if (uniqueTasks.length > 0) {
+        const uniqueMd = uniqueTasks.map(t => `- [ ] ${t}`).join('\n');
+        newTasks = nextNote.tasks + '\n\n' + header + uniqueMd;
+        tasksMigrated = uniqueTasks.length;
+      }
+    } else {
+      // Create new tasks section
+      newTasks = header + migratedMd;
+      tasksMigrated = migratedTasks.length;
+    }
+
+    if (tasksMigrated > 0) {
+      // Upsert next day's note with migrated tasks
+      const upsertBody = {
+        note_date: nextDate,
+        tasks: newTasks,
+        notes: nextNote?.notes || '',
+        meetings: nextNote?.meetings || '',
+      };
+
+      await fetch(
+        `${supabaseUrl}/rest/v1/daily_notes?on_conflict=note_date`,
+        {
+          method: 'POST',
+          headers: {
+            'apikey': serviceKey,
+            'Authorization': `Bearer ${serviceKey}`,
+            'Content-Type': 'application/json',
+            'Prefer': 'resolution=merge-duplicates,return=minimal',
+          },
+          body: JSON.stringify(upsertBody),
+        }
+      );
+    }
+  }
 
   return json({
     ok: true,
     review: aiResult,
-    writes: writeResults,
+    writes: { ...writeResults, tasks_migrated: tasksMigrated },
   });
 }
 
