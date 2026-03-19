@@ -1224,6 +1224,79 @@
             color: var(--star);
         }
 
+        /* Stoic Challenge */
+        .stoic-section {
+            border-color: rgba(200, 191, 168, 0.08);
+        }
+
+        .stoic-header {
+            cursor: pointer;
+        }
+
+        .stoic-header:hover {
+            background: rgba(200, 191, 168, 0.03);
+        }
+
+        .stoic-subtitle {
+            margin-left: auto;
+            font-size: 0.7rem;
+            font-style: italic;
+            opacity: 0.5;
+            text-transform: none;
+            letter-spacing: normal;
+        }
+
+        .stoic-section.expanded .meeting-card-chevron {
+            transform: rotate(90deg);
+        }
+
+        .stoic-content {
+            padding: 0.75rem 1rem;
+        }
+
+        .stoic-field {
+            margin-bottom: 0.75rem;
+        }
+
+        .stoic-field:last-child {
+            margin-bottom: 0;
+        }
+
+        .stoic-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 400;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+        }
+
+        .stoic-input {
+            width: 100%;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: 2px;
+            color: var(--text-body);
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            font-weight: 300;
+            line-height: 1.5;
+            padding: 0.5rem 0.75rem;
+            resize: vertical;
+            outline: none;
+        }
+
+        .stoic-input:focus {
+            border-color: var(--border-hover);
+            color: var(--star);
+        }
+
+        .stoic-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.5;
+        }
+
         /* Meeting cards */
         .meeting-cards {
             display: flex;
@@ -2066,6 +2139,27 @@
             </div>
 
             <div class="daily-sections" id="dailySections">
+                <div class="daily-section stoic-section" id="stoicSection">
+                    <div class="daily-section-header stoic-header" id="stoicToggle">
+                        <span class="meeting-card-chevron">&#x25B8;</span>
+                        <span>Stoic Challenge</span>
+                        <span class="stoic-subtitle">Reframe frustration as opportunity</span>
+                    </div>
+                    <div class="stoic-content" id="stoicContent" style="display: none;">
+                        <div class="stoic-field">
+                            <label class="stoic-label">Frustration</label>
+                            <textarea class="stoic-input" id="stoicFrustration" placeholder="What went wrong or felt frustrating?" rows="2"></textarea>
+                        </div>
+                        <div class="stoic-field">
+                            <label class="stoic-label">Reframe</label>
+                            <textarea class="stoic-input" id="stoicReframe" placeholder="This is a test. The Stoics are asking: Can I stay calm? Can I adapt? Can I persist?" rows="2"></textarea>
+                        </div>
+                        <div class="stoic-field">
+                            <label class="stoic-label">Opportunity</label>
+                            <textarea class="stoic-input" id="stoicOpportunity" placeholder="What can I learn or gain from this?" rows="2"></textarea>
+                        </div>
+                    </div>
+                </div>
                 <div class="daily-section">
                     <div class="daily-section-header">
                         <span>\u2610</span>
@@ -2101,6 +2195,19 @@
         document.getElementById('dailyDateBtn').onclick = openDailyDatePicker;
         document.getElementById('addMeetingBtn').onclick = () => addMeetingCard('', '', { expanded: true });
 
+        // Wire Stoic Challenge toggle
+        document.getElementById('stoicToggle').onclick = () => {
+            const section = document.getElementById('stoicSection');
+            const content = document.getElementById('stoicContent');
+            section.classList.toggle('expanded');
+            content.style.display = section.classList.contains('expanded') ? 'block' : 'none';
+        };
+        // Wire Stoic inputs to auto-save
+        ['stoicFrustration', 'stoicReframe', 'stoicOpportunity'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', () => { scheduleDailySave(); updateSaveStatus('unsaved'); });
+        });
+
         // Show loading state
         document.querySelectorAll('.daily-editor-wrap').forEach(el => {
             el.innerHTML = '<div style="color: var(--text-muted); opacity: 0.5; padding: 0.5rem 0;">Loading editor...</div>';
@@ -2125,6 +2232,69 @@
 
         dailyNoteId = data?.id || null;
 
+        // Load Stoic Challenge data
+        const stoic = data?.metadata?.stoic_challenge || {};
+        document.getElementById('stoicFrustration').value = stoic.frustration || '';
+        document.getElementById('stoicReframe').value = stoic.reframe || '';
+        document.getElementById('stoicOpportunity').value = stoic.opportunity || '';
+        // Auto-expand if any field has content
+        if (stoic.frustration || stoic.reframe || stoic.opportunity) {
+            document.getElementById('stoicSection').classList.add('expanded');
+            document.getElementById('stoicContent').style.display = 'block';
+        }
+
+        // Carry-forward from previous day when loading an empty note
+        let taskContent = data?.tasks || '';
+        let notesContent = data?.notes || '';
+
+        if (!data) {
+            const prevDate = new Date(dailyNoteDate + 'T12:00:00');
+            prevDate.setDate(prevDate.getDate() - 1);
+            const prevDateStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth()+1).padStart(2,'0')}-${String(prevDate.getDate()).padStart(2,'0')}`;
+
+            const { data: prevData } = await db
+                .from('daily_notes')
+                .select('tasks, notes, metadata')
+                .eq('note_date', prevDateStr)
+                .maybeSingle();
+
+            if (prevData) {
+                // Extract migrated tasks [>] from yesterday → become open tasks [ ] today
+                if (prevData.tasks) {
+                    const migratedTasks = prevData.tasks
+                        .split('\n')
+                        .filter(line => /^- \[>\]/.test(line.trim()))
+                        .map(line => line.trim().replace(/^- \[>\]\s*/, '- [ ] '))
+                        .join('\n');
+                    if (migratedTasks) {
+                        taskContent = '### Migrated from ' + prevDateStr + '\n' + migratedTasks;
+                    }
+                }
+
+                // Extract context notes (~ prefixed) from yesterday's notes section
+                if (prevData.notes) {
+                    const contextLines = prevData.notes
+                        .split('\n')
+                        .filter(line => line.trim().startsWith('~'))
+                        .map(line => line.trim())
+                        .join('\n');
+                    if (contextLines) {
+                        notesContent = '### Context from ' + prevDateStr + '\n' + contextLines;
+                    }
+                }
+
+                // Also carry forward context notes stored by AI review
+                if (prevData.metadata?.context_notes) {
+                    const aiContext = prevData.metadata.context_notes
+                        .map(c => `~ **${c.meeting_title}:** ${c.context}`)
+                        .join('\n');
+                    if (aiContext) {
+                        notesContent = (notesContent ? notesContent + '\n\n' : '') + aiContext;
+                    }
+                }
+            }
+        }
+
         // Clear loading and create editors with staggered init to avoid ProseMirror race condition
         document.getElementById('editorTasks').innerHTML = '';
         document.getElementById('editorNotes').innerHTML = '';
@@ -2134,7 +2304,7 @@
         dailyEditors.tasks = createEditor(
             document.getElementById('editorTasks'),
             'Add tasks... (try typing "- [ ] " for a checkbox)',
-            data?.tasks || ''
+            taskContent
         );
 
         // Stagger second editor to avoid ProseMirror init race
@@ -2143,7 +2313,7 @@
         dailyEditors.notes = createEditor(
             document.getElementById('editorNotes'),
             'Quick thoughts, ideas, observations...',
-            data?.notes || ''
+            notesContent
         );
 
         // Build toolbars
@@ -2542,7 +2712,14 @@
             tasks: getEditorMarkdown(dailyEditors.tasks),
             notes: getEditorMarkdown(dailyEditors.notes),
             meetings: meetingsData.markdown,
-            metadata: { meetings_structured: meetingsData.structured },
+            metadata: {
+                meetings_structured: meetingsData.structured,
+                stoic_challenge: {
+                    frustration: document.getElementById('stoicFrustration')?.value || '',
+                    reframe: document.getElementById('stoicReframe')?.value || '',
+                    opportunity: document.getElementById('stoicOpportunity')?.value || '',
+                },
+            },
         };
 
         try {
