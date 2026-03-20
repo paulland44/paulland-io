@@ -135,7 +135,7 @@ async function handleUpdateTags(request, env) {
 async function handleEntityUpdate(request, env) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -178,7 +178,7 @@ async function handleEntityUpdate(request, env) {
 async function handleEntityLog(request, env) {
   const { table, data } = await request.json();
 
-  const allowedTables = ['people_log', 'project_updates'];
+  const allowedTables = ['people_log', 'project_updates', 'companies'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }

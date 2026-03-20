@@ -2389,8 +2389,11 @@
                 <button class="nav-item" data-view="tags">
                     Tags
                 </button>
-                <button class="nav-item" data-view="contacts">
-                    Contacts <span class="count" id="countContacts">-</span>
+                <button class="nav-item" data-view="people">
+                    People <span class="count" id="countPeople">-</span>
+                </button>
+                <button class="nav-item" data-view="companies">
+                    Companies <span class="count" id="countCompanies">-</span>
                 </button>
                 <button class="nav-item" data-view="products">
                     Products <span class="count" id="countProducts">-</span>
@@ -2521,7 +2524,7 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, assets, people, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
@@ -2531,6 +2534,7 @@
             db.from('feeds').select('id', { count: 'exact', head: true }),
             db.from('assets').select('id', { count: 'exact', head: true }),
             db.from('people').select('id', { count: 'exact', head: true }),
+            db.from('companies').select('id', { count: 'exact', head: true }),
             db.from('products').select('id', { count: 'exact', head: true }),
             db.from('projects').select('id', { count: 'exact', head: true }),
         ]);
@@ -2542,7 +2546,8 @@
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
         document.getElementById('countAssets').textContent = assets.count || 0;
-        document.getElementById('countContacts').textContent = people.count || 0;
+        document.getElementById('countPeople').textContent = people.count || 0;
+        document.getElementById('countCompanies').textContent = companies.count || 0;
         document.getElementById('countProducts').textContent = products.count || 0;
         document.getElementById('countProjects').textContent = projects.count || 0;
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
@@ -2572,7 +2577,8 @@
             case 'feeds': return loadFeeds();
             case 'tags': return loadTags();
             case 'assets': return loadAssets();
-            case 'contacts': return loadContacts();
+            case 'people': return loadPeople();
+            case 'companies': return loadCompanies();
             case 'products': return loadProducts();
             case 'projects': return loadProjects();
             case 'settings': return loadSettingsView();
@@ -4410,31 +4416,29 @@
     let contactsData = [];
     let contactsFilter = 'all';
 
-    async function loadContacts() {
+    let companiesData = [];
+
+    async function loadPeople() {
         const main = document.getElementById('mainContent');
-        main.innerHTML = '<div class="loading">Loading contacts</div>';
+        main.innerHTML = '<div class="loading">Loading people</div>';
 
         const { data, error } = await db
             .from('people')
-            .select('id, name, role, organization, tags')
+            .select('id, name, role, organization, company_id, tags, companies(name)')
             .order('name', { ascending: true });
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No contacts yet.</div>'; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No people yet.</div>'; return; }
 
         contactsData = data;
         contactsFilter = 'all';
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">Contacts</h2>
+                <h2 class="page-title">People</h2>
             </div>
             <div class="filters">
-                <button class="filter-btn active" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="person">People</button>
-                <button class="filter-btn" data-filter="customer">Customers</button>
-                <button class="filter-btn" data-filter="competitor">Competitors</button>
-                <input class="search-input" placeholder="Search contacts..." id="contactSearch">
+                <input class="search-input" placeholder="Search people..." id="contactSearch">
             </div>
             <div class="table-wrap">
                 <table>
@@ -4442,7 +4446,7 @@
                         <tr>
                             <th>Name</th>
                             <th>Role</th>
-                            <th>Organisation</th>
+                            <th>Company</th>
                             <th>Tags</th>
                         </tr>
                     </thead>
@@ -4452,17 +4456,6 @@
         `;
 
         applyContactsFilters();
-
-        // Wire filter buttons
-        main.querySelectorAll('.filter-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                main.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                contactsFilter = btn.dataset.filter;
-                applyContactsFilters();
-            });
-        });
-
         document.getElementById('contactSearch').addEventListener('input', () => applyContactsFilters());
     }
 
@@ -4470,17 +4463,11 @@
         const q = (document.getElementById('contactSearch')?.value || '').toLowerCase();
         let filtered = contactsData;
 
-        // Tag filter
-        if (contactsFilter !== 'all') {
-            filtered = filtered.filter(p => (p.tags || []).includes(contactsFilter));
-        }
-
-        // Search filter
         if (q) {
             filtered = filtered.filter(p =>
                 (p.name || '').toLowerCase().includes(q) ||
                 (p.role || '').toLowerCase().includes(q) ||
-                (p.organization || '').toLowerCase().includes(q)
+                (p.companies?.name || p.organization || '').toLowerCase().includes(q)
             );
         }
 
@@ -4489,14 +4476,17 @@
 
     function renderContactRows(data) {
         const tbody = document.getElementById('contactsBody');
-        tbody.innerHTML = data.map(p => `
-            <tr class="expandable" data-id="${p.id}">
-                <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
-                <td class="source-cell">${esc(p.role || '-')}</td>
-                <td class="source-cell">${esc(p.organization || '-')}</td>
-                <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
-            </tr>
-        `).join('');
+        tbody.innerHTML = data.map(p => {
+            const companyName = p.companies?.name || p.organization || '';
+            return `
+                <tr class="expandable" data-id="${p.id}">
+                    <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                    <td class="source-cell">${esc(p.role || '-')}</td>
+                    <td class="source-cell">${esc(companyName || '-')}</td>
+                    <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+                </tr>
+            `;
+        }).join('');
 
         tbody.querySelectorAll('tr.expandable').forEach(row => {
             row.addEventListener('click', async () => {
@@ -4504,6 +4494,210 @@
                 if (!person) return;
                 await openContactModal(person);
             });
+        });
+    }
+
+    // ─── Companies ────────────────────────────────────────────
+    let companyFilter = 'all';
+
+    async function loadCompanies() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading companies</div>';
+
+        const { data, error } = await db
+            .from('companies')
+            .select('*')
+            .order('name', { ascending: true });
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        companiesData = data || [];
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Companies</h2>
+                <button class="btn-action" id="addCompanyBtn" style="font-size: 0.85rem;">+ Add Company</button>
+            </div>
+            <div class="filters">
+                <button class="filter-btn ${companyFilter === 'all' ? 'active' : ''}" data-cfilter="all">All</button>
+                <button class="filter-btn ${companyFilter === 'competitor' ? 'active' : ''}" data-cfilter="competitor">Competitors</button>
+                <button class="filter-btn ${companyFilter === 'customer' ? 'active' : ''}" data-cfilter="customer">Customers</button>
+                <button class="filter-btn ${companyFilter === 'partner' ? 'active' : ''}" data-cfilter="partner">Partners</button>
+                <button class="filter-btn ${companyFilter === 'vendor' ? 'active' : ''}" data-cfilter="vendor">Vendors</button>
+                <input class="search-input" placeholder="Search companies..." id="companySearch">
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Type</th>
+                            <th>Industry</th>
+                            <th>Tags</th>
+                        </tr>
+                    </thead>
+                    <tbody id="companiesBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderCompanyRows();
+
+        // Wire filters
+        main.querySelectorAll('[data-cfilter]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                main.querySelectorAll('[data-cfilter]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                companyFilter = btn.dataset.cfilter;
+                renderCompanyRows();
+            });
+        });
+
+        document.getElementById('companySearch').addEventListener('input', () => renderCompanyRows());
+
+        document.getElementById('addCompanyBtn').addEventListener('click', () => openCompanyModal(null));
+    }
+
+    function renderCompanyRows() {
+        const q = (document.getElementById('companySearch')?.value || '').toLowerCase();
+        let filtered = companiesData;
+
+        if (companyFilter !== 'all') {
+            filtered = filtered.filter(c => c.type === companyFilter);
+        }
+        if (q) {
+            filtered = filtered.filter(c =>
+                (c.name || '').toLowerCase().includes(q) ||
+                (c.industry || '').toLowerCase().includes(q)
+            );
+        }
+
+        const tbody = document.getElementById('companiesBody');
+        const typeColors = {
+            competitor: 'var(--red)', customer: 'var(--accent)',
+            partner: 'var(--blue)', vendor: 'var(--yellow)',
+            internal: 'var(--text-muted)', other: 'var(--text-muted)',
+        };
+
+        tbody.innerHTML = filtered.map(c => `
+            <tr class="expandable" data-id="${c.id}">
+                <td class="title-cell"><span class="title-text">${esc(c.name)}</span></td>
+                <td><span style="color: ${typeColors[c.type] || 'var(--text-muted)'}; font-size: 0.85rem;">${esc(c.type)}</span></td>
+                <td class="source-cell">${esc(c.industry || '-')}</td>
+                <td>${(c.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', () => {
+                const company = filtered.find(c => String(c.id) === row.dataset.id);
+                if (company) openCompanyModal(company);
+            });
+        });
+    }
+
+    async function openCompanyModal(company) {
+        const isNew = !company;
+        if (isNew) company = { name: '', type: 'other', industry: '', website: '', notes: '', tags: [] };
+
+        document.getElementById('contentModalTitle').textContent = isNew ? 'New Company' : 'Edit Company';
+        document.getElementById('contentModalMeta').innerHTML = '';
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        const types = ['competitor', 'customer', 'partner', 'vendor', 'internal', 'other'];
+
+        // Fetch people at this company
+        let peopleHtml = '';
+        if (!isNew) {
+            const { data: compPeople } = await db
+                .from('people')
+                .select('id, name, role')
+                .eq('company_id', company.id)
+                .order('name');
+            if (compPeople && compPeople.length) {
+                peopleHtml = `<div class="section-heading">People (${compPeople.length})</div>
+                    ${compPeople.map(p => `<div class="log-entry"><div class="log-body"><strong>${esc(p.name)}</strong>${p.role ? ` — ${esc(p.role)}` : ''}</div></div>`).join('')}`;
+            }
+        }
+
+        document.getElementById('contentModalBody').innerHTML = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Name</div>
+                <input class="modal-edit-input" id="editCompanyName" value="${esc(company.name)}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Type</div>
+                <select class="modal-edit-input" id="editCompanyType">
+                    ${types.map(t => `<option value="${t}" ${company.type === t ? 'selected' : ''}>${t.charAt(0).toUpperCase() + t.slice(1)}</option>`).join('')}
+                </select>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Industry</div>
+                <input class="modal-edit-input" id="editCompanyIndustry" value="${esc(company.industry || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Website</div>
+                <input class="modal-edit-input" id="editCompanyWebsite" value="${esc(company.website || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Notes</div>
+                <textarea class="stoic-input" id="editCompanyNotes" rows="4">${esc(company.notes || '')}</textarea>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Tags</div>
+                ${buildEntityTagEditor(company.tags || [], 'company')}
+            </div>
+            <div class="modal-actions">
+                <button class="modal-save-btn" id="saveCompanyBtn">${isNew ? 'Create' : 'Save'}</button>
+                <span class="modal-save-status" id="companySaveStatus"></span>
+            </div>
+            ${peopleHtml}
+        `;
+
+        wireEntityTagEditor('company');
+
+        document.getElementById('saveCompanyBtn').addEventListener('click', async () => {
+            const status = document.getElementById('companySaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+
+            const updates = {
+                name: document.getElementById('editCompanyName').value.trim(),
+                type: document.getElementById('editCompanyType').value,
+                industry: document.getElementById('editCompanyIndustry').value.trim(),
+                website: document.getElementById('editCompanyWebsite').value.trim(),
+                notes: document.getElementById('editCompanyNotes').value.trim(),
+                tags: getEntityTags('company'),
+            };
+
+            try {
+                if (isNew) {
+                    const res = await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'companies', entry: updates }),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                } else {
+                    const res = await fetch('/api/entity-update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'companies', id: company.id, updates }),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    Object.assign(company, updates);
+                }
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 1500);
+                loadCompanies();
+                loadCounts();
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Company save failed:', err);
+            }
         });
     }
 
@@ -4522,6 +4716,10 @@
             .eq('person_id', person.id)
             .order('note_date', { ascending: false });
 
+        // Fetch companies for dropdown
+        const { data: companyOptions } = await db.from('companies').select('id, name, type').order('name');
+        const companies = companyOptions || [];
+
         // Build editable form
         let html = `
             <div class="modal-edit-field">
@@ -4533,8 +4731,11 @@
                 <input class="modal-edit-input" id="editContactRole" value="${esc(person.role || '')}">
             </div>
             <div class="modal-edit-field">
-                <div class="modal-edit-label">Organisation</div>
-                <input class="modal-edit-input" id="editContactOrg" value="${esc(person.organization || '')}">
+                <div class="modal-edit-label">Company</div>
+                <select class="modal-edit-input" id="editContactCompany">
+                    <option value="">— None —</option>
+                    ${companies.map(c => `<option value="${c.id}" ${person.company_id === c.id ? 'selected' : ''}>${esc(c.name)} (${c.type})</option>`).join('')}
+                </select>
             </div>
             <div class="modal-edit-field">
                 <div class="modal-edit-label">Tags</div>
@@ -4572,10 +4773,11 @@
             status.textContent = 'saving...';
             status.className = 'modal-save-status saving';
             try {
+                const companyVal = document.getElementById('editContactCompany').value;
                 const updates = {
                     name: document.getElementById('editContactName').value.trim(),
                     role: document.getElementById('editContactRole').value.trim(),
-                    organization: document.getElementById('editContactOrg').value.trim(),
+                    company_id: companyVal || null,
                     tags: getEntityTags('contact'),
                 };
                 const res = await fetch('/api/entity-update', {
@@ -5944,12 +6146,17 @@
         loadCounts();
     }
 
-    function openAssetDetail(asset) {
+    async function openAssetDetail(asset) {
         const main = document.getElementById('mainContent');
         const isImage = (asset.mime_type || '').startsWith('image/');
         const isPdf = asset.mime_type === 'application/pdf';
         const fileUrl = `/api/assets/file/${asset.r2_key}`;
         const icon = getFileIcon(asset.mime_type);
+
+        // Fetch companies for the dropdown
+        const { data: companyOptions } = await db.from('companies').select('id, name, type').order('name');
+        const companyList = companyOptions || [];
+        const assetCompanyId = asset.metadata?.company_id || '';
 
         main.innerHTML = `
             <div class="page-header">
@@ -5985,6 +6192,13 @@
                     <div class="asset-detail-field">
                         <div class="asset-detail-label">Uploaded</div>
                         <div class="asset-detail-value">${formatDate(asset.uploaded_at)}</div>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Company</div>
+                        <select class="modal-edit-input" id="assetCompanySelect" style="font-size: 0.85rem;">
+                            <option value="">— None —</option>
+                            ${companyList.map(c => `<option value="${c.id}" ${assetCompanyId === c.id ? 'selected' : ''}>${esc(c.name)} (${c.type})</option>`).join('')}
+                        </select>
                     </div>
                     <div class="asset-detail-field">
                         <div class="asset-detail-label">Description</div>
@@ -6027,6 +6241,17 @@
                 btn.textContent = '✓ Copied';
                 setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
             }
+        });
+
+        // Wire company dropdown
+        document.getElementById('assetCompanySelect').addEventListener('change', async (e) => {
+            const newMeta = { ...(asset.metadata || {}), company_id: e.target.value || null };
+            await fetch('/api/entity-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'assets', id: asset.id, updates: { metadata: newMeta } }),
+            });
+            asset.metadata = newMeta;
         });
 
         // Wire description save (debounced)
