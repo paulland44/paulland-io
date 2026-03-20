@@ -2109,6 +2109,136 @@
             resize: vertical;
         }
 
+        /* ─── Assets ─── */
+        .asset-upload-zone {
+            border: 2px dashed var(--border-hover);
+            border-radius: 6px;
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-bottom: 1.5rem;
+        }
+        .asset-upload-zone:hover,
+        .asset-upload-zone.dragover {
+            border-color: var(--accent);
+            background: var(--accent-dim);
+            color: var(--accent);
+        }
+        .asset-upload-zone input[type="file"] { display: none; }
+
+        .asset-upload-progress {
+            margin-top: 0.75rem;
+            font-size: 0.85rem;
+        }
+
+        .asset-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+        }
+
+        .asset-card {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: border-color 0.2s;
+        }
+        .asset-card:hover { border-color: var(--border-hover); }
+
+        .asset-card-preview {
+            height: 140px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--void-lighter);
+            overflow: hidden;
+        }
+        .asset-card-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .asset-card-preview .asset-icon {
+            font-size: 2.5rem;
+            opacity: 0.4;
+        }
+
+        .asset-card-info {
+            padding: 0.6rem 0.75rem;
+        }
+        .asset-card-name {
+            font-size: 0.85rem;
+            color: var(--star);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .asset-card-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.2rem;
+        }
+        .asset-card-tags {
+            display: flex;
+            gap: 0.25rem;
+            flex-wrap: wrap;
+            margin-top: 0.4rem;
+        }
+
+        .asset-detail {
+            display: flex;
+            gap: 2rem;
+        }
+        .asset-detail-preview {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--void-lighter);
+            border-radius: 4px;
+            min-height: 300px;
+            overflow: hidden;
+        }
+        .asset-detail-preview img {
+            max-width: 100%;
+            max-height: 500px;
+            object-fit: contain;
+        }
+        .asset-detail-preview iframe {
+            width: 100%;
+            height: 500px;
+            border: none;
+        }
+        .asset-detail-sidebar {
+            width: 280px;
+            flex-shrink: 0;
+        }
+        .asset-detail-field {
+            margin-bottom: 1rem;
+        }
+        .asset-detail-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            margin-bottom: 0.3rem;
+        }
+        .asset-detail-value {
+            font-size: 0.9rem;
+            color: var(--text-body);
+            word-break: break-all;
+        }
+
+        @media (max-width: 768px) {
+            .asset-detail { flex-direction: column; }
+            .asset-detail-sidebar { width: 100%; }
+        }
+
         /* ─── Settings buttons ─── */
         .theme-mode-btn.active,
         .accent-btn.active,
@@ -2186,6 +2316,9 @@
                 </button>
                 <button class="nav-item" data-view="feeds">
                     Feeds <span class="count" id="countFeeds">-</span>
+                </button>
+                <button class="nav-item" data-view="assets">
+                    Assets <span class="count" id="countAssets">-</span>
                 </button>
                 <button class="nav-item" data-view="tags">
                     Tags
@@ -2322,7 +2455,7 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, people, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, assets, people, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
@@ -2330,6 +2463,7 @@
             db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
+            db.from('assets').select('id', { count: 'exact', head: true }),
             db.from('people').select('id', { count: 'exact', head: true }),
             db.from('products').select('id', { count: 'exact', head: true }),
             db.from('projects').select('id', { count: 'exact', head: true }),
@@ -2341,6 +2475,7 @@
         document.getElementById('countSummaries').textContent = summaries.count || 0;
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
+        document.getElementById('countAssets').textContent = assets.count || 0;
         document.getElementById('countContacts').textContent = people.count || 0;
         document.getElementById('countProducts').textContent = products.count || 0;
         document.getElementById('countProjects').textContent = projects.count || 0;
@@ -2366,6 +2501,7 @@
             case 'feed-items': return loadFeedItems();
             case 'feeds': return loadFeeds();
             case 'tags': return loadTags();
+            case 'assets': return loadAssets();
             case 'contacts': return loadContacts();
             case 'products': return loadProducts();
             case 'projects': return loadProjects();
@@ -5429,6 +5565,301 @@
         } catch { return url.substring(0, 60); }
     }
 
+    // ─── Assets ───────────────────────────────────────────────
+
+    let assetsData = [];
+    let assetFilter = { tag: null, type: null };
+
+    async function loadAssets() {
+        const main = document.getElementById('mainContent');
+
+        // Fetch assets from Supabase
+        let query = db.from('assets').select('*').order('uploaded_at', { ascending: false });
+        if (assetFilter.tag) query = query.contains('tags', [assetFilter.tag]);
+        if (assetFilter.type) {
+            const typeMappings = {
+                image: 'image/',
+                pdf: 'application/pdf',
+                office: 'application/vnd.',
+            };
+            if (typeMappings[assetFilter.type]) {
+                query = query.like('mime_type', typeMappings[assetFilter.type] + '%');
+            }
+        }
+        const { data, error } = await query;
+        assetsData = data || [];
+
+        // Collect unique tags for filter
+        const tagSet = new Set();
+        (data || []).forEach(a => (a.tags || []).forEach(t => tagSet.add(t)));
+        const allTags = [...tagSet].sort();
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Assets <span style="font-size: 0.85rem; color: var(--text-muted);">${assetsData.length} files</span></h2>
+            </div>
+
+            <div class="asset-upload-zone" id="assetDropZone">
+                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📁</div>
+                <div>Drop files here or <strong>click to upload</strong></div>
+                <div style="font-size: 0.8rem; margin-top: 0.3rem;">PDF, PNG, JPEG, Office files — up to 100 MB</div>
+                <input type="file" id="assetFileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip">
+                <div class="asset-upload-progress" id="assetUploadProgress"></div>
+            </div>
+
+            <div class="filters" style="margin-bottom: 1rem;">
+                <button class="filter-btn ${!assetFilter.type ? 'active' : ''}" data-asset-type="">All</button>
+                <button class="filter-btn ${assetFilter.type === 'image' ? 'active' : ''}" data-asset-type="image">Images</button>
+                <button class="filter-btn ${assetFilter.type === 'pdf' ? 'active' : ''}" data-asset-type="pdf">PDFs</button>
+                <button class="filter-btn ${assetFilter.type === 'office' ? 'active' : ''}" data-asset-type="office">Office</button>
+                ${allTags.length ? `
+                    <select class="filter-select" id="assetTagFilter" style="margin-left: 0.5rem;">
+                        <option value="">All tags</option>
+                        ${allTags.map(t => `<option value="${esc(t)}" ${assetFilter.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+                    </select>
+                ` : ''}
+            </div>
+
+            <div class="asset-grid" id="assetGrid">
+                ${assetsData.map(a => renderAssetCard(a)).join('')}
+                ${assetsData.length === 0 ? '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>' : ''}
+            </div>
+        `;
+
+        wireAssetEvents();
+    }
+
+    function renderAssetCard(asset) {
+        const isImage = (asset.mime_type || '').startsWith('image/');
+        const icon = getFileIcon(asset.mime_type);
+        const size = formatFileSize(asset.file_size);
+        const date = formatDate(asset.uploaded_at);
+
+        return `
+            <div class="asset-card" data-asset-id="${asset.id}">
+                <div class="asset-card-preview">
+                    ${isImage
+                        ? `<img src="/api/assets/file/${esc(asset.r2_key)}" alt="${esc(asset.filename)}" loading="lazy">`
+                        : `<span class="asset-icon">${icon}</span>`
+                    }
+                </div>
+                <div class="asset-card-info">
+                    <div class="asset-card-name" title="${esc(asset.filename)}">${esc(asset.filename)}</div>
+                    <div class="asset-card-meta">${size} · ${date}</div>
+                    ${(asset.tags || []).length ? `
+                        <div class="asset-card-tags">
+                            ${asset.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function getFileIcon(mimeType) {
+        if (!mimeType) return '📄';
+        if (mimeType.startsWith('image/')) return '🖼️';
+        if (mimeType === 'application/pdf') return '📕';
+        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return '📊';
+        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return '📙';
+        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return '📘';
+        if (mimeType.startsWith('text/')) return '📝';
+        if (mimeType.includes('zip') || mimeType.includes('compressed')) return '📦';
+        return '📄';
+    }
+
+    function formatFileSize(bytes) {
+        if (!bytes) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let i = 0;
+        let size = bytes;
+        while (size >= 1024 && i < units.length - 1) { size /= 1024; i++; }
+        return `${size.toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+    }
+
+    function wireAssetEvents() {
+        // Upload zone click
+        const dropZone = document.getElementById('assetDropZone');
+        const fileInput = document.getElementById('assetFileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length) uploadAssetFiles(e.target.files);
+        });
+
+        // Drag and drop
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length) uploadAssetFiles(e.dataTransfer.files);
+        });
+
+        // Type filters
+        document.querySelectorAll('[data-asset-type]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                assetFilter.type = btn.dataset.assetType || null;
+                loadAssets();
+            });
+        });
+
+        // Tag filter
+        const tagSel = document.getElementById('assetTagFilter');
+        if (tagSel) {
+            tagSel.addEventListener('change', () => {
+                assetFilter.tag = tagSel.value || null;
+                loadAssets();
+            });
+        }
+
+        // Card clicks → detail view
+        document.querySelectorAll('.asset-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const asset = assetsData.find(a => a.id === card.dataset.assetId);
+                if (asset) openAssetDetail(asset);
+            });
+        });
+    }
+
+    async function uploadAssetFiles(files) {
+        const progress = document.getElementById('assetUploadProgress');
+        const total = files.length;
+        let done = 0;
+
+        for (const file of files) {
+            progress.innerHTML = `<span style="color: var(--accent);">Uploading ${done + 1}/${total}: ${esc(file.name)}...</span>`;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/api/assets/upload', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    progress.innerHTML = `<span style="color: var(--red);">Failed: ${esc(file.name)} — ${err.error || 'Unknown error'}</span>`;
+                    continue;
+                }
+
+                done++;
+            } catch (err) {
+                progress.innerHTML = `<span style="color: var(--red);">Error: ${err.message}</span>`;
+            }
+        }
+
+        progress.innerHTML = `<span style="color: var(--accent);">✓ ${done}/${total} files uploaded</span>`;
+        setTimeout(() => { progress.innerHTML = ''; }, 3000);
+
+        // Refresh view and counts
+        loadAssets();
+        loadCounts();
+    }
+
+    function openAssetDetail(asset) {
+        const main = document.getElementById('mainContent');
+        const isImage = (asset.mime_type || '').startsWith('image/');
+        const isPdf = asset.mime_type === 'application/pdf';
+        const fileUrl = `/api/assets/file/${asset.r2_key}`;
+        const icon = getFileIcon(asset.mime_type);
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">
+                    <button class="btn-back" id="assetBackBtn">← Assets</button>
+                    ${esc(asset.filename)}
+                </h2>
+            </div>
+
+            <div class="asset-detail">
+                <div class="asset-detail-preview">
+                    ${isImage ? `<img src="${fileUrl}" alt="${esc(asset.filename)}">` :
+                      isPdf ? `<iframe src="${fileUrl}"></iframe>` :
+                      `<div style="text-align: center; padding: 2rem;">
+                          <div style="font-size: 4rem; margin-bottom: 1rem;">${icon}</div>
+                          <a href="${fileUrl}" target="_blank" style="color: var(--accent);">Download file</a>
+                       </div>`
+                    }
+                </div>
+                <div class="asset-detail-sidebar">
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Filename</div>
+                        <div class="asset-detail-value">${esc(asset.filename)}</div>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Type</div>
+                        <div class="asset-detail-value">${esc(asset.mime_type)}</div>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Size</div>
+                        <div class="asset-detail-value">${formatFileSize(asset.file_size)}</div>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Uploaded</div>
+                        <div class="asset-detail-value">${formatDate(asset.uploaded_at)}</div>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Description</div>
+                        <textarea class="stoic-input" id="assetDescInput" rows="3" placeholder="Add a description...">${esc(asset.description || '')}</textarea>
+                    </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Tags</div>
+                        ${buildTagEditor(asset.tags || [], 'asset')}
+                    </div>
+                    <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem;">
+                        <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration: none; text-align: center; flex: 1;">Download</a>
+                        <button class="btn-action btn-secondary" id="assetDeleteBtn" style="flex: 1; color: var(--red);">Delete</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Wire back button
+        document.getElementById('assetBackBtn').addEventListener('click', () => loadAssets());
+
+        // Wire description save (debounced)
+        let descTimer;
+        document.getElementById('assetDescInput').addEventListener('input', (e) => {
+            clearTimeout(descTimer);
+            descTimer = setTimeout(async () => {
+                await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'assets', id: asset.id, updates: { description: e.target.value } }),
+                });
+            }, 1000);
+        });
+
+        // Wire tag editor
+        wireTagEditor('asset', async (newTags) => {
+            await fetch('/api/entity-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'assets', id: asset.id, updates: { tags: newTags } }),
+            });
+            asset.tags = newTags;
+        });
+
+        // Wire delete
+        document.getElementById('assetDeleteBtn').addEventListener('click', async () => {
+            if (!confirm(`Delete "${asset.filename}"? This cannot be undone.`)) return;
+            const res = await fetch(`/api/assets/${asset.id}`, { method: 'DELETE' });
+            if (res.ok) {
+                loadAssets();
+                loadCounts();
+            } else {
+                alert('Failed to delete asset');
+            }
+        });
+    }
+
     // ─── Settings ─────────────────────────────────────────────
 
     function loadSettingsView() {
@@ -5711,29 +6142,39 @@
     }
 
     // ─── Tag editor (for content items) ─────────────────────────
-    function buildTagEditor(tags) {
+    function buildTagEditor(tags, prefix = '') {
+        const pfx = prefix ? prefix + '-' : '';
         const pills = tags.map(t =>
-            `<span class="tag">${esc(t)}<span class="tag-remove" data-tag="${esc(t)}">×</span></span>`
+            `<span class="tag">${esc(t)}<span class="tag-remove ${pfx}tag-remove" data-tag="${esc(t)}">×</span></span>`
         ).join('');
         return `<div class="tag-editor">
             ${pills}
             <span class="tag-input-wrap">
-                <input type="text" class="tag-input" id="tagInput" placeholder="add tag..." autocomplete="off">
-                <div class="tag-suggestions" id="tagSuggestions"></div>
+                <input type="text" class="tag-input" id="${pfx}tagInput" placeholder="add tag..." autocomplete="off">
+                <div class="tag-suggestions" id="${pfx}tagSuggestions"></div>
             </span>
-            <span class="tag-status" id="tagStatus"></span>
+            <span class="tag-status" id="${pfx}tagStatus"></span>
         </div>`;
     }
 
-    function wireTagEditor() {
-        const input = document.getElementById('tagInput');
-        const sugBox = document.getElementById('tagSuggestions');
+    function wireTagEditor(prefix = '', onSave = null) {
+        const pfx = prefix ? prefix + '-' : '';
+        const input = document.getElementById(pfx + 'tagInput');
+        const sugBox = document.getElementById(pfx + 'tagSuggestions');
         if (!input || !sugBox) return;
         let activeIdx = -1;
 
+        // For asset tag editors, we track tags locally
+        let localTags = null;
+
+        function getCurrentTags() {
+            if (onSave && localTags !== null) return localTags;
+            return currentModalItem?.tags || [];
+        }
+
         function showSuggestions() {
             const val = input.value.trim().toLowerCase();
-            const currentTags = currentModalItem?.tags || [];
+            const currentTags = getCurrentTags();
             const matches = allTags
                 .filter(t => !currentTags.includes(t) && t.includes(val))
                 .slice(0, 8);
@@ -5799,21 +6240,45 @@
         });
 
         async function addTag(tag) {
-            if (!tag || !currentModalItem) return;
-            if (currentModalItem.tags?.includes(tag)) { input.value = ''; sugBox.classList.remove('visible'); return; }
-            const newTags = [...(currentModalItem.tags || []), tag];
-            // Add to global list if new
+            const currentTags = getCurrentTags();
+            if (!tag) return;
+            if (currentTags.includes(tag)) { input.value = ''; sugBox.classList.remove('visible'); return; }
+            const newTags = [...currentTags, tag];
             if (!allTags.includes(tag)) { allTags.push(tag); allTags.sort(); }
-            await updateTags(currentModalItem.id, newTags);
+
+            if (onSave) {
+                localTags = newTags;
+                await onSave(newTags);
+                // Re-render tag pills
+                const editor = input.closest('.tag-editor');
+                if (editor) {
+                    editor.outerHTML = buildTagEditor(newTags, prefix);
+                    wireTagEditor(prefix, onSave);
+                }
+            } else if (currentModalItem) {
+                await updateTags(currentModalItem.id, newTags);
+            }
         }
 
-        document.querySelectorAll('.tag-remove').forEach(btn => {
+        document.querySelectorAll(`.${pfx}tag-remove, ${pfx ? '' : '.tag-remove'}`).forEach(btn => {
+            if (!btn.classList.contains(pfx + 'tag-remove') && pfx) return;
             btn.addEventListener('click', async e => {
                 e.stopPropagation();
                 const tag = btn.dataset.tag;
-                if (!currentModalItem) return;
-                const newTags = (currentModalItem.tags || []).filter(t => t !== tag);
-                await updateTags(currentModalItem.id, newTags);
+                const currentTags = getCurrentTags();
+                const newTags = currentTags.filter(t => t !== tag);
+
+                if (onSave) {
+                    localTags = newTags;
+                    await onSave(newTags);
+                    const editor = input.closest('.tag-editor');
+                    if (editor) {
+                        editor.outerHTML = buildTagEditor(newTags, prefix);
+                        wireTagEditor(prefix, onSave);
+                    }
+                } else if (currentModalItem) {
+                    await updateTags(currentModalItem.id, newTags);
+                }
             });
         });
     }

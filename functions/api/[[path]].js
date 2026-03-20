@@ -13,6 +13,9 @@
  *   POST /api/entity-update    — Update any entity (people, products, projects)
  *   POST /api/entity-log       — Add a log entry (people_log, project_updates)
  *   POST /api/generate-summary — AI weekly/monthly summary generation
+ *   POST /api/assets/upload    — Upload file to R2 + create metadata in Supabase
+ *   GET  /api/assets/file/:key — Serve file from R2
+ *   DELETE /api/assets/:id     — Delete asset from R2 + Supabase
  */
 
 export async function onRequest(context) {
@@ -34,6 +37,18 @@ export async function onRequest(context) {
   // Route to handler
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/', '');
+
+  // Asset file serving — GET /api/assets/file/...
+  if (request.method === 'GET' && path.startsWith('assets/file/')) {
+    const r2Key = path.replace('assets/file/', '');
+    return handleAssetServe(r2Key, env);
+  }
+
+  // Asset deletion — DELETE /api/assets/:id
+  if (request.method === 'DELETE' && path.startsWith('assets/')) {
+    const assetId = path.replace('assets/', '');
+    return handleAssetDelete(assetId, env);
+  }
 
   if (request.method === 'GET') {
     switch (path) {
@@ -58,6 +73,8 @@ export async function onRequest(context) {
         return handleEntityLog(request, env);
       case 'generate-summary':
         return handleGenerateSummary(request, env);
+      case 'assets/upload':
+        return handleAssetUpload(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -113,7 +130,7 @@ async function handleUpdateTags(request, env) {
 async function handleEntityUpdate(request, env) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -858,6 +875,130 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
   }
 
   return results;
+}
+
+// ─── Asset Management (R2 + Supabase) ────────────────────────
+
+async function handleAssetUpload(request, env) {
+  const bucket = env.ASSETS_BUCKET;
+  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  const contentType = request.headers.get('content-type') || '';
+  if (!contentType.includes('multipart/form-data')) {
+    return json({ error: 'Expected multipart/form-data' }, 400);
+  }
+
+  const formData = await request.formData();
+  const file = formData.get('file');
+  if (!file || !(file instanceof File)) {
+    return json({ error: 'No file provided' }, 400);
+  }
+
+  const tags = formData.get('tags') || '';
+  const description = formData.get('description') || '';
+
+  // Generate a unique R2 key: YYYY/MM/uuid-filename
+  const now = new Date();
+  const prefix = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const uuid = crypto.randomUUID();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const r2Key = `${prefix}/${uuid}-${safeName}`;
+
+  // Upload to R2
+  const arrayBuffer = await file.arrayBuffer();
+  await bucket.put(r2Key, arrayBuffer, {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { originalName: file.name },
+  });
+
+  // Store metadata in Supabase
+  const tagArray = tags ? tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const assetData = {
+    filename: file.name,
+    r2_key: r2Key,
+    mime_type: file.type || 'application/octet-stream',
+    file_size: file.size,
+    tags: tagArray,
+    description: description,
+    uploaded_at: now.toISOString(),
+    metadata: {},
+  };
+
+  const insertRes = await fetch(`${supabaseUrl}/rest/v1/assets`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(assetData),
+  });
+
+  if (!insertRes.ok) {
+    const err = await insertRes.text();
+    // Clean up R2 on metadata failure
+    await bucket.delete(r2Key);
+    return json({ error: 'Failed to save asset metadata', detail: err }, 500);
+  }
+
+  const saved = await insertRes.json();
+  return json({ ok: true, asset: saved[0] });
+}
+
+async function handleAssetServe(r2Key, env) {
+  const bucket = env.ASSETS_BUCKET;
+  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
+
+  const object = await bucket.get(r2Key);
+  if (!object) return json({ error: 'File not found' }, 404);
+
+  const headers = new Headers();
+  headers.set('Content-Type', object.httpMetadata?.contentType || 'application/octet-stream');
+  headers.set('Content-Length', object.size);
+  headers.set('Cache-Control', 'private, max-age=3600');
+
+  // For images and PDFs, display inline; others download
+  const ct = object.httpMetadata?.contentType || '';
+  if (ct.startsWith('image/') || ct === 'application/pdf') {
+    headers.set('Content-Disposition', 'inline');
+  } else {
+    const name = object.customMetadata?.originalName || r2Key.split('/').pop();
+    headers.set('Content-Disposition', `attachment; filename="${name}"`);
+  }
+
+  return new Response(object.body, { headers });
+}
+
+async function handleAssetDelete(assetId, env) {
+  const bucket = env.ASSETS_BUCKET;
+  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Fetch the asset to get the R2 key
+  const assets = await supabaseGet(supabaseUrl, serviceKey, `assets?id=eq.${assetId}&select=id,r2_key`);
+  if (!assets.length) return json({ error: 'Asset not found' }, 404);
+
+  const r2Key = assets[0].r2_key;
+
+  // Delete from R2
+  await bucket.delete(r2Key);
+
+  // Delete from Supabase
+  await fetch(`${supabaseUrl}/rest/v1/assets?id=eq.${assetId}`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+    },
+  });
+
+  return json({ ok: true });
 }
 
 // ─── Supabase helpers ────────────────────────────────────────
