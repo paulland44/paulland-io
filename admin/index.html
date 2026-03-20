@@ -3022,7 +3022,7 @@
         );
 
         // Build toolbars
-        buildToolbar('toolbarTasks', dailyEditors.tasks);
+        buildToolbar('toolbarTasks', dailyEditors.tasks, 'tasks');
 
         await new Promise(r => requestAnimationFrame(r));
 
@@ -3379,23 +3379,29 @@
         return { markdown, structured };
     }
 
-    function buildToolbar(containerId, editor) {
+    function buildToolbar(containerId, editor, mode = 'full') {
         const container = document.getElementById(containerId);
         if (!container || !editor) return;
 
-        const buttons = [
-            { label: 'B', cmd: () => editor.chain().focus().toggleBold().run(), active: () => editor.isActive('bold'), title: 'Bold (Cmd+B)' },
-            { label: 'I', cmd: () => editor.chain().focus().toggleItalic().run(), active: () => editor.isActive('italic'), title: 'Italic (Cmd+I)' },
-            { type: 'sep' },
-            { label: 'H1', cmd: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), active: () => editor.isActive('heading', { level: 1 }), title: 'Heading 1' },
-            { label: 'H2', cmd: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor.isActive('heading', { level: 2 }), title: 'Heading 2' },
-            { label: 'H3', cmd: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), active: () => editor.isActive('heading', { level: 3 }), title: 'Heading 3' },
-            { type: 'sep' },
-            { label: '\u2022', cmd: () => editor.chain().focus().toggleBulletList().run(), active: () => editor.isActive('bulletList'), title: 'Bullet list' },
-            { label: '1.', cmd: () => editor.chain().focus().toggleOrderedList().run(), active: () => editor.isActive('orderedList'), title: 'Numbered list' },
-            { label: '\u2610', cmd: () => editor.chain().focus().toggleTaskList().run(), active: () => editor.isActive('taskList'), title: 'Task list' },
-            { label: '\u275D', cmd: () => editor.chain().focus().toggleBlockquote().run(), active: () => editor.isActive('blockquote'), title: 'Quote' },
-        ];
+        const allButtons = {
+            bold: { label: 'B', cmd: () => editor.chain().focus().toggleBold().run(), active: () => editor.isActive('bold'), title: 'Bold (Cmd+B)' },
+            italic: { label: 'I', cmd: () => editor.chain().focus().toggleItalic().run(), active: () => editor.isActive('italic'), title: 'Italic (Cmd+I)' },
+            h1: { label: 'H1', cmd: () => editor.chain().focus().toggleHeading({ level: 1 }).run(), active: () => editor.isActive('heading', { level: 1 }), title: 'Heading 1' },
+            h2: { label: 'H2', cmd: () => editor.chain().focus().toggleHeading({ level: 2 }).run(), active: () => editor.isActive('heading', { level: 2 }), title: 'Heading 2' },
+            h3: { label: 'H3', cmd: () => editor.chain().focus().toggleHeading({ level: 3 }).run(), active: () => editor.isActive('heading', { level: 3 }), title: 'Heading 3' },
+            bullet: { label: '\u2022', cmd: () => editor.chain().focus().toggleBulletList().run(), active: () => editor.isActive('bulletList'), title: 'Bullet list' },
+            ordered: { label: '1.', cmd: () => editor.chain().focus().toggleOrderedList().run(), active: () => editor.isActive('orderedList'), title: 'Numbered list' },
+            task: { label: '\u2610', cmd: () => editor.chain().focus().toggleTaskList().run(), active: () => editor.isActive('taskList'), title: 'Task list' },
+            quote: { label: '\u275D', cmd: () => editor.chain().focus().toggleBlockquote().run(), active: () => editor.isActive('blockquote'), title: 'Quote' },
+            sep: { type: 'sep' },
+        };
+
+        const layouts = {
+            tasks: [allButtons.task, allButtons.sep, allButtons.bold, allButtons.italic],
+            full: [allButtons.bold, allButtons.italic, allButtons.sep, allButtons.h1, allButtons.h2, allButtons.h3, allButtons.sep, allButtons.bullet, allButtons.ordered, allButtons.task, allButtons.quote],
+        };
+
+        const buttons = layouts[mode] || layouts.full;
 
         container.innerHTML = buttons.map((b, i) =>
             b.type === 'sep'
