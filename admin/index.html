@@ -8,16 +8,26 @@
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Apply theme immediately to prevent flash -->
+    <script>
+        (function() {
+            try {
+                const s = JSON.parse(localStorage.getItem('paulland_admin_settings') || '{}');
+                const t = s.theme || 'dark';
+                const a = s.accentColor || 'sage';
+                document.documentElement.setAttribute('data-theme', t);
+                document.documentElement.setAttribute('data-accent', a);
+            } catch {}
+        })();
+    </script>
     <style>
-        :root {
+        /* ─── Dark Theme (default) ─── */
+        :root, [data-theme="dark"] {
             --void: #08080c;
             --void-light: #0e0e14;
             --void-lighter: #14141c;
             --star: #c8bfa8;
             --star-dim: rgba(200, 191, 168, 0.3);
-            --accent: #3d8b6e;
-            --accent-dim: rgba(61, 139, 110, 0.15);
-            --accent-glow: rgba(61, 139, 110, 0.4);
             --text-muted: rgba(200, 191, 168, 0.4);
             --text-body: rgba(200, 191, 168, 0.7);
             --border: rgba(200, 191, 168, 0.06);
@@ -26,6 +36,86 @@
             --red: #c45050;
             --yellow: #c4a850;
             --blue: #5080c4;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --hover-bg: rgba(200, 191, 168, 0.03);
+            --hover-subtle: rgba(200, 191, 168, 0.02);
+            --tint-subtle: rgba(200, 191, 168, 0.08);
+            --tint-medium: rgba(200, 191, 168, 0.1);
+        }
+
+        /* ─── Light Theme ─── */
+        [data-theme="light"] {
+            --void: #f5f2ec;
+            --void-light: #eae6de;
+            --void-lighter: #dfdad0;
+            --star: #1a1a2e;
+            --star-dim: rgba(26, 26, 46, 0.2);
+            --text-muted: rgba(26, 26, 46, 0.4);
+            --text-body: rgba(26, 26, 46, 0.7);
+            --border: rgba(26, 26, 46, 0.08);
+            --border-hover: rgba(26, 26, 46, 0.15);
+            --red: #b03030;
+            --yellow: #9a7a10;
+            --blue: #3060a0;
+            --shadow: rgba(0, 0, 0, 0.08);
+            --hover-bg: rgba(26, 26, 46, 0.03);
+            --hover-subtle: rgba(26, 26, 46, 0.02);
+            --tint-subtle: rgba(26, 26, 46, 0.08);
+            --tint-medium: rgba(26, 26, 46, 0.1);
+        }
+
+        /* ─── Accent Colours ─── */
+        :root, [data-accent="sage"] {
+            --accent: #3d8b6e;
+            --accent-dim: rgba(61, 139, 110, 0.15);
+            --accent-glow: rgba(61, 139, 110, 0.4);
+        }
+        [data-accent="gold"] {
+            --accent: #b89a30;
+            --accent-dim: rgba(184, 154, 48, 0.15);
+            --accent-glow: rgba(184, 154, 48, 0.4);
+        }
+        [data-accent="ocean"] {
+            --accent: #4078b8;
+            --accent-dim: rgba(64, 120, 184, 0.15);
+            --accent-glow: rgba(64, 120, 184, 0.4);
+        }
+        [data-accent="ember"] {
+            --accent: #c45050;
+            --accent-dim: rgba(196, 80, 80, 0.15);
+            --accent-glow: rgba(196, 80, 80, 0.4);
+        }
+        [data-accent="violet"] {
+            --accent: #8860c4;
+            --accent-dim: rgba(136, 96, 196, 0.15);
+            --accent-glow: rgba(136, 96, 196, 0.4);
+        }
+
+        /* Light theme accent adjustments for contrast */
+        [data-theme="light"][data-accent="sage"] {
+            --accent: #2d7058;
+            --accent-dim: rgba(45, 112, 88, 0.12);
+            --accent-glow: rgba(45, 112, 88, 0.3);
+        }
+        [data-theme="light"][data-accent="gold"] {
+            --accent: #8a7020;
+            --accent-dim: rgba(138, 112, 32, 0.12);
+            --accent-glow: rgba(138, 112, 32, 0.3);
+        }
+        [data-theme="light"][data-accent="ocean"] {
+            --accent: #2d5f9e;
+            --accent-dim: rgba(45, 95, 158, 0.12);
+            --accent-glow: rgba(45, 95, 158, 0.3);
+        }
+        [data-theme="light"][data-accent="ember"] {
+            --accent: #a83030;
+            --accent-dim: rgba(168, 48, 48, 0.12);
+            --accent-glow: rgba(168, 48, 48, 0.3);
+        }
+        [data-theme="light"][data-accent="violet"] {
+            --accent: #6a40a8;
+            --accent-dim: rgba(106, 64, 168, 0.12);
+            --accent-glow: rgba(106, 64, 168, 0.3);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -104,8 +194,14 @@
             text-align: left;
         }
 
-        .nav-item:hover { color: var(--star); background: rgba(200, 191, 168, 0.03); }
-        .nav-item.active { color: var(--accent); background: var(--accent-dim); }
+        .nav-item { border-left: 3px solid transparent; }
+        .nav-item:hover { color: var(--star); background: var(--hover-bg); }
+        .nav-item.active {
+            color: var(--accent);
+            background: var(--accent-dim);
+            border-left-color: var(--accent);
+            font-weight: 500;
+        }
 
         .nav-item .count {
             margin-left: auto;
@@ -296,7 +392,7 @@
         }
 
         tr { transition: background 0.15s; }
-        tr:hover { background: rgba(200, 191, 168, 0.02); }
+        tr:hover { background: var(--hover-subtle); }
         tr.expandable { cursor: pointer; }
 
         .title-cell {
@@ -332,21 +428,21 @@
         }
 
         .type-article { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
-        .type-thought { background: rgba(200, 191, 168, 0.1); color: var(--star-dim); }
+        .type-thought { background: var(--tint-medium); color: var(--star-dim); }
         .type-signal { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
         .type-reflection { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
-        .type-note { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+        .type-note { background: var(--tint-subtle); color: var(--text-muted); }
 
         /* Status badges */
         .status-active { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
         .status-on_hold { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
-        .status-completed { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+        .status-completed { background: var(--tint-subtle); color: var(--text-muted); }
         .status-sunset { background: rgba(196, 80, 80, 0.15); color: var(--red); }
         .status-planning { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
         .status-in_progress { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
 
         /* Evidence type badges */
-        .evidence-observation { background: rgba(200, 191, 168, 0.08); color: var(--text-muted); }
+        .evidence-observation { background: var(--tint-subtle); color: var(--text-muted); }
         .evidence-customer_feedback { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
         .evidence-metric { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
         .evidence-decision { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
@@ -832,7 +928,7 @@
         }
 
         .activity-item:last-child { border-bottom: none; }
-        .activity-item:hover { background: rgba(200, 191, 168, 0.02); }
+        .activity-item:hover { background: var(--hover-subtle); }
 
         .activity-title {
             flex: 1;
@@ -878,7 +974,7 @@
         }
 
         .attention-item:last-child { border-bottom: none; }
-        .attention-item:hover { background: rgba(200, 191, 168, 0.02); }
+        .attention-item:hover { background: var(--hover-subtle); }
 
         .attention-icon {
             font-size: 0.8rem;
@@ -1458,7 +1554,7 @@
 
         /* Stoic Challenge */
         .stoic-section {
-            border-color: rgba(200, 191, 168, 0.08);
+            border-color: var(--tint-subtle);
         }
 
         .stoic-header {
@@ -1466,7 +1562,7 @@
         }
 
         .stoic-header:hover {
-            background: rgba(200, 191, 168, 0.03);
+            background: var(--hover-bg);
         }
 
         .stoic-subtitle {
@@ -1554,7 +1650,7 @@
         }
 
         .meeting-card-header:hover {
-            background: rgba(200, 191, 168, 0.03);
+            background: var(--hover-bg);
         }
 
         .meeting-card-chevron {
@@ -1879,7 +1975,7 @@
             color: var(--text-body);
             border: 1px solid var(--border-hover);
         }
-        .btn-secondary:hover { background: rgba(200, 191, 168, 0.08); }
+        .btn-secondary:hover { background: var(--tint-subtle); }
 
         .btn-back {
             background: none;
@@ -1969,6 +2065,50 @@
             font-size: 0.9rem;
             line-height: 1.6;
             resize: vertical;
+        }
+
+        /* ─── Settings buttons ─── */
+        .theme-mode-btn.active,
+        .accent-btn.active,
+        .font-size-btn.active {
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 1px var(--accent);
+        }
+
+        .theme-mode-btn:hover,
+        .accent-btn:hover,
+        .font-size-btn:hover {
+            border-color: var(--border-hover) !important;
+            opacity: 0.9;
+        }
+
+        /* ─── Light theme overrides for elements with hardcoded colours ─── */
+        [data-theme="light"] .sidebar {
+            box-shadow: 1px 0 3px var(--shadow);
+        }
+
+        [data-theme="light"] .tiptap-editor {
+            background: var(--void) !important;
+        }
+
+        [data-theme="light"] .content-modal {
+            box-shadow: -4px 0 20px var(--shadow);
+        }
+
+        [data-theme="light"] .filter-btn:hover {
+            color: var(--star);
+        }
+
+        [data-theme="light"] input,
+        [data-theme="light"] select,
+        [data-theme="light"] textarea {
+            color-scheme: light;
+        }
+
+        [data-theme="dark"] input,
+        [data-theme="dark"] select,
+        [data-theme="dark"] textarea {
+            color-scheme: dark;
         }
 
     </style>
@@ -2075,7 +2215,7 @@
     let articleTopTags = [];
 
     // ─── Settings (persisted in localStorage) ────────────────
-    const DEFAULT_SETTINGS = { showThumbnails: true };
+    const DEFAULT_SETTINGS = { showThumbnails: true, theme: 'dark', accentColor: 'sage', fontSize: 'medium' };
     let appSettings = { ...DEFAULT_SETTINGS };
 
     function loadSettings() {
@@ -2083,10 +2223,19 @@
             const saved = localStorage.getItem('paulland_admin_settings');
             if (saved) appSettings = { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
         } catch {}
+        applyTheme();
     }
 
     function saveSettings() {
         try { localStorage.setItem('paulland_admin_settings', JSON.stringify(appSettings)); } catch {}
+    }
+
+    function applyTheme() {
+        document.documentElement.setAttribute('data-theme', appSettings.theme);
+        document.documentElement.setAttribute('data-accent', appSettings.accentColor);
+        // Font size
+        const sizes = { small: '0.9rem', medium: '1rem', large: '1.1rem' };
+        document.body.style.fontSize = sizes[appSettings.fontSize] || sizes.medium;
     }
     let dailyNoteDate = null;
     let dailyNoteId = null;
@@ -5231,16 +5380,76 @@
     // ─── Settings ─────────────────────────────────────────────
 
     function loadSettingsView() {
+        const accents = [
+            { id: 'sage', label: 'Sage', color: '#3d8b6e' },
+            { id: 'gold', label: 'Gold', color: '#b89a30' },
+            { id: 'ocean', label: 'Ocean', color: '#4078b8' },
+            { id: 'ember', label: 'Ember', color: '#c45050' },
+            { id: 'violet', label: 'Violet', color: '#8860c4' },
+        ];
+
         const main = document.getElementById('mainContent');
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Settings</h2>
             </div>
             <div style="max-width: 600px;">
+
+                <!-- Theme -->
                 <div class="daily-section" style="margin-bottom: 1.5rem;">
-                    <div class="daily-section-header">
-                        <span>Display</span>
+                    <div class="daily-section-header"><span>Theme</span></div>
+                    <div style="padding: 1rem; display: flex; flex-direction: column; gap: 1.25rem;">
+
+                        <!-- Light / Dark -->
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em;">Mode</div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button class="theme-mode-btn ${appSettings.theme === 'dark' ? 'active' : ''}" data-mode="dark"
+                                    style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: 6px; background: #08080c; cursor: pointer; text-align: center; transition: all 0.2s;">
+                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;">🌙</div>
+                                    <div style="font-size: 0.85rem; color: #c8bfa8;">Dark</div>
+                                </button>
+                                <button class="theme-mode-btn ${appSettings.theme === 'light' ? 'active' : ''}" data-mode="light"
+                                    style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: 6px; background: #f5f2ec; cursor: pointer; text-align: center; transition: all 0.2s;">
+                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;">☀️</div>
+                                    <div style="font-size: 0.85rem; color: #1a1a2e;">Light</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Accent Colour -->
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em;">Accent Colour</div>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                ${accents.map(a => `
+                                    <button class="accent-btn ${appSettings.accentColor === a.id ? 'active' : ''}" data-accent="${a.id}"
+                                        style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; border: 1px solid var(--border-hover); border-radius: 6px; background: var(--void-light); cursor: pointer; transition: all 0.2s;">
+                                        <span style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${a.color};"></span>
+                                        <span style="font-size: 0.85rem; font-family: var(--mono); color: var(--text-body);">${a.label}</span>
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+
+                        <!-- Font Size -->
+                        <div>
+                            <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em;">Font Size</div>
+                            <div style="display: flex; gap: 0.5rem;">
+                                ${['small', 'medium', 'large'].map(s => `
+                                    <button class="font-size-btn ${appSettings.fontSize === s ? 'active' : ''}" data-size="${s}"
+                                        style="flex: 1; padding: 0.5rem; border: 1px solid var(--border-hover); border-radius: 6px; background: var(--void-light); cursor: pointer; text-align: center; transition: all 0.2s;">
+                                        <span style="font-size: ${s === 'small' ? '0.8rem' : s === 'medium' ? '0.9rem' : '1rem'}; font-family: var(--mono); color: var(--text-body);">${s.charAt(0).toUpperCase() + s.slice(1)}</span>
+                                    </button>
+                                `).join('')}
+                            </div>
+                        </div>
+
                     </div>
+                </div>
+
+                <!-- Display -->
+                <div class="daily-section" style="margin-bottom: 1.5rem;">
+                    <div class="daily-section-header"><span>Display</span></div>
                     <div style="padding: 1rem;">
                         <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer; color: var(--text-body);">
                             <input type="checkbox" id="settingShowThumbnails" ${appSettings.showThumbnails ? 'checked' : ''}
@@ -5252,9 +5461,42 @@
                         </label>
                     </div>
                 </div>
+
             </div>
         `;
 
+        // Wire up settings controls
+        // Theme mode
+        main.querySelectorAll('.theme-mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                appSettings.theme = btn.dataset.mode;
+                saveSettings();
+                applyTheme();
+                loadSettingsView(); // Re-render to update active states
+            });
+        });
+
+        // Accent colour
+        main.querySelectorAll('.accent-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                appSettings.accentColor = btn.dataset.accent;
+                saveSettings();
+                applyTheme();
+                loadSettingsView();
+            });
+        });
+
+        // Font size
+        main.querySelectorAll('.font-size-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                appSettings.fontSize = btn.dataset.size;
+                saveSettings();
+                applyTheme();
+                loadSettingsView();
+            });
+        });
+
+        // Thumbnails
         document.getElementById('settingShowThumbnails').addEventListener('change', (e) => {
             appSettings.showThumbnails = e.target.checked;
             saveSettings();
