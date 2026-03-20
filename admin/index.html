@@ -8,6 +8,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <!-- Apply theme immediately to prevent flash -->
     <script>
         (function() {
@@ -2234,9 +2235,74 @@
             word-break: break-all;
         }
 
+        /* Asset list view */
+        .asset-list { display: flex; flex-direction: column; gap: 0; }
+        .asset-list-row {
+            display: grid;
+            grid-template-columns: 48px 1fr 120px 100px 80px 36px;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .asset-list-row:hover { background: var(--hover-subtle); }
+        .asset-list-thumb {
+            width: 48px; height: 36px;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex; align-items: center; justify-content: center;
+            background: var(--void-lighter);
+            font-size: 1.2rem;
+        }
+        .asset-list-thumb img { width: 100%; height: 100%; object-fit: cover; }
+        .asset-list-thumb canvas { width: 100%; height: 100%; object-fit: cover; }
+        .asset-list-name {
+            font-size: 0.9rem; color: var(--star);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .asset-list-type { font-size: 0.8rem; color: var(--text-muted); }
+        .asset-list-size { font-size: 0.8rem; color: var(--text-muted); text-align: right; }
+        .asset-list-date { font-size: 0.8rem; color: var(--text-muted); }
+
+        .asset-copy-btn {
+            background: none; border: none; cursor: pointer;
+            color: var(--text-muted); font-size: 0.9rem;
+            padding: 0.2rem; border-radius: 3px;
+            transition: color 0.2s;
+        }
+        .asset-copy-btn:hover { color: var(--accent); }
+
+        .asset-view-toggle {
+            display: flex; gap: 0; margin-left: auto;
+        }
+        .asset-view-toggle button {
+            padding: 0.3rem 0.6rem;
+            background: var(--void-lighter);
+            border: 1px solid var(--border-hover);
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .asset-view-toggle button:first-child { border-radius: 4px 0 0 4px; }
+        .asset-view-toggle button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+        .asset-view-toggle button.active {
+            background: var(--accent-dim); color: var(--accent); border-color: var(--accent);
+        }
+
+        /* PDF thumbnail canvas in grid */
+        .asset-card-preview canvas {
+            width: 100%; height: 100%; object-fit: cover;
+        }
+
         @media (max-width: 768px) {
             .asset-detail { flex-direction: column; }
             .asset-detail-sidebar { width: 100%; }
+            .asset-list-row { grid-template-columns: 48px 1fr 80px 36px; }
+            .asset-list-type, .asset-list-date { display: none; }
         }
 
         /* ─── Settings buttons ─── */
@@ -5573,6 +5639,7 @@
 
     let assetsData = [];
     let assetFilter = { tag: null, type: null };
+    let assetViewMode = localStorage.getItem('assetViewMode') || 'grid';
 
     async function loadAssets() {
         const main = document.getElementById('mainContent');
@@ -5601,7 +5668,10 @@
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Assets <span style="font-size: 0.85rem; color: var(--text-muted);">${assetsData.length} files</span></h2>
-                <button class="btn-action btn-secondary" id="syncR2Btn" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">Sync R2</button>
+                <div class="asset-view-toggle">
+                    <button class="${assetViewMode === 'grid' ? 'active' : ''}" data-view-mode="grid" title="Grid view">▦</button>
+                    <button class="${assetViewMode === 'list' ? 'active' : ''}" data-view-mode="list" title="List view">☰</button>
+                </div>
             </div>
 
             <div class="asset-upload-zone" id="assetDropZone">
@@ -5625,31 +5695,59 @@
                 ` : ''}
             </div>
 
-            <div class="asset-grid" id="assetGrid">
-                ${assetsData.map(a => renderAssetCard(a)).join('')}
-                ${assetsData.length === 0 ? '<div style="grid-column: 1/-1; text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>' : ''}
+            <div id="assetContainer">
+                ${assetViewMode === 'grid' ? renderAssetGrid() : renderAssetList()}
             </div>
         `;
 
         wireAssetEvents();
+
+        // Render PDF thumbnails after DOM is ready
+        if (assetViewMode === 'grid') renderPdfThumbnails();
+    }
+
+    function renderAssetGrid() {
+        if (assetsData.length === 0) {
+            return '<div style="text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>';
+        }
+        return `<div class="asset-grid">${assetsData.map(a => renderAssetCard(a)).join('')}</div>`;
+    }
+
+    function renderAssetList() {
+        if (assetsData.length === 0) {
+            return '<div style="text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>';
+        }
+        return `<div class="asset-list">
+            <div class="asset-list-row" style="border-bottom: 1px solid var(--border-hover); cursor: default; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">
+                <div></div><div>Name</div><div>Type</div><div style="text-align: right;">Size</div><div>Date</div><div></div>
+            </div>
+            ${assetsData.map(a => renderAssetListRow(a)).join('')}
+        </div>`;
     }
 
     function renderAssetCard(asset) {
         const isImage = (asset.mime_type || '').startsWith('image/');
+        const isPdf = asset.mime_type === 'application/pdf';
         const icon = getFileIcon(asset.mime_type);
         const size = formatFileSize(asset.file_size);
         const date = formatDate(asset.uploaded_at);
+        const fileUrl = `/api/assets/file/${asset.r2_key}`;
 
         return `
             <div class="asset-card" data-asset-id="${asset.id}">
                 <div class="asset-card-preview">
                     ${isImage
-                        ? `<img src="/api/assets/file/${esc(asset.r2_key)}" alt="${esc(asset.filename)}" loading="lazy">`
-                        : `<span class="asset-icon">${icon}</span>`
+                        ? `<img src="${esc(fileUrl)}" alt="${esc(asset.filename)}" loading="lazy">`
+                        : isPdf
+                            ? `<canvas class="pdf-thumb" data-pdf-url="${esc(fileUrl)}" width="200" height="140"></canvas>`
+                            : `<span class="asset-icon">${icon}</span>`
                     }
                 </div>
                 <div class="asset-card-info">
-                    <div class="asset-card-name" title="${esc(asset.filename)}">${esc(asset.filename)}</div>
+                    <div style="display: flex; align-items: center; gap: 0.3rem;">
+                        <div class="asset-card-name" title="${esc(asset.filename)}" style="flex: 1;">${esc(asset.filename)}</div>
+                        <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()">🔗</button>
+                    </div>
                     <div class="asset-card-meta">${size} · ${date}</div>
                     ${(asset.tags || []).length ? `
                         <div class="asset-card-tags">
@@ -5659,6 +5757,52 @@
                 </div>
             </div>
         `;
+    }
+
+    function renderAssetListRow(asset) {
+        const isImage = (asset.mime_type || '').startsWith('image/');
+        const isPdf = asset.mime_type === 'application/pdf';
+        const icon = getFileIcon(asset.mime_type);
+        const size = formatFileSize(asset.file_size);
+        const date = formatDate(asset.uploaded_at);
+        const fileUrl = `/api/assets/file/${asset.r2_key}`;
+        const ext = (asset.filename.split('.').pop() || '').toUpperCase();
+
+        return `
+            <div class="asset-list-row" data-asset-id="${asset.id}">
+                <div class="asset-list-thumb">
+                    ${isImage
+                        ? `<img src="${esc(fileUrl)}" alt="" loading="lazy">`
+                        : `<span>${icon}</span>`
+                    }
+                </div>
+                <div class="asset-list-name" title="${esc(asset.filename)}">${esc(asset.filename)}</div>
+                <div class="asset-list-type">${ext}</div>
+                <div class="asset-list-size">${size}</div>
+                <div class="asset-list-date">${date}</div>
+                <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()">🔗</button>
+            </div>
+        `;
+    }
+
+    function renderPdfThumbnails() {
+        if (typeof pdfjsLib === 'undefined') return;
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        document.querySelectorAll('.pdf-thumb').forEach(async canvas => {
+            const url = canvas.dataset.pdfUrl;
+            try {
+                const pdf = await pdfjsLib.getDocument(url).promise;
+                const page = await pdf.getPage(1);
+                const viewport = page.getViewport({ scale: 0.5 });
+                canvas.width = viewport.width;
+                canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+            } catch {
+                // If PDF rendering fails, show icon instead
+                canvas.parentElement.innerHTML = '<span class="asset-icon">📕</span>';
+            }
+        });
     }
 
     function getFileIcon(mimeType) {
@@ -5722,14 +5866,40 @@
             });
         }
 
-        // Sync R2 button
-        const syncBtn = document.getElementById('syncR2Btn');
-        if (syncBtn) {
-            syncBtn.addEventListener('click', syncR2Assets);
-        }
+        // View mode toggle
+        document.querySelectorAll('[data-view-mode]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                assetViewMode = btn.dataset.viewMode;
+                localStorage.setItem('assetViewMode', assetViewMode);
+                loadAssets();
+            });
+        });
 
-        // Card clicks → detail view
-        document.querySelectorAll('.asset-card').forEach(card => {
+        // Copy link buttons
+        document.querySelectorAll('.asset-copy-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const url = btn.dataset.copyUrl;
+                try {
+                    await navigator.clipboard.writeText(url);
+                    btn.textContent = '✓';
+                    setTimeout(() => { btn.textContent = '🔗'; }, 1500);
+                } catch {
+                    // Fallback
+                    const tmp = document.createElement('input');
+                    tmp.value = url;
+                    document.body.appendChild(tmp);
+                    tmp.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(tmp);
+                    btn.textContent = '✓';
+                    setTimeout(() => { btn.textContent = '🔗'; }, 1500);
+                }
+            });
+        });
+
+        // Card/row clicks → detail view
+        document.querySelectorAll('.asset-card, .asset-list-row[data-asset-id]').forEach(card => {
             card.addEventListener('click', () => {
                 const asset = assetsData.find(a => a.id === card.dataset.assetId);
                 if (asset) openAssetDetail(asset);
@@ -5772,71 +5942,6 @@
         // Refresh view and counts
         loadAssets();
         loadCounts();
-    }
-
-    async function syncR2Assets() {
-        const btn = document.getElementById('syncR2Btn');
-        btn.textContent = 'Scanning R2...';
-        btn.disabled = true;
-
-        try {
-            // Fetch all R2 objects
-            const res = await fetch('/api/assets/r2-list');
-            if (!res.ok) throw new Error('Failed to list R2 objects');
-            const { objects } = await res.json();
-
-            // Find objects not in Supabase
-            const knownKeys = new Set(assetsData.map(a => a.r2_key));
-            const untracked = objects.filter(o => !knownKeys.has(o.key));
-
-            if (untracked.length === 0) {
-                btn.textContent = '✓ All synced';
-                setTimeout(() => { btn.textContent = 'Sync R2'; btn.disabled = false; }, 2000);
-                return;
-            }
-
-            btn.textContent = `Importing ${untracked.length}...`;
-
-            // Guess mime type from extension
-            function guessMime(key) {
-                const ext = (key.split('.').pop() || '').toLowerCase();
-                const map = {
-                    pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-                    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-                    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-                    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-                    csv: 'text/csv', txt: 'text/plain', zip: 'application/zip',
-                };
-                return map[ext] || 'application/octet-stream';
-            }
-
-            // Create metadata records via Supabase
-            for (const obj of untracked) {
-                const filename = obj.customMetadata?.originalName || obj.key.split('/').pop();
-                const mime = obj.httpMetadata?.contentType || guessMime(obj.key);
-
-                await db.from('assets').upsert({
-                    filename,
-                    r2_key: obj.key,
-                    mime_type: mime,
-                    file_size: obj.size || 0,
-                    tags: [],
-                    description: '',
-                    uploaded_at: obj.uploaded || new Date().toISOString(),
-                    metadata: {},
-                }, { onConflict: 'r2_key' });
-            }
-
-            btn.textContent = `✓ ${untracked.length} imported`;
-            setTimeout(() => { btn.textContent = 'Sync R2'; btn.disabled = false; }, 2000);
-            loadAssets();
-            loadCounts();
-        } catch (err) {
-            btn.textContent = 'Sync failed';
-            btn.disabled = false;
-            console.error('R2 sync failed:', err);
-        }
     }
 
     function openAssetDetail(asset) {
