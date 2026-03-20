@@ -38,6 +38,11 @@ export async function onRequest(context) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/', '');
 
+  // List R2 bucket objects — GET /api/assets/r2-list
+  if (request.method === 'GET' && path === 'assets/r2-list') {
+    return handleR2List(env);
+  }
+
   // Asset file serving — GET /api/assets/file/...
   if (request.method === 'GET' && path.startsWith('assets/file/')) {
     const r2Key = path.replace('assets/file/', '');
@@ -878,6 +883,22 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
 }
 
 // ─── Asset Management (R2 + Supabase) ────────────────────────
+
+async function handleR2List(env) {
+  const bucket = env.ASSETS_BUCKET;
+  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
+
+  const listed = await bucket.list({ limit: 500 });
+  const objects = (listed.objects || []).map(obj => ({
+    key: obj.key,
+    size: obj.size,
+    uploaded: obj.uploaded,
+    httpMetadata: obj.httpMetadata,
+    customMetadata: obj.customMetadata,
+  }));
+
+  return json({ ok: true, objects, truncated: listed.truncated });
+}
 
 async function handleAssetUpload(request, env) {
   const bucket = env.ASSETS_BUCKET;

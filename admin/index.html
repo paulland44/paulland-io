@@ -2481,10 +2481,14 @@
         document.getElementById('countProjects').textContent = projects.count || 0;
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
 
-        // Load all unique tags for autocomplete
-        const { data: tagRows } = await db.from('content').select('tags');
+        // Load all unique tags for autocomplete (across content + assets)
+        const [{ data: tagRows }, { data: assetTagRows }] = await Promise.all([
+            db.from('content').select('tags'),
+            db.from('assets').select('tags'),
+        ]);
         const tagSet = new Set();
         (tagRows || []).forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
+        (assetTagRows || []).forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
         allTags = Array.from(tagSet).sort();
     }
 
@@ -5589,14 +5593,15 @@
         const { data, error } = await query;
         assetsData = data || [];
 
-        // Collect unique tags for filter
-        const tagSet = new Set();
-        (data || []).forEach(a => (a.tags || []).forEach(t => tagSet.add(t)));
-        const allTags = [...tagSet].sort();
+        // Collect asset-specific tags for filter dropdown
+        const assetTagSet = new Set();
+        (data || []).forEach(a => (a.tags || []).forEach(t => assetTagSet.add(t)));
+        const assetTags = [...assetTagSet].sort();
 
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Assets <span style="font-size: 0.85rem; color: var(--text-muted);">${assetsData.length} files</span></h2>
+                <button class="btn-action btn-secondary" id="syncR2Btn" style="font-size: 0.8rem; padding: 0.4rem 0.8rem;">Sync R2</button>
             </div>
 
             <div class="asset-upload-zone" id="assetDropZone">
@@ -5612,10 +5617,10 @@
                 <button class="filter-btn ${assetFilter.type === 'image' ? 'active' : ''}" data-asset-type="image">Images</button>
                 <button class="filter-btn ${assetFilter.type === 'pdf' ? 'active' : ''}" data-asset-type="pdf">PDFs</button>
                 <button class="filter-btn ${assetFilter.type === 'office' ? 'active' : ''}" data-asset-type="office">Office</button>
-                ${allTags.length ? `
+                ${assetTags.length ? `
                     <select class="filter-select" id="assetTagFilter" style="margin-left: 0.5rem;">
                         <option value="">All tags</option>
-                        ${allTags.map(t => `<option value="${esc(t)}" ${assetFilter.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
+                        ${assetTags.map(t => `<option value="${esc(t)}" ${assetFilter.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
                     </select>
                 ` : ''}
             </div>
@@ -5717,6 +5722,12 @@
             });
         }
 
+        // Sync R2 button
+        const syncBtn = document.getElementById('syncR2Btn');
+        if (syncBtn) {
+            syncBtn.addEventListener('click', syncR2Assets);
+        }
+
         // Card clicks → detail view
         document.querySelectorAll('.asset-card').forEach(card => {
             card.addEventListener('click', () => {
@@ -5761,6 +5772,71 @@
         // Refresh view and counts
         loadAssets();
         loadCounts();
+    }
+
+    async function syncR2Assets() {
+        const btn = document.getElementById('syncR2Btn');
+        btn.textContent = 'Scanning R2...';
+        btn.disabled = true;
+
+        try {
+            // Fetch all R2 objects
+            const res = await fetch('/api/assets/r2-list');
+            if (!res.ok) throw new Error('Failed to list R2 objects');
+            const { objects } = await res.json();
+
+            // Find objects not in Supabase
+            const knownKeys = new Set(assetsData.map(a => a.r2_key));
+            const untracked = objects.filter(o => !knownKeys.has(o.key));
+
+            if (untracked.length === 0) {
+                btn.textContent = '✓ All synced';
+                setTimeout(() => { btn.textContent = 'Sync R2'; btn.disabled = false; }, 2000);
+                return;
+            }
+
+            btn.textContent = `Importing ${untracked.length}...`;
+
+            // Guess mime type from extension
+            function guessMime(key) {
+                const ext = (key.split('.').pop() || '').toLowerCase();
+                const map = {
+                    pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+                    gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+                    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    csv: 'text/csv', txt: 'text/plain', zip: 'application/zip',
+                };
+                return map[ext] || 'application/octet-stream';
+            }
+
+            // Create metadata records via Supabase
+            for (const obj of untracked) {
+                const filename = obj.customMetadata?.originalName || obj.key.split('/').pop();
+                const mime = obj.httpMetadata?.contentType || guessMime(obj.key);
+
+                await db.from('assets').upsert({
+                    filename,
+                    r2_key: obj.key,
+                    mime_type: mime,
+                    file_size: obj.size || 0,
+                    tags: [],
+                    description: '',
+                    uploaded_at: obj.uploaded || new Date().toISOString(),
+                    metadata: {},
+                }, { onConflict: 'r2_key' });
+            }
+
+            btn.textContent = `✓ ${untracked.length} imported`;
+            setTimeout(() => { btn.textContent = 'Sync R2'; btn.disabled = false; }, 2000);
+            loadAssets();
+            loadCounts();
+        } catch (err) {
+            btn.textContent = 'Sync failed';
+            btn.disabled = false;
+            console.error('R2 sync failed:', err);
+        }
     }
 
     function openAssetDetail(asset) {
@@ -5813,6 +5889,14 @@
                         <div class="asset-detail-label">Tags</div>
                         ${buildTagEditor(asset.tags || [], 'asset')}
                     </div>
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Link</div>
+                        <div style="display: flex; gap: 0.4rem; align-items: center;">
+                            <input type="text" id="assetLinkInput" readonly value="${location.origin}${fileUrl}"
+                                style="flex: 1; background: var(--void); color: var(--text-body); border: 1px solid var(--border-hover); border-radius: 4px; padding: 0.4rem 0.6rem; font-family: var(--mono); font-size: 0.8rem;">
+                            <button class="btn-action btn-secondary" id="assetCopyLinkBtn" style="white-space: nowrap; padding: 0.4rem 0.7rem;">Copy</button>
+                        </div>
+                    </div>
                     <div style="display: flex; gap: 0.5rem; margin-top: 1.5rem;">
                         <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration: none; text-align: center; flex: 1;">Download</a>
                         <button class="btn-action btn-secondary" id="assetDeleteBtn" style="flex: 1; color: var(--red);">Delete</button>
@@ -5823,6 +5907,22 @@
 
         // Wire back button
         document.getElementById('assetBackBtn').addEventListener('click', () => loadAssets());
+
+        // Wire copy link
+        document.getElementById('assetCopyLinkBtn').addEventListener('click', async () => {
+            const input = document.getElementById('assetLinkInput');
+            const btn = document.getElementById('assetCopyLinkBtn');
+            try {
+                await navigator.clipboard.writeText(input.value);
+                btn.textContent = '✓ Copied';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+            } catch {
+                input.select();
+                document.execCommand('copy');
+                btn.textContent = '✓ Copied';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 2000);
+            }
+        });
 
         // Wire description save (debounced)
         let descTimer;
