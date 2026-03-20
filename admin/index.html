@@ -1854,6 +1854,123 @@
             color: var(--star);
         }
 
+        /* ─── Summaries ─── */
+        .summary-type-weekly { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .summary-type-monthly { background: var(--accent-dim); color: var(--accent); }
+        .summary-type-support { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+
+        .btn-action {
+            padding: 0.5rem 1rem;
+            background: var(--accent);
+            color: var(--void);
+            border: none;
+            border-radius: 4px;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .btn-action:hover { opacity: 0.85; }
+        .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn-secondary {
+            background: var(--void-lighter);
+            color: var(--text-body);
+            border: 1px solid var(--border-hover);
+        }
+        .btn-secondary:hover { background: rgba(200, 191, 168, 0.08); }
+
+        .btn-back {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            cursor: pointer;
+            padding: 0.3rem 0;
+        }
+        .btn-back:hover { color: var(--accent); }
+
+        .generate-form {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+        .generate-form-row {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        .generate-form label {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.85rem;
+            color: var(--text-body);
+        }
+        .generate-form select,
+        .generate-form input[type="date"] {
+            background: var(--void);
+            color: var(--star);
+            border: 1px solid var(--border-hover);
+            border-radius: 4px;
+            padding: 0.4rem 0.6rem;
+            font-family: var(--mono);
+            font-size: 0.85rem;
+        }
+
+        .summary-content {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 1.5rem 2rem;
+            line-height: 1.7;
+            color: var(--text-body);
+        }
+        .summary-content h1, .summary-content h2, .summary-content h3 {
+            color: var(--star);
+            font-weight: 400;
+            margin: 1.5rem 0 0.5rem;
+        }
+        .summary-content h2 { font-size: 1.2rem; }
+        .summary-content h3 { font-size: 1.05rem; }
+        .summary-content table { width: 100%; border-collapse: collapse; margin: 0.5rem 0; }
+        .summary-content th, .summary-content td {
+            padding: 0.4rem 0.8rem;
+            border: 1px solid var(--border);
+            text-align: left;
+            font-size: 0.9rem;
+        }
+        .summary-content th { background: var(--void-lighter); color: var(--star); }
+        .summary-content ul, .summary-content ol { padding-left: 1.5rem; }
+        .summary-content li { margin-bottom: 0.3rem; }
+        .summary-content strong { color: var(--star); font-weight: 500; }
+        .summary-content em { color: var(--text-muted); }
+        .summary-content hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+
+        .summary-edit-container {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .summary-textarea {
+            width: 100%;
+            min-height: 500px;
+            background: var(--void);
+            color: var(--star);
+            border: 1px solid var(--border-hover);
+            border-radius: 4px;
+            padding: 1rem;
+            font-family: var(--mono);
+            font-size: 0.9rem;
+            line-height: 1.6;
+            resize: vertical;
+        }
+
     </style>
 </head>
 <body>
@@ -1878,6 +1995,9 @@
                 </button>
                 <button class="nav-item" data-view="reflections">
                     Reflections <span class="count" id="countReflections">-</span>
+                </button>
+                <button class="nav-item" data-view="summaries">
+                    Summaries <span class="count" id="countSummaries">-</span>
                 </button>
                 <button class="nav-item" data-view="feed-items">
                     Feed Items <span class="count" id="countFeedItems">-</span>
@@ -2011,11 +2131,12 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, feedItems, feeds, people, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, people, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
+            db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
             db.from('people').select('id', { count: 'exact', head: true }),
@@ -2026,6 +2147,7 @@
         document.getElementById('countArticles').textContent = articles.count || 0;
         document.getElementById('countThoughts').textContent = (thoughts.count || 0) + (signals.count || 0);
         document.getElementById('countReflections').textContent = reflections.count || 0;
+        document.getElementById('countSummaries').textContent = summaries.count || 0;
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
         document.getElementById('countFeeds').textContent = feeds.count || 0;
         document.getElementById('countContacts').textContent = people.count || 0;
@@ -2049,6 +2171,7 @@
             case 'articles': return loadArticles();
             case 'thoughts': return loadThoughts();
             case 'reflections': return loadReflections();
+            case 'summaries': return loadSummaries();
             case 'feed-items': return loadFeedItems();
             case 'feeds': return loadFeeds();
             case 'tags': return loadTags();
@@ -2798,7 +2921,7 @@
                     organizer: e.organizer,
                     attendees: e.attendees || [],
                 }));
-                console.log(`Calendar: ${calendarEvents.length} events for ${dailyNoteDate}`);
+                // Calendar events loaded for date
             }
         } catch (err) {
             console.warn('Calendar fetch failed:', err);
@@ -2812,9 +2935,7 @@
         // 4. Add calendar events that don't already have a matching card
         const existingTitles = new Set(savedMeetings.map(m => m.title.toLowerCase().trim()));
 
-        if (calendarEvents.length > 0) {
-            console.log(`Calendar: found ${calendarEvents.length} events for ${dailyNoteDate}`);
-        }
+        // Merge calendar events with saved meetings
 
         for (const evt of calendarEvents) {
             const title = evt.title || '';
@@ -4566,6 +4687,505 @@
                 `).join('')}
             </div>
         `;
+    }
+
+    // ─── Summaries ────────────────────────────────────────────
+    let summaryFilter = 'all';
+    let summariesData = [];
+
+    async function loadSummaries() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading summaries</div>';
+
+        const { data, error } = await db
+            .from('summaries')
+            .select('id, type, period_start, period_end, content, metadata')
+            .order('period_start', { ascending: false });
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        summariesData = data || [];
+
+        renderSummariesList();
+    }
+
+    function renderSummariesList() {
+        const main = document.getElementById('mainContent');
+        const filtered = summaryFilter === 'all'
+            ? summariesData
+            : summariesData.filter(s => s.type === summaryFilter);
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Summaries</h2>
+                <button class="btn-action" id="btnGenerateSummary">+ Generate</button>
+            </div>
+            <div class="filters" id="summaryFilters">
+                <button class="filter-btn${summaryFilter === 'all' ? ' active' : ''}" data-filter="all">All</button>
+                <button class="filter-btn${summaryFilter === 'weekly' ? ' active' : ''}" data-filter="weekly">Weekly</button>
+                <button class="filter-btn${summaryFilter === 'monthly' ? ' active' : ''}" data-filter="monthly">Monthly</button>
+                <button class="filter-btn${summaryFilter === 'support' ? ' active' : ''}" data-filter="support">Support</button>
+            </div>
+            <div id="summaryGenerateForm" style="display:none;"></div>
+            ${filtered.length ? `
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Type</th><th>Period</th><th>Preview</th><th>Date</th></tr>
+                    </thead>
+                    <tbody id="summariesBody">
+                        ${filtered.map(s => `
+                            <tr class="expandable" data-id="${s.id}">
+                                <td><span class="type-badge summary-type-${s.type}">${esc(s.type)}</span></td>
+                                <td>${formatSummaryPeriod(s)}</td>
+                                <td class="title-cell"><div class="title-text">${esc(summaryPreview(s.content))}</div></td>
+                                <td class="date-cell">${s.period_end || s.period_start}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>` : '<div class="empty">No summaries yet. Click Generate to create one.</div>'}
+        `;
+
+        // Wire filter buttons
+        document.querySelectorAll('#summaryFilters .filter-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                summaryFilter = btn.dataset.filter;
+                renderSummariesList();
+            });
+        });
+
+        // Wire row clicks
+        document.querySelectorAll('#summariesBody tr.expandable').forEach(row => {
+            row.addEventListener('click', () => {
+                const item = summariesData.find(s => s.id === row.dataset.id);
+                if (item) openSummaryDetail(item);
+            });
+        });
+
+        // Wire generate button
+        document.getElementById('btnGenerateSummary').addEventListener('click', showGenerateForm);
+    }
+
+    function formatSummaryPeriod(s) {
+        if (s.type === 'monthly') {
+            const d = new Date(s.period_start + 'T12:00:00');
+            return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+        }
+        // Weekly / support
+        const start = new Date(s.period_start + 'T12:00:00');
+        const end = new Date(s.period_end + 'T12:00:00');
+        const startDay = start.getDate();
+        const endDay = end.getDate();
+        const mon = start.toLocaleDateString('en-GB', { month: 'short' });
+        const yr = start.getFullYear();
+        return `Week of ${startDay}-${endDay} ${mon} ${yr}`;
+    }
+
+    function summaryPreview(content) {
+        if (!content) return '';
+        // Get first meaningful line after headings
+        const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+        const first = lines[0] || '';
+        return first.replace(/^\*\*|\*\*$/g, '').replace(/^- /, '').substring(0, 80);
+    }
+
+    function openSummaryDetail(item) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+            <div class="page-header">
+                <div style="display: flex; align-items: center; gap: 1rem;">
+                    <button class="btn-back" id="btnSummaryBack">← Back</button>
+                    <h2 class="page-title">${formatSummaryPeriod(item)}</h2>
+                    <span class="type-badge summary-type-${item.type}">${esc(item.type)}</span>
+                </div>
+                <div style="display: flex; gap: 0.5rem;">
+                    <button class="btn-action btn-secondary" id="btnSummaryEdit">Edit</button>
+                    ${item.type !== 'support' ? `<button class="btn-action btn-secondary" id="btnSummaryRegenerate">Regenerate</button>` : ''}
+                </div>
+            </div>
+            ${item.metadata?.generated_at ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">Generated: ${new Date(item.metadata.generated_at).toLocaleString()}</div>` : ''}
+            <div class="summary-content" id="summaryContent">${renderBody(item.content)}</div>
+            <div id="summaryEditor" style="display:none;"></div>
+        `;
+
+        document.getElementById('btnSummaryBack').addEventListener('click', renderSummariesList);
+
+        document.getElementById('btnSummaryEdit').addEventListener('click', () => {
+            enterSummaryEditMode(item);
+        });
+
+        const regenBtn = document.getElementById('btnSummaryRegenerate');
+        if (regenBtn) {
+            regenBtn.addEventListener('click', () => {
+                showGenerateForm(null, item.type, item.period_start, item.period_end);
+            });
+        }
+    }
+
+    function enterSummaryEditMode(item) {
+        document.getElementById('summaryContent').style.display = 'none';
+        const editorWrap = document.getElementById('summaryEditor');
+        editorWrap.style.display = 'block';
+        editorWrap.innerHTML = `
+            <div class="summary-edit-container">
+                <div class="summary-edit-area" id="summaryEditArea"></div>
+                <div style="display: flex; gap: 0.5rem; margin-top: 1rem;">
+                    <button class="btn-action" id="btnSummarySave">Save</button>
+                    <button class="btn-action btn-secondary" id="btnSummaryCancel">Cancel</button>
+                </div>
+            </div>
+        `;
+
+        // Create a simple textarea editor (Tiptap's onUpdate triggers dailySave which we don't want)
+        const editArea = document.getElementById('summaryEditArea');
+        editArea.innerHTML = `<textarea class="summary-textarea" id="summaryTextarea">${esc(item.content)}</textarea>`;
+
+        document.getElementById('btnSummarySave').addEventListener('click', async () => {
+            const newContent = document.getElementById('summaryTextarea').value;
+            const btn = document.getElementById('btnSummarySave');
+            btn.textContent = 'Saving...';
+            btn.disabled = true;
+
+            const res = await fetch('/api/entity-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table: 'summaries',
+                    id: item.id,
+                    updates: { content: newContent },
+                }),
+            });
+
+            if (res.ok) {
+                item.content = newContent;
+                openSummaryDetail(item);
+            } else {
+                btn.textContent = 'Error — retry';
+                btn.disabled = false;
+            }
+        });
+
+        document.getElementById('btnSummaryCancel').addEventListener('click', () => {
+            openSummaryDetail(item);
+        });
+    }
+
+    // ─── Generate Summary ────────────────────────────────────
+
+    function showGenerateForm(e, preType, preStart, preEnd) {
+        const form = document.getElementById('summaryGenerateForm');
+        if (!form) return;
+
+        // Default to most recent complete week
+        const now = new Date();
+        const dayOfWeek = now.getDay();
+        const lastFriday = new Date(now);
+        lastFriday.setDate(now.getDate() - ((dayOfWeek + 2) % 7) - 0);
+        const lastMonday = new Date(lastFriday);
+        lastMonday.setDate(lastFriday.getDate() - 4);
+
+        const defaultStart = preStart || lastMonday.toISOString().split('T')[0];
+        const defaultEnd = preEnd || lastFriday.toISOString().split('T')[0];
+
+        form.style.display = 'block';
+        form.innerHTML = `
+            <div class="generate-form">
+                <div class="generate-form-row">
+                    <label>Type:
+                        <select id="genType">
+                            <option value="weekly"${(preType || 'weekly') === 'weekly' ? ' selected' : ''}>Weekly</option>
+                            <option value="monthly"${preType === 'monthly' ? ' selected' : ''}>Monthly</option>
+                        </select>
+                    </label>
+                    <label>Start: <input type="date" id="genStart" value="${defaultStart}"></label>
+                    <label>End: <input type="date" id="genEnd" value="${defaultEnd}"></label>
+                    <button class="btn-action" id="btnDoGenerate">Generate</button>
+                    <button class="btn-action btn-secondary" id="btnCancelGenerate">Cancel</button>
+                </div>
+                <div id="genStatus" style="margin-top: 0.5rem; font-size: 0.85rem; color: var(--text-muted);"></div>
+            </div>
+        `;
+
+        // Auto-adjust dates when type changes
+        document.getElementById('genType').addEventListener('change', (e) => {
+            if (e.target.value === 'monthly') {
+                const d = new Date();
+                d.setMonth(d.getMonth() - 1);
+                const y = d.getFullYear();
+                const m = d.getMonth();
+                document.getElementById('genStart').value = `${y}-${String(m + 1).padStart(2, '0')}-01`;
+                const lastDay = new Date(y, m + 1, 0).getDate();
+                document.getElementById('genEnd').value = `${y}-${String(m + 1).padStart(2, '0')}-${lastDay}`;
+            }
+        });
+
+        document.getElementById('btnDoGenerate').addEventListener('click', doGenerateSummary);
+        document.getElementById('btnCancelGenerate').addEventListener('click', () => {
+            form.style.display = 'none';
+        });
+    }
+
+    async function doGenerateSummary() {
+        const type = document.getElementById('genType').value;
+        const periodStart = document.getElementById('genStart').value;
+        const periodEnd = document.getElementById('genEnd').value;
+        const status = document.getElementById('genStatus');
+        const btn = document.getElementById('btnDoGenerate');
+
+        if (!periodStart || !periodEnd) {
+            status.textContent = 'Please select start and end dates.';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Gathering data...';
+        status.textContent = 'Querying Supabase for period data...';
+
+        let contextData;
+        try {
+            if (type === 'monthly') {
+                contextData = await gatherMonthlyData(periodStart, periodEnd);
+            } else {
+                contextData = await gatherWeeklyData(periodStart, periodEnd);
+            }
+        } catch (err) {
+            status.textContent = `Error gathering data: ${err.message}`;
+            btn.disabled = false;
+            btn.textContent = 'Generate';
+            return;
+        }
+
+        if (contextData.length < 100) {
+            status.textContent = 'Not enough data found for this period. Check the date range.';
+            btn.disabled = false;
+            btn.textContent = 'Generate';
+            return;
+        }
+
+        btn.textContent = 'Generating with AI...';
+        status.textContent = `Sending ${contextData.length} chars to Claude...`;
+
+        try {
+            const res = await fetch('/api/generate-summary', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    type,
+                    period_start: periodStart,
+                    period_end: periodEnd,
+                    context_data: contextData,
+                }),
+            });
+
+            const result = await res.json();
+            if (!res.ok || !result.ok) {
+                status.textContent = `Error: ${result.error || 'Unknown error'} — ${result.detail || ''}`;
+                btn.disabled = false;
+                btn.textContent = 'Generate';
+                return;
+            }
+
+            // Refresh list and open the new summary
+            status.textContent = 'Done!';
+            form.style.display = 'none';
+            await loadSummaries();
+            const newItem = summariesData.find(s => s.period_start === periodStart && s.type === type);
+            if (newItem) openSummaryDetail(newItem);
+        } catch (err) {
+            status.textContent = `Error: ${err.message}`;
+            btn.disabled = false;
+            btn.textContent = 'Generate';
+        }
+    }
+
+    // ─── Data Gathering ──────────────────────────────────────
+
+    async function gatherWeeklyData(startDate, endDate) {
+        const [notesRes, peopleLogRes, evidenceRes, decisionsRes, projectsRes, reflectionsRes, calendarRes] = await Promise.all([
+            db.from('daily_notes')
+                .select('note_date, tasks, notes, meetings, metadata')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('people_log')
+                .select('note_date, entry, person_id, people(name)')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('product_evidence')
+                .select('note_date, evidence, evidence_type, product_id, products(name)')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('product_decisions')
+                .select('note_date, decision, context, product_id, products(name)')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('project_updates')
+                .select('note_date, update_text, project_id, projects(name)')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('reflections_log')
+                .select('note_date, observation, coach_perspective, category')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('calendar_events')
+                .select('event_date, title, start_time, end_time, attendees')
+                .gte('event_date', startDate)
+                .lte('event_date', endDate)
+                .order('start_time'),
+        ]);
+
+        const notes = notesRes.data || [];
+        const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+        let md = `## Week: ${startDate} to ${endDate}\n\n`;
+
+        // Daily notes by day
+        for (const note of notes) {
+            const d = new Date(note.note_date + 'T12:00:00');
+            md += `### ${dayNames[d.getDay()]} ${note.note_date}\n\n`;
+
+            if (note.metadata?.review_summary) {
+                md += `#### Daily Review Summary\n${note.metadata.review_summary}\n\n`;
+            }
+            if (note.tasks) md += `#### Tasks\n${note.tasks}\n\n`;
+            if (note.notes) md += `#### Notes\n${note.notes}\n\n`;
+            if (note.meetings) md += `#### Meetings\n${note.meetings}\n\n`;
+
+            // Calendar events for this day
+            const dayEvents = (calendarRes.data || []).filter(e => e.event_date === note.note_date);
+            if (dayEvents.length) {
+                md += `#### Calendar\n`;
+                for (const ev of dayEvents) {
+                    const time = ev.start_time ? `(${ev.start_time}${ev.end_time ? '-' + ev.end_time : ''})` : '';
+                    const attendeeList = (ev.attendees || []).slice(0, 10).join(', ');
+                    md += `- **${ev.title}** ${time}${attendeeList ? ' — ' + attendeeList : ''}\n`;
+                }
+                md += '\n';
+            }
+        }
+
+        // People interactions
+        const peopleLog = peopleLogRes.data || [];
+        if (peopleLog.length) {
+            md += `### People Interactions This Week\n`;
+            const byPerson = {};
+            for (const p of peopleLog) {
+                const name = p.people?.name || 'Unknown';
+                if (!byPerson[name]) byPerson[name] = [];
+                byPerson[name].push(`${p.note_date}: ${p.entry}`);
+            }
+            for (const [name, entries] of Object.entries(byPerson)) {
+                md += `#### ${name}\n`;
+                entries.forEach(e => { md += `- ${e}\n`; });
+                md += '\n';
+            }
+        }
+
+        // Product evidence
+        const evidence = evidenceRes.data || [];
+        if (evidence.length) {
+            md += `### Product Evidence This Week\n`;
+            for (const e of evidence) {
+                md += `- **${e.products?.name || 'Unknown'}** (${e.evidence_type}): ${e.evidence}\n`;
+            }
+            md += '\n';
+        }
+
+        // Decisions
+        const decisions = decisionsRes.data || [];
+        if (decisions.length) {
+            md += `### Decisions This Week\n`;
+            for (const d of decisions) {
+                md += `- **${d.products?.name || 'Unknown'}** (${d.note_date}): ${d.decision}${d.context ? ' — ' + d.context : ''}\n`;
+            }
+            md += '\n';
+        }
+
+        // Project updates
+        const projects = projectsRes.data || [];
+        if (projects.length) {
+            md += `### Project Updates\n`;
+            for (const p of projects) {
+                md += `- **${p.projects?.name || 'Unknown'}** (${p.note_date}): ${p.update_text}\n`;
+            }
+            md += '\n';
+        }
+
+        // Reflections
+        const reflections = reflectionsRes.data || [];
+        if (reflections.length) {
+            md += `### Reflections\n`;
+            for (const r of reflections) {
+                md += `- **${r.category || 'leadership'}** (${r.note_date}): ${r.observation}\n`;
+                if (r.coach_perspective) md += `  _Coach: ${r.coach_perspective}_\n`;
+            }
+            md += '\n';
+        }
+
+        return md;
+    }
+
+    async function gatherMonthlyData(startDate, endDate) {
+        // Try weekly summaries first (hierarchical)
+        const { data: weeklySummaries } = await db
+            .from('summaries')
+            .select('type, period_start, period_end, content')
+            .eq('type', 'weekly')
+            .gte('period_start', startDate)
+            .lte('period_start', endDate)
+            .order('period_start');
+
+        let md = `## Monthly Review: ${startDate} to ${endDate}\n\n`;
+
+        if (weeklySummaries && weeklySummaries.length > 0) {
+            md += `### Source: ${weeklySummaries.length} weekly summaries\n\n`;
+            for (const ws of weeklySummaries) {
+                md += `---\n## Weekly Summary: ${ws.period_start} to ${ws.period_end}\n\n`;
+                md += ws.content + '\n\n';
+            }
+        } else {
+            // Fallback to daily notes
+            md += `### Source: Daily notes (no weekly summaries found)\n\n`;
+            const dailyData = await gatherWeeklyData(startDate, endDate);
+            md += dailyData;
+        }
+
+        // Also include decisions and reflections for the month
+        const [decisionsRes, reflectionsRes] = await Promise.all([
+            db.from('product_decisions')
+                .select('note_date, decision, context, products(name)')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+            db.from('reflections_log')
+                .select('note_date, observation, coach_perspective, category')
+                .gte('note_date', startDate)
+                .lte('note_date', endDate)
+                .order('note_date'),
+        ]);
+
+        const decisions = decisionsRes.data || [];
+        if (decisions.length) {
+            md += `\n### All Decisions This Month\n`;
+            for (const d of decisions) {
+                md += `- **${d.products?.name || ''}** (${d.note_date}): ${d.decision}\n`;
+            }
+        }
+
+        const reflections = reflectionsRes.data || [];
+        if (reflections.length) {
+            md += `\n### All Reflections This Month\n`;
+            for (const r of reflections) {
+                md += `- **${r.category}** (${r.note_date}): ${r.observation}\n`;
+            }
+        }
+
+        return md;
     }
 
     // ─── Helpers ──────────────────────────────────────────────

@@ -12,6 +12,7 @@
  *   GET  /api/calendar-events  — Fetch calendar events for a date from ICS feed
  *   POST /api/entity-update    — Update any entity (people, products, projects)
  *   POST /api/entity-log       — Add a log entry (people_log, project_updates)
+ *   POST /api/generate-summary — AI weekly/monthly summary generation
  */
 
 export async function onRequest(context) {
@@ -55,6 +56,8 @@ export async function onRequest(context) {
         return handleEntityUpdate(request, env);
       case 'entity-log':
         return handleEntityLog(request, env);
+      case 'generate-summary':
+        return handleGenerateSummary(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -110,7 +113,7 @@ async function handleUpdateTags(request, env) {
 async function handleEntityUpdate(request, env) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -238,6 +241,218 @@ async function handleUpsertDailyNote(request, env) {
 
   const data = await res.json();
   return json({ ok: true, daily_note: data[0] });
+}
+
+// ─── AI Summary Generation ───────────────────────────────────
+
+async function handleGenerateSummary(request, env) {
+  const { type, period_start, period_end, context_data } = await request.json();
+
+  if (!type || !['weekly', 'monthly'].includes(type)) {
+    return json({ error: 'type must be "weekly" or "monthly"' }, 400);
+  }
+  if (!period_start || !period_end) {
+    return json({ error: 'Missing period_start or period_end' }, 400);
+  }
+  if (!context_data || typeof context_data !== 'string' || context_data.length < 50) {
+    return json({ error: 'context_data must be a substantial text string' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured (Supabase)' }, 500);
+  }
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const systemPrompt = type === 'weekly'
+    ? buildWeeklySummaryPrompt()
+    : buildMonthlySummaryPrompt();
+
+  // Call Claude API
+  let summaryContent;
+  try {
+    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: context_data }],
+      }),
+    });
+
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
+    }
+
+    const claudeData = await claudeRes.json();
+    summaryContent = claudeData.content?.[0]?.text || '';
+
+    if (!summaryContent) {
+      return json({ error: 'Empty response from Claude' }, 500);
+    }
+  } catch (err) {
+    return json({ error: 'AI processing failed', detail: err.message }, 500);
+  }
+
+  // Upsert to summaries table
+  const summaryData = {
+    type,
+    period_start,
+    period_end,
+    content: summaryContent,
+    metadata: {
+      generated_at: new Date().toISOString(),
+      model: 'claude-sonnet-4-20250514',
+      context_length: context_data.length,
+    },
+  };
+
+  const upsertRes = await fetch(
+    `${supabaseUrl}/rest/v1/summaries?on_conflict=type,period_start`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(summaryData),
+    }
+  );
+
+  if (!upsertRes.ok) {
+    const errText = await upsertRes.text();
+    return json({ error: 'Failed to save summary', detail: errText }, 500);
+  }
+
+  const saved = await upsertRes.json();
+
+  // Create audit record (best-effort, don't fail the request)
+  try {
+    await supabasePost(supabaseUrl, serviceKey, 'ai_reviews', {
+      review_type: type,
+      source_date: period_start,
+      status: 'completed',
+      input_snapshot: { period_start, period_end, context_length: context_data.length },
+      output_summary: summaryContent.substring(0, 500),
+      completed_at: new Date().toISOString(),
+    });
+  } catch (e) { /* audit is non-critical */ }
+
+  return json({ ok: true, summary: saved[0] || summaryData });
+}
+
+function buildWeeklySummaryPrompt() {
+  return `You are Paul Land's weekly review assistant. Paul is a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+
+Your job is to synthesise his week's daily notes, entity data, and AI daily review summaries into a comprehensive weekly summary written in **markdown**.
+
+Write the summary as a coach and peer — direct but fair, acknowledging what worked, challenging assumptions, and asking coaching questions where appropriate.
+
+## Output Sections (use these exact headings)
+
+### Highlights
+3-4 key accomplishments or significant events of the week. Bold the most impactful.
+
+### Meetings & Interactions
+Organised by day (Monday through Friday). For each day, list key meetings with attendees and outcomes. Include a **Customer Interactions** subsection if relevant.
+
+### Domain Work (Packaging Job Lifecycle)
+Strategic and operational progress on the domain. Include health indicators where evident.
+
+### Product Work (WebCenter Pack)
+Product delivery, decisions, customer feedback, and roadmap progress.
+
+### Decisions Made
+A markdown table with columns: Date | Decision | Context | Impact
+
+### Blockers & Risks
+Current blockers and emerging risks. Flag anything unresolved from previous weeks.
+
+### Learnings
+Key things learned this week — technical, strategic, or interpersonal.
+
+### Tasks Completed
+Summary of completed tasks. Group by theme if many.
+
+### Leadership & Development
+- **Reflection Summary**: Themes from daily reflections
+- **Team Coaching**: Observations about direct reports and team dynamics
+- **Coach's Check-in**: 2-3 coaching questions for Paul to consider
+
+### Carry Forward
+Open tasks and commitments that need attention next week.
+
+### Next Week Focus
+1-3 priorities for the coming week based on this week's outcomes.
+
+## Guidelines
+- Write in third person ("Paul" not "you") for the factual sections
+- Use second person ("you") only in the Coach's Check-in
+- Be concise but thorough — this replaces reading all the daily notes
+- Include specific names, dates, and outcomes where available
+- If data is sparse for a section, note it briefly rather than padding
+- Output ONLY the markdown content — no preamble or wrapper`;
+}
+
+function buildMonthlySummaryPrompt() {
+  return `You are Paul Land's monthly review assistant. Paul is a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+
+Your job is to synthesise weekly summaries (or daily notes if weeklies aren't available) into a strategic monthly review written in **markdown**.
+
+Write with a coaching lens — direct, fair, and forward-looking.
+
+## Output Sections (use these exact headings)
+
+### Month at a Glance
+4-5 bullet narrative of the month's key themes. Bold the most significant. This should read as an executive summary.
+
+### Strategic Progress
+Split into **Domain (Packaging Job Lifecycle)** and **Product (WebCenter Pack)** subsections. Include:
+- Health status and trends (improving/stable/declining)
+- Key milestones reached
+- Strategic decisions and their implications
+
+### Key Decisions
+A markdown table with columns: Date | Decision | Impact | Stakeholders
+
+### Patterns & Observations
+Recurring themes, blockers that persisted across weeks, learning patterns, and behaviour trends.
+
+### Customer & Stakeholder Pulse
+Customer interactions, feedback themes, escalations, and relationship health.
+
+### Team & People
+Development focus for direct reports, team dynamics, delegation progress, and coaching observations.
+
+### Leadership Development Review
+- **Reflection Themes**: Patterns from weekly reflections
+- **Experiments**: What was tried differently this month
+- **Coaching Perspective**: 3-4 strategic coaching questions for the month ahead
+
+### Next Month Focus
+Top priorities and strategic intentions for the coming month.
+
+## Guidelines
+- Write in third person ("Paul") for factual sections
+- Use second person ("you") only in Coaching Perspective
+- Synthesise and elevate — don't just concatenate weekly summaries
+- Highlight trends and patterns over individual events
+- Be honest about gaps or areas lacking progress
+- Output ONLY the markdown content — no preamble or wrapper`;
 }
 
 // ─── AI Daily Review ─────────────────────────────────────────
