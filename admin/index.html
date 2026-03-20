@@ -1160,6 +1160,48 @@
             gap: 1.5rem;
         }
 
+        .daily-columns {
+            display: grid;
+            grid-template-columns: 1fr 380px;
+            gap: 1.5rem;
+            align-items: start;
+        }
+
+        .daily-col-main {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .daily-col-tasks {
+            position: sticky;
+            top: 1rem;
+        }
+
+        .daily-col-tasks .daily-section {
+            max-height: calc(100vh - 2rem);
+            display: flex;
+            flex-direction: column;
+        }
+
+        .daily-col-tasks .daily-section-content {
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        @media (max-width: 960px) {
+            .daily-columns {
+                grid-template-columns: 1fr;
+            }
+            .daily-col-tasks {
+                position: static;
+                order: -1;
+            }
+            .daily-col-tasks .daily-section {
+                max-height: none;
+            }
+        }
+
         .daily-section {
             background: var(--void-light);
             border: 1px solid var(--border);
@@ -2785,59 +2827,63 @@
                 <button class="daily-review-btn" id="dailyReviewBtn" title="Run AI end-of-day review">Review Day</button>
             </div>
 
-            <div class="daily-sections" id="dailySections">
-                <div class="daily-section stoic-section" id="stoicSection">
-                    <div class="daily-section-header stoic-header" id="stoicToggle">
-                        <span class="meeting-card-chevron">&#x25B8;</span>
-                        <span>Stoic Challenge</span>
-                        <span class="stoic-subtitle">Reframe frustration as opportunity</span>
+            <div class="daily-columns" id="dailySections">
+                <div class="daily-col-main">
+                    <div class="daily-section stoic-section" id="stoicSection">
+                        <div class="daily-section-header stoic-header" id="stoicToggle">
+                            <span class="meeting-card-chevron">&#x25B8;</span>
+                            <span>Stoic Challenge</span>
+                            <span class="stoic-subtitle">Reframe frustration as opportunity</span>
+                        </div>
+                        <div class="stoic-content" id="stoicContent" style="display: none;">
+                            <div class="stoic-field">
+                                <label class="stoic-label">Frustration</label>
+                                <textarea class="stoic-input" id="stoicFrustration" placeholder="What went wrong or felt frustrating?" rows="2"></textarea>
+                            </div>
+                            <div class="stoic-field">
+                                <label class="stoic-label">Reframe</label>
+                                <textarea class="stoic-input" id="stoicReframe" placeholder="This is a test. The Stoics are asking: Can I stay calm? Can I adapt? Can I persist?" rows="2"></textarea>
+                            </div>
+                            <div class="stoic-field">
+                                <label class="stoic-label">Opportunity</label>
+                                <textarea class="stoic-input" id="stoicOpportunity" placeholder="What can I learn or gain from this?" rows="2"></textarea>
+                            </div>
+                        </div>
                     </div>
-                    <div class="stoic-content" id="stoicContent" style="display: none;">
-                        <div class="stoic-field">
-                            <label class="stoic-label">Frustration</label>
-                            <textarea class="stoic-input" id="stoicFrustration" placeholder="What went wrong or felt frustrating?" rows="2"></textarea>
+                    <div class="daily-section expanded" id="sectionNotes">
+                        <div class="daily-section-header" onclick="toggleDailySection('sectionNotes')">
+                            <span class="section-chevron">&#x25BE;</span>
+                            <span>\u270E</span>
+                            <span>Notes & Thoughts</span>
+                            <div class="daily-toolbar" id="toolbarNotes" onclick="event.stopPropagation()"></div>
                         </div>
-                        <div class="stoic-field">
-                            <label class="stoic-label">Reframe</label>
-                            <textarea class="stoic-input" id="stoicReframe" placeholder="This is a test. The Stoics are asking: Can I stay calm? Can I adapt? Can I persist?" rows="2"></textarea>
+                        <div class="daily-section-content">
+                            <div class="daily-editor-wrap" id="editorNotes"></div>
                         </div>
-                        <div class="stoic-field">
-                            <label class="stoic-label">Opportunity</label>
-                            <textarea class="stoic-input" id="stoicOpportunity" placeholder="What can I learn or gain from this?" rows="2"></textarea>
+                    </div>
+                    <div class="daily-section expanded" id="sectionMeetings">
+                        <div class="daily-section-header" onclick="toggleDailySection('sectionMeetings')">
+                            <span class="section-chevron">&#x25BE;</span>
+                            <span>\u25CE</span>
+                            <span>Meetings & Conversations</span>
+                            <button class="meeting-add-header-btn" id="addMeetingBtn" onclick="event.stopPropagation()">+ Add</button>
+                        </div>
+                        <div class="daily-section-content">
+                            <div class="meeting-cards" id="meetingCardsContainer"></div>
                         </div>
                     </div>
                 </div>
-                <div class="daily-section expanded" id="sectionTasks">
-                    <div class="daily-section-header" onclick="toggleDailySection('sectionTasks')">
-                        <span class="section-chevron">&#x25BE;</span>
-                        <span>\u2610</span>
-                        <span>Tasks</span>
-                        <div class="daily-toolbar" id="toolbarTasks" onclick="event.stopPropagation()"></div>
-                    </div>
-                    <div class="daily-section-content">
-                        <div class="daily-editor-wrap" id="editorTasks"></div>
-                    </div>
-                </div>
-                <div class="daily-section expanded" id="sectionNotes">
-                    <div class="daily-section-header" onclick="toggleDailySection('sectionNotes')">
-                        <span class="section-chevron">&#x25BE;</span>
-                        <span>\u270E</span>
-                        <span>Notes & Thoughts</span>
-                        <div class="daily-toolbar" id="toolbarNotes" onclick="event.stopPropagation()"></div>
-                    </div>
-                    <div class="daily-section-content">
-                        <div class="daily-editor-wrap" id="editorNotes"></div>
-                    </div>
-                </div>
-                <div class="daily-section expanded" id="sectionMeetings">
-                    <div class="daily-section-header" onclick="toggleDailySection('sectionMeetings')">
-                        <span class="section-chevron">&#x25BE;</span>
-                        <span>\u25CE</span>
-                        <span>Meetings & Conversations</span>
-                        <button class="meeting-add-header-btn" id="addMeetingBtn" onclick="event.stopPropagation()">+ Add</button>
-                    </div>
-                    <div class="daily-section-content">
-                        <div class="meeting-cards" id="meetingCardsContainer"></div>
+                <div class="daily-col-tasks">
+                    <div class="daily-section expanded" id="sectionTasks">
+                        <div class="daily-section-header" onclick="toggleDailySection('sectionTasks')">
+                            <span class="section-chevron">&#x25BE;</span>
+                            <span>\u2610</span>
+                            <span>Tasks</span>
+                            <div class="daily-toolbar" id="toolbarTasks" onclick="event.stopPropagation()"></div>
+                        </div>
+                        <div class="daily-section-content">
+                            <div class="daily-editor-wrap" id="editorTasks"></div>
+                        </div>
                     </div>
                 </div>
             </div>
