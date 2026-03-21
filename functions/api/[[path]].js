@@ -206,7 +206,7 @@ async function handleEntityUpdate(request, env, ctx) {
 }
 
 async function handleEntityLog(request, env, ctx) {
-  const { table, data } = await request.json();
+  const { table, data, returnRow } = await request.json();
 
   const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content'];
   if (!table || !allowedTables.includes(table)) {
@@ -231,7 +231,7 @@ async function handleEntityLog(request, env, ctx) {
         'apikey': serviceKey,
         'Authorization': `Bearer ${serviceKey}`,
         'Content-Type': 'application/json',
-        'Prefer': 'return=minimal',
+        'Prefer': returnRow ? 'return=representation' : 'return=minimal',
       },
       body: JSON.stringify(data),
     }
@@ -240,6 +240,11 @@ async function handleEntityLog(request, env, ctx) {
   if (!res.ok) {
     const text = await res.text();
     return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+
+  if (returnRow) {
+    const rows = await res.json();
+    return json({ ok: true, row: rows[0] || null });
   }
 
   return json({ ok: true });

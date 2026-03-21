@@ -7118,10 +7118,9 @@
                         });
                     });
                     results.querySelector('.search-picker-create')?.addEventListener('click', async () => {
-                        const created = await onCreate(q);
-                        if (created) {
-                            onSelect(created);
-                        }
+                        const el = results.querySelector('.search-picker-create');
+                        el.innerHTML = '<span class="search-picker-item-title" style="color:var(--text-muted);">Creating...</span>';
+                        await onCreate(q);
                         close();
                     });
                 } catch (err) {
@@ -8032,15 +8031,23 @@
                 },
                 createLabel: 'Create competitor',
                 onCreate: async (name) => {
-                    const { data, error } = await db.from('companies').insert({ name, type: 'competitor' }).select().single();
-                    if (error) { console.error('Failed to create competitor:', error); return null; }
-                    // Also link it
+                    // Create competitor via API (service key)
+                    const createRes = await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'companies', data: { name, type: 'competitor' }, returnRow: true }),
+                    });
+                    const createResult = await createRes.json();
+                    if (!createRes.ok || !createResult.row) { console.error('Failed to create competitor:', createResult); return null; }
+                    // Link it to this article
                     await fetch('/api/entity-log', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ table: 'company_content', data: { company_id: data.id, content_id: item.id } }),
+                        body: JSON.stringify({ table: 'company_content', data: { company_id: createResult.row.id, content_id: item.id } }),
                     });
-                    return data;
+                    // Refresh modal to show the new link
+                    await openContentModal(item);
+                    return createResult.row;
                 },
             });
         });
