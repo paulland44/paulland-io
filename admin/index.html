@@ -6,6 +6,8 @@
     <title>Admin — Paul Land</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -24,20 +26,28 @@
     <style>
         /* ─── Dark Theme (default) ─── */
         :root, [data-theme="dark"] {
-            --void: #08080c;
-            --void-light: #0e0e14;
-            --void-lighter: #14141c;
+            --void: #131318;
+            --void-light: #1a1a22;
+            --void-lighter: #22222c;
             --star: #c8bfa8;
             --star-dim: rgba(200, 191, 168, 0.3);
             --text-muted: rgba(200, 191, 168, 0.4);
             --text-body: rgba(200, 191, 168, 0.7);
-            --border: rgba(200, 191, 168, 0.06);
-            --border-hover: rgba(200, 191, 168, 0.12);
+            --border: rgba(200, 191, 168, 0.08);
+            --border-hover: rgba(200, 191, 168, 0.15);
+            --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             --mono: 'Inconsolata', monospace;
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-pill: 20px;
             --red: #c45050;
             --yellow: #c4a850;
             --blue: #5080c4;
             --shadow: rgba(0, 0, 0, 0.3);
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.03);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.03);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
             --hover-bg: rgba(200, 191, 168, 0.03);
             --hover-subtle: rgba(200, 191, 168, 0.02);
             --tint-subtle: rgba(200, 191, 168, 0.08);
@@ -46,19 +56,22 @@
 
         /* ─── Light Theme ─── */
         [data-theme="light"] {
-            --void: #f5f2ec;
-            --void-light: #eae6de;
-            --void-lighter: #dfdad0;
+            --void: #f8f7f4;
+            --void-light: #f2f0ec;
+            --void-lighter: #eae8e3;
             --star: #1a1a2e;
             --star-dim: rgba(26, 26, 46, 0.2);
             --text-muted: rgba(26, 26, 46, 0.4);
             --text-body: rgba(26, 26, 46, 0.7);
-            --border: rgba(26, 26, 46, 0.08);
-            --border-hover: rgba(26, 26, 46, 0.15);
+            --border: rgba(26, 26, 46, 0.10);
+            --border-hover: rgba(26, 26, 46, 0.18);
             --red: #b03030;
             --yellow: #9a7a10;
             --blue: #3060a0;
             --shadow: rgba(0, 0, 0, 0.08);
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
             --hover-bg: rgba(26, 26, 46, 0.03);
             --hover-subtle: rgba(26, 26, 46, 0.02);
             --tint-subtle: rgba(26, 26, 46, 0.08);
@@ -68,54 +81,54 @@
         /* ─── Accent Colours ─── */
         :root, [data-accent="sage"] {
             --accent: #3d8b6e;
-            --accent-dim: rgba(61, 139, 110, 0.15);
+            --accent-dim: rgba(61, 139, 110, 0.18);
             --accent-glow: rgba(61, 139, 110, 0.4);
         }
         [data-accent="gold"] {
             --accent: #b89a30;
-            --accent-dim: rgba(184, 154, 48, 0.15);
+            --accent-dim: rgba(184, 154, 48, 0.18);
             --accent-glow: rgba(184, 154, 48, 0.4);
         }
         [data-accent="ocean"] {
             --accent: #4078b8;
-            --accent-dim: rgba(64, 120, 184, 0.15);
+            --accent-dim: rgba(64, 120, 184, 0.18);
             --accent-glow: rgba(64, 120, 184, 0.4);
         }
         [data-accent="ember"] {
             --accent: #c45050;
-            --accent-dim: rgba(196, 80, 80, 0.15);
+            --accent-dim: rgba(196, 80, 80, 0.18);
             --accent-glow: rgba(196, 80, 80, 0.4);
         }
         [data-accent="violet"] {
             --accent: #8860c4;
-            --accent-dim: rgba(136, 96, 196, 0.15);
+            --accent-dim: rgba(136, 96, 196, 0.18);
             --accent-glow: rgba(136, 96, 196, 0.4);
         }
 
         /* Light theme accent adjustments for contrast */
         [data-theme="light"][data-accent="sage"] {
             --accent: #2d7058;
-            --accent-dim: rgba(45, 112, 88, 0.12);
+            --accent-dim: rgba(45, 112, 88, 0.15);
             --accent-glow: rgba(45, 112, 88, 0.3);
         }
         [data-theme="light"][data-accent="gold"] {
             --accent: #8a7020;
-            --accent-dim: rgba(138, 112, 32, 0.12);
+            --accent-dim: rgba(138, 112, 32, 0.15);
             --accent-glow: rgba(138, 112, 32, 0.3);
         }
         [data-theme="light"][data-accent="ocean"] {
             --accent: #2d5f9e;
-            --accent-dim: rgba(45, 95, 158, 0.12);
+            --accent-dim: rgba(45, 95, 158, 0.15);
             --accent-glow: rgba(45, 95, 158, 0.3);
         }
         [data-theme="light"][data-accent="ember"] {
             --accent: #a83030;
-            --accent-dim: rgba(168, 48, 48, 0.12);
+            --accent-dim: rgba(168, 48, 48, 0.15);
             --accent-glow: rgba(168, 48, 48, 0.3);
         }
         [data-theme="light"][data-accent="violet"] {
             --accent: #6a40a8;
-            --accent-dim: rgba(106, 64, 168, 0.12);
+            --accent-dim: rgba(106, 64, 168, 0.15);
             --accent-glow: rgba(106, 64, 168, 0.3);
         }
 
@@ -124,10 +137,10 @@
         body {
             background: var(--void);
             color: var(--star);
-            font-family: var(--mono);
+            font-family: var(--sans);
             font-size: 1rem;
-            font-weight: 300;
-            line-height: 1.6;
+            font-weight: 400;
+            line-height: 1.5;
             min-height: 100vh;
         }
 
@@ -138,28 +151,30 @@
         }
 
         .sidebar {
-            width: 220px;
+            width: 240px;
             min-height: 100vh;
             background: var(--void-light);
-            border-right: 1px solid var(--border);
+            border-right: none;
+            box-shadow: var(--shadow-sm);
             padding: 1.5rem 0;
             position: fixed;
             top: 0;
             left: 0;
             display: flex;
             flex-direction: column;
+            z-index: 10;
         }
 
         .sidebar-brand {
-            padding: 0 1.5rem 1.5rem;
+            padding: 0 1.25rem 1.5rem;
             border-bottom: 1px solid var(--border);
-            margin-bottom: 1rem;
+            margin-bottom: 0.75rem;
         }
 
         .sidebar-brand a {
-            font-size: 0.8rem;
-            font-weight: 400;
-            letter-spacing: 0.15em;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--text-muted);
             text-decoration: none;
@@ -170,48 +185,62 @@
 
         .sidebar-brand h1 {
             font-size: 1rem;
-            font-weight: 400;
-            letter-spacing: 0.08em;
+            font-weight: 600;
+            letter-spacing: 0.02em;
             margin-top: 0.3rem;
         }
 
-        .sidebar-nav { flex: 1; }
+        .sidebar-nav { flex: 1; padding: 0 0.5rem; }
 
         .nav-item {
             display: flex;
             align-items: center;
             gap: 0.6rem;
-            padding: 0.6rem 1.5rem;
+            padding: 0.5rem 0.75rem;
+            margin: 1px 0;
             color: var(--text-muted);
             text-decoration: none;
-            font-size: 0.9rem;
+            font-size: 0.875rem;
             font-weight: 400;
-            letter-spacing: 0.04em;
+            letter-spacing: 0;
             cursor: pointer;
             transition: color 0.2s, background 0.2s;
             border: none;
             background: none;
             width: 100%;
             text-align: left;
+            border-radius: var(--radius-sm);
         }
 
-        .nav-item { border-left: 3px solid transparent; }
         .nav-item:hover { color: var(--star); background: var(--hover-bg); }
         .nav-item.active {
             color: var(--accent);
             background: var(--accent-dim);
-            border-left-color: var(--accent);
             font-weight: 500;
         }
 
         .nav-item .count {
             margin-left: auto;
             font-size: 0.8rem;
+            font-family: var(--mono);
             opacity: 0.5;
         }
 
+        .nav-group-label {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+            opacity: 0.5;
+            padding: 0.6rem 0.75rem 0.2rem 1.5rem;
+            margin-top: 0.5rem;
+            user-select: none;
+            font-family: var(--sans);
+            font-weight: 500;
+        }
+
         .sidebar-footer {
-            padding: 1rem 1.5rem;
+            padding: 1rem 1.25rem;
             border-top: 1px solid var(--border);
             font-size: 0.75rem;
             color: var(--text-muted);
@@ -219,7 +248,7 @@
 
         .main {
             flex: 1;
-            margin-left: 220px;
+            margin-left: 240px;
             padding: 2rem;
             min-width: 0;
             overflow-x: hidden;
@@ -236,9 +265,9 @@
         }
 
         .page-title {
-            font-size: 1.4rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-size: 1.5rem;
+            font-weight: 600;
+            letter-spacing: -0.01em;
         }
 
         .page-stats {
@@ -252,15 +281,17 @@
 
         .stat-value {
             font-size: 1.4rem;
-            font-weight: 500;
+            font-weight: 600;
             color: var(--accent);
+            font-family: var(--mono);
         }
 
         .stat-label {
             font-size: 0.75rem;
             color: var(--text-muted);
-            letter-spacing: 0.1em;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
+            font-weight: 500;
         }
 
         /* ─── Filters ─── */
@@ -273,15 +304,13 @@
         }
 
         .filter-btn {
-            padding: 0.35rem 0.8rem;
+            padding: 0.4rem 0.9rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-pill);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.8rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
         }
@@ -292,15 +321,13 @@
         .filter-group { display: flex; gap: 0.25rem; flex-wrap: wrap; }
 
         .filter-select {
-            padding: 0.35rem 0.8rem;
+            padding: 0.4rem 0.9rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.8rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-weight: 500;
             cursor: pointer;
             appearance: none;
             -webkit-appearance: none;
@@ -313,7 +340,7 @@
         .filter-select:hover { border-color: var(--border-hover); color: var(--star); }
         .filter-select:focus { outline: none; border-color: var(--accent); }
 
-        .articles-count { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.04em; white-space: nowrap; }
+        .articles-count { font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono); white-space: nowrap; }
 
         .pagination {
             display: flex;
@@ -325,19 +352,18 @@
             border-top: 1px solid var(--border);
         }
         .pagination button {
-            padding: 0.35rem 0.8rem;
+            padding: 0.4rem 0.9rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.8rem;
             cursor: pointer;
             transition: all 0.2s;
         }
         .pagination button:hover:not(:disabled) { border-color: var(--border-hover); color: var(--star); }
         .pagination button:disabled { opacity: 0.3; cursor: default; }
-        .pagination-info { font-size: 0.8rem; color: var(--text-muted); letter-spacing: 0.04em; }
+        .pagination-info { font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono); }
 
         @media (max-width: 768px) {
             .filters { flex-direction: column; align-items: stretch; }
@@ -346,15 +372,13 @@
         }
 
         .search-input {
-            padding: 0.35rem 0.8rem;
+            padding: 0.5rem 0.75rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--star);
-            font-family: var(--mono);
             font-size: 0.85rem;
-            font-weight: 300;
-            letter-spacing: 0.04em;
+            font-weight: 400;
             outline: none;
             width: 240px;
             margin-left: auto;
@@ -378,8 +402,8 @@
             text-align: left;
             padding: 0.6rem 0.8rem;
             font-size: 0.75rem;
-            font-weight: 400;
-            letter-spacing: 0.12em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--text-muted);
             border-bottom: 1px solid var(--border);
@@ -388,12 +412,12 @@
 
         td {
             padding: 0.7rem 0.8rem;
-            border-bottom: 1px solid var(--border);
             vertical-align: top;
         }
 
         tr { transition: background 0.15s; }
-        tr:hover { background: var(--hover-subtle); }
+        tbody tr:nth-child(even) { background: var(--hover-subtle); }
+        tr:hover { background: var(--hover-bg); }
         tr.expandable { cursor: pointer; }
 
         .title-cell {
@@ -402,7 +426,7 @@
 
         .title-text {
             color: var(--star);
-            font-weight: 400;
+            font-weight: 500;
         }
 
         .title-url {
@@ -421,11 +445,10 @@
 
         .type-badge {
             display: inline-block;
-            padding: 0.15rem 0.5rem;
-            border-radius: 2px;
+            padding: 0.15rem 0.6rem;
+            border-radius: var(--radius-pill);
             font-size: 0.75rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-weight: 500;
         }
 
         .type-article { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
@@ -451,19 +474,20 @@
         /* Log entry styling */
         .log-entry { padding: 0.8rem 0; border-bottom: 1px solid var(--border); }
         .log-entry:last-child { border-bottom: none; }
-        .log-date { font-size: 0.8rem; color: var(--accent); letter-spacing: 0.06em; margin-bottom: 0.3rem; }
+        .log-date { font-size: 0.8rem; color: var(--accent); font-family: var(--mono); margin-bottom: 0.3rem; }
         .log-source { font-size: 0.75rem; color: var(--text-muted); margin-left: 0.5rem; }
         .log-body { color: var(--text-body); font-size: 0.95rem; line-height: 1.7; }
-        .section-heading { font-size: 0.85rem; font-weight: 400; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted); margin: 1.5rem 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
+        .section-heading { font-size: 0.9rem; font-weight: 600; letter-spacing: 0.02em; color: var(--text-muted); margin: 1.5rem 0 0.8rem; padding-bottom: 0.4rem; border-bottom: 1px solid var(--border); }
         .section-heading:first-child { margin-top: 0; }
 
         .tag {
             display: inline-block;
-            padding: 0.1rem 0.4rem;
+            padding: 0.15rem 0.55rem;
             background: var(--accent-dim);
             color: var(--accent);
-            border-radius: 2px;
+            border-radius: var(--radius-pill);
             font-size: 0.75rem;
+            font-family: var(--mono);
             margin: 0.1rem;
         }
 
@@ -471,6 +495,7 @@
             white-space: nowrap;
             color: var(--text-muted);
             font-size: 0.85rem;
+            font-family: var(--mono);
         }
 
         .source-cell {
@@ -501,7 +526,9 @@
             position: fixed;
             inset: 0;
             z-index: 300;
-            background: rgba(0, 0, 0, 0.6);
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.4s ease;
@@ -527,17 +554,19 @@
             max-height: 85dvh;
             background: var(--void-light);
             border: 1px solid var(--border-hover);
-            border-radius: 2px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
             display: flex;
             flex-direction: column;
+            overflow: hidden;
         }
 
         .content-modal-scroll {
             overflow-y: auto;
-            padding: 2.5rem 3rem 2rem;
+            padding: 2.5rem 2.5rem 2rem;
             flex: 1;
             min-height: 0;
         }
@@ -557,15 +586,16 @@
             height: 32px;
             background: none;
             border: none;
+            border-radius: var(--radius-sm);
             cursor: pointer;
             opacity: 0.3;
-            transition: opacity 0.3s;
+            transition: opacity 0.3s, background 0.2s;
             display: flex;
             align-items: center;
             justify-content: center;
         }
 
-        .content-close:hover { opacity: 0.9; }
+        .content-close:hover { opacity: 0.9; background: var(--hover-bg); }
 
         .content-close::before,
         .content-close::after {
@@ -582,8 +612,8 @@
 
         .content-modal-title {
             font-size: 1.3rem;
-            font-weight: 400;
-            letter-spacing: 0.04em;
+            font-weight: 600;
+            letter-spacing: -0.01em;
             color: var(--star);
             margin-bottom: 0.5rem;
             padding-right: 2rem;
@@ -637,7 +667,7 @@
         .tag-input {
             background: none;
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-pill);
             color: var(--star);
             font-family: var(--mono);
             font-size: 0.75rem;
@@ -667,7 +697,8 @@
             left: 0;
             background: var(--void-lighter);
             border: 1px solid var(--border-hover);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
+            box-shadow: var(--shadow-md);
             max-height: 150px;
             overflow-y: auto;
             display: none;
@@ -697,35 +728,35 @@
 
         /* ─── Editable modal fields ─── */
         .modal-edit-field { margin-bottom: 0.75rem; }
-        .modal-edit-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem; letter-spacing: 0.08em; }
-        .modal-edit-input { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; transition: border-color 0.2s; }
+        .modal-edit-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem; letter-spacing: 0.04em; font-weight: 500; }
+        .modal-edit-input { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--star); font-size: 0.9rem; padding: 0.5rem 0.75rem; outline: none; transition: border-color 0.2s; }
         .modal-edit-input:focus { border-color: var(--accent); }
-        .modal-edit-select { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; transition: border-color 0.2s; }
+        .modal-edit-select { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--star); font-size: 0.9rem; padding: 0.5rem 0.75rem; outline: none; transition: border-color 0.2s; }
         .modal-edit-select:focus { border-color: var(--accent); }
-        .modal-edit-textarea { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.4rem 0.6rem; outline: none; min-height: 80px; resize: vertical; transition: border-color 0.2s; }
+        .modal-edit-textarea { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--star); font-family: var(--mono); font-size: 0.9rem; padding: 0.5rem 0.75rem; outline: none; min-height: 80px; resize: vertical; transition: border-color 0.2s; }
         .modal-edit-textarea:focus { border-color: var(--accent); }
-        .modal-save-btn { padding: 0.4rem 1rem; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: 2px; color: var(--accent); font-family: var(--mono); cursor: pointer; font-size: 0.85rem; transition: all 0.2s; }
+        .modal-save-btn { padding: 0.5rem 1.2rem; background: var(--accent-dim); border: 1px solid var(--accent); border-radius: var(--radius-sm); color: var(--accent); cursor: pointer; font-size: 0.85rem; font-weight: 500; transition: all 0.2s; }
         .modal-save-btn:hover { background: var(--accent); color: var(--void); }
         .modal-save-status { font-size: 0.8rem; margin-left: 0.5rem; }
         .modal-save-status.saving { color: var(--text-muted); }
         .modal-save-status.saved { color: var(--accent); }
         .modal-save-status.error { color: var(--red); }
         .modal-actions { display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0; padding-top: 0.75rem; border-top: 1px solid var(--border); }
-        .modal-add-btn { padding: 0.35rem 0.8rem; background: none; border: 1px solid var(--border); border-radius: 2px; color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; cursor: pointer; transition: all 0.2s; }
+        .modal-add-btn { padding: 0.4rem 0.9rem; background: none; border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-muted); font-size: 0.8rem; font-weight: 500; cursor: pointer; transition: all 0.2s; }
         .modal-add-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
-        .add-entry-form { margin: 0.75rem 0; padding: 0.75rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 2px; }
+        .add-entry-form { margin: 0.75rem 0; padding: 0.75rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); }
         .add-entry-form .modal-actions { border-top: none; margin-top: 0.5rem; padding-top: 0; }
 
         /* Product modal tabs */
         .modal-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); margin: 1rem 0 0; }
-        .modal-tab { padding: 0.5rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-family: var(--mono); font-size: 0.85rem; cursor: pointer; transition: all 0.15s; }
+        .modal-tab { padding: 0.5rem 1rem; background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-muted); font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.15s; }
         .modal-tab:hover { color: var(--star); }
         .modal-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
         .modal-tab-content { display: none; padding: 1rem 0; }
         .modal-tab-content.active { display: block; }
         .product-overview-content { color: var(--text-body); line-height: 1.7; font-size: 0.9rem; }
-        .product-overview-content h1, .product-overview-content h2 { color: var(--accent); font-weight: 400; margin: 1.2rem 0 0.5rem; font-size: 1.1rem; }
-        .product-overview-content h3 { color: var(--star); font-weight: 400; margin: 0.8rem 0 0.4rem; font-size: 1rem; }
+        .product-overview-content h1, .product-overview-content h2 { color: var(--accent); font-weight: 600; margin: 1.2rem 0 0.5rem; font-size: 1.1rem; }
+        .product-overview-content h3 { color: var(--star); font-weight: 600; margin: 0.8rem 0 0.4rem; font-size: 1rem; }
         .product-overview-content ul, .product-overview-content ol { padding-left: 1.4rem; margin: 0.4rem 0; }
         .product-overview-content li { margin-bottom: 0.2rem; }
         .product-overview-content strong { color: var(--star); font-weight: 500; }
@@ -746,8 +777,8 @@
         .content-modal-body h3,
         .content-modal-body h4 {
             color: var(--star);
-            font-weight: 400;
-            letter-spacing: 0.04em;
+            font-weight: 600;
+            letter-spacing: -0.01em;
             margin: 1.2em 0 0.5em;
         }
 
@@ -807,16 +838,18 @@
         .content-modal-body code {
             background: var(--void-lighter);
             padding: 0.1em 0.35em;
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             font-size: 0.9em;
+            font-family: var(--mono);
         }
 
         .content-modal-body pre {
             background: var(--void-lighter);
             padding: 0.8em 1em;
-            border-radius: 2px;
+            border-radius: var(--radius-md);
             overflow-x: auto;
             margin: 0.8em 0;
+            font-family: var(--mono);
         }
 
         .content-modal-body pre code {
@@ -848,7 +881,7 @@
 
         .content-modal-body img {
             max-width: 100%;
-            border-radius: 2px;
+            border-radius: var(--radius-md);
             margin: 0.5em 0;
         }
 
@@ -862,17 +895,19 @@
 
         .stat-card {
             background: var(--void-lighter);
-            border: 1px solid var(--border);
-            border-radius: 2px;
+            border: none;
+            border-radius: var(--radius-md);
             padding: 1.2rem 1.5rem;
-            transition: border-color 0.2s;
+            box-shadow: var(--shadow-sm);
+            transition: box-shadow 0.2s, transform 0.2s;
         }
 
-        .stat-card:hover { border-color: var(--border-hover); }
+        .stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 
         .stat-card-value {
             font-size: 1.8rem;
-            font-weight: 500;
+            font-weight: 600;
+            font-family: var(--mono);
             color: var(--accent);
             line-height: 1;
         }
@@ -880,7 +915,8 @@
         .stat-card-label {
             font-size: 0.8rem;
             color: var(--text-muted);
-            letter-spacing: 0.06em;
+            letter-spacing: 0.02em;
+            font-weight: 500;
             margin-top: 0.3rem;
         }
 
@@ -900,18 +936,18 @@
 
         .overview-section {
             background: var(--void-lighter);
-            border: 1px solid var(--border);
-            border-radius: 2px;
+            border: none;
+            border-radius: var(--radius-md);
             padding: 1.2rem 1.5rem;
+            box-shadow: var(--shadow-sm);
             min-width: 0;
             overflow: hidden;
         }
 
         .overview-section-title {
-            font-size: 0.8rem;
-            font-weight: 400;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
             color: var(--text-muted);
             margin-bottom: 1rem;
             padding-bottom: 0.5rem;
@@ -929,12 +965,12 @@
         }
 
         .activity-item:last-child { border-bottom: none; }
-        .activity-item:hover { background: var(--hover-subtle); }
+        .activity-item:hover { background: var(--hover-bg); }
 
         .activity-title {
             flex: 1;
             color: var(--star);
-            font-weight: 400;
+            font-weight: 500;
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
@@ -949,13 +985,14 @@
         .activity-date {
             font-size: 0.8rem;
             color: var(--text-muted);
+            font-family: var(--mono);
             white-space: nowrap;
         }
 
         .date-group {
             font-size: 0.7rem;
-            font-weight: 400;
-            letter-spacing: 0.08em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--accent);
             margin-top: 0.8rem;
@@ -994,6 +1031,133 @@
             font-size: 0.75rem;
             color: var(--text-muted);
             white-space: nowrap;
+        }
+
+        .overview-greeting {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            flex-wrap: wrap;
+            gap: 1rem;
+        }
+        .greeting-left {}
+        .greeting-text { font-size: 1.1rem; font-weight: 500; color: var(--text-body); }
+        .greeting-date { font-size: 0.85rem; color: var(--text-muted); margin-top: 0.2rem; font-family: var(--mono); }
+
+        .daily-note-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.35rem 0.8rem;
+            border-radius: var(--radius-pill);
+            font-size: 0.8rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+            border: none;
+            font-family: var(--sans);
+        }
+        .daily-note-pill.active { background: var(--accent-dim); color: var(--accent); }
+        .daily-note-pill.inactive { background: var(--void-lighter); color: var(--text-muted); }
+        .daily-note-pill:hover { opacity: 0.85; }
+
+        .overview-system-stats {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 1.5rem;
+        }
+        .system-stat-card {
+            background: var(--void-lighter);
+            border-radius: var(--radius-md);
+            padding: 0.8rem 1rem;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: box-shadow 0.2s, transform 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            border: none;
+        }
+        .system-stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .system-stat-info { display: flex; flex-direction: column; }
+        .system-stat-value { font-size: 1.2rem; font-weight: 600; font-family: var(--mono); color: var(--text-body); line-height: 1; }
+        .system-stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; margin-top: 0.15rem; }
+        .system-stat-card .icon svg { width: 18px; height: 18px; color: var(--accent); opacity: 0.7; }
+
+        .overview-columns-3 {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .knowledge-stat-row {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: background 0.15s;
+        }
+        .knowledge-stat-row:hover { background: var(--hover-subtle); }
+        .knowledge-stat-row:last-child { border-bottom: none; }
+        .knowledge-stat-row .icon svg { width: 16px; height: 16px; opacity: 0.6; }
+        .knowledge-stat-name { flex: 1; font-size: 0.85rem; font-weight: 500; }
+        .knowledge-stat-count { font-size: 0.85rem; font-family: var(--mono); color: var(--text-muted); }
+
+        /* ── Competition view ─────────────────────────── */
+        .competitor-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .competitor-card {
+            background: var(--void-lighter);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.2rem;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: box-shadow 0.2s, transform 0.2s;
+            border-left: 3px solid var(--accent);
+        }
+        .competitor-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .competitor-card-name { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.3rem; }
+        .competitor-card-industry { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 0.5rem; }
+        .competitor-card-stats { display: flex; gap: 1rem; font-size: 0.75rem; color: var(--text-muted); font-family: var(--mono); }
+        .competitor-card-stat { display: flex; align-items: center; gap: 0.3rem; }
+
+        .timeline-feed { margin-bottom: 1.5rem; }
+        .timeline-item {
+            display: flex;
+            gap: 0.75rem;
+            padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: background 0.15s;
+            align-items: flex-start;
+        }
+        .timeline-item:hover { background: var(--hover-subtle); }
+        .timeline-item:last-child { border-bottom: none; }
+        .timeline-date { font-size: 0.75rem; font-family: var(--mono); color: var(--text-muted); white-space: nowrap; min-width: 5rem; padding-top: 0.15rem; }
+        .timeline-body { flex: 1; min-width: 0; }
+        .timeline-title { font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .timeline-source { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem; }
+        .timeline-badges { display: flex; gap: 0.4rem; flex-shrink: 0; padding-top: 0.15rem; }
+
+        .competition-columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (max-width: 1100px) {
+            .competition-columns { grid-template-columns: 1fr; }
         }
 
         .overview-bottom {
@@ -1052,15 +1216,16 @@
             padding: 0.5rem 1rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
-            transition: border-color 0.2s;
+            border-radius: var(--radius-pill);
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        .tag-card:hover { border-color: var(--accent); }
+        .tag-card:hover { border-color: var(--accent); box-shadow: var(--shadow-sm); }
 
         .tag-card-name {
             color: var(--accent);
-            font-weight: 400;
+            font-weight: 500;
+            font-family: var(--mono);
         }
 
         .tag-card-count {
@@ -1098,14 +1263,15 @@
             color: var(--red);
             padding: 1rem 1.5rem;
             margin-bottom: 1.5rem;
-            border-radius: 2px;
+            border-radius: var(--radius-md);
             font-size: 0.75rem;
         }
 
         .config-banner code {
             background: rgba(196, 80, 80, 0.15);
             padding: 0.1rem 0.3rem;
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
+            font-family: var(--mono);
         }
 
         /* ─── Daily Note ─── */
@@ -1116,13 +1282,13 @@
         }
 
         .daily-nav-btn {
-            padding: 0.35rem 0.8rem;
+            padding: 0.4rem 0.9rem;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.85rem;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
         }
@@ -1133,11 +1299,11 @@
             padding: 0.35rem 1rem;
             background: var(--void-lighter);
             border: 1px solid var(--accent);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--accent);
             font-family: var(--mono);
             font-size: 0.95rem;
-            font-weight: 400;
+            font-weight: 500;
             cursor: pointer;
         }
 
@@ -1205,8 +1371,9 @@
 
         .daily-section {
             background: var(--void-light);
-            border: 1px solid var(--border);
-            border-radius: 2px;
+            border: none;
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
         }
 
         .daily-section-header {
@@ -1216,8 +1383,8 @@
             padding: 0.6rem 1rem;
             border-bottom: 1px solid var(--border);
             font-size: 0.8rem;
-            font-weight: 400;
-            letter-spacing: 0.08em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--text-muted);
         }
@@ -1227,11 +1394,10 @@
             padding: 0.2rem 0.6rem;
             background: none;
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.75rem;
-            letter-spacing: 0.04em;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
             text-transform: none;
@@ -1263,9 +1429,8 @@
             padding: 0.2rem 0.5rem;
             background: none;
             border: 1px solid transparent;
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.8rem;
             cursor: pointer;
             transition: all 0.15s;
@@ -1292,9 +1457,8 @@
         .daily-editor-wrap .ProseMirror {
             outline: none;
             color: var(--text-body);
-            font-family: var(--mono);
             font-size: 0.95rem;
-            font-weight: 300;
+            font-weight: 400;
             line-height: 1.7;
             min-height: 80px;
         }
@@ -1309,22 +1473,22 @@
 
         .daily-editor-wrap .ProseMirror h1 {
             font-size: 1.3rem;
-            font-weight: 400;
+            font-weight: 600;
             color: var(--accent);
             margin: 0.8rem 0 0.4rem;
-            letter-spacing: 0.04em;
+            letter-spacing: -0.01em;
         }
 
         .daily-editor-wrap .ProseMirror h2 {
             font-size: 1.1rem;
-            font-weight: 400;
+            font-weight: 600;
             color: var(--accent);
             margin: 0.8rem 0 0.4rem;
         }
 
         .daily-editor-wrap .ProseMirror h3 {
             font-size: 1rem;
-            font-weight: 400;
+            font-weight: 600;
             color: var(--star);
             margin: 0.6rem 0 0.3rem;
         }
@@ -1366,7 +1530,7 @@
             width: 16px;
             height: 16px;
             border: 1px solid var(--text-muted);
-            border-radius: 2px;
+            border-radius: 4px;
             background: transparent;
             cursor: pointer;
             position: relative;
@@ -1459,8 +1623,9 @@
         .daily-editor-wrap .ProseMirror code {
             background: var(--void-lighter);
             padding: 0.15rem 0.35rem;
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             font-size: 0.88rem;
+            font-family: var(--mono);
         }
 
         /* Horizontal rule */
@@ -1483,14 +1648,13 @@
 
         /* Review Day button */
         .daily-review-btn {
-            padding: 0.35rem 0.8rem;
+            padding: 0.4rem 0.9rem;
             background: var(--accent-dim);
             border: 1px solid var(--accent);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--accent);
-            font-family: var(--mono);
             font-size: 0.8rem;
-            font-weight: 400;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
             white-space: nowrap;
@@ -1516,7 +1680,7 @@
         .review-results {
             background: var(--void-light);
             border: 1px solid var(--accent);
-            border-radius: 2px;
+            border-radius: var(--radius-md);
             margin-top: 1.5rem;
             overflow: hidden;
         }
@@ -1529,8 +1693,8 @@
             border-bottom: 1px solid var(--border);
             color: var(--accent);
             font-size: 0.85rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
         }
 
         .review-results-body {
@@ -1547,8 +1711,8 @@
 
         .review-section-title {
             font-size: 0.75rem;
-            font-weight: 400;
-            letter-spacing: 0.08em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--text-muted);
             margin-bottom: 0.4rem;
@@ -1636,8 +1800,8 @@
         .stoic-label {
             display: block;
             font-size: 0.75rem;
-            font-weight: 400;
-            letter-spacing: 0.06em;
+            font-weight: 500;
+            letter-spacing: 0.04em;
             text-transform: uppercase;
             color: var(--text-muted);
             margin-bottom: 0.25rem;
@@ -1647,11 +1811,10 @@
             width: 100%;
             background: var(--void-lighter);
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             color: var(--text-body);
-            font-family: var(--mono);
             font-size: 0.9rem;
-            font-weight: 300;
+            font-weight: 400;
             line-height: 1.5;
             padding: 0.5rem 0.75rem;
             resize: vertical;
@@ -1678,7 +1841,7 @@
 
         .meeting-card {
             border: 1px solid var(--border);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             background: var(--void-lighter);
         }
 
@@ -1711,6 +1874,7 @@
         .meeting-card-time {
             color: var(--accent);
             font-size: 0.8rem;
+            font-family: var(--mono);
             font-weight: 400;
             white-space: nowrap;
             flex-shrink: 0;
@@ -1870,12 +2034,12 @@
             justify-content: center;
             gap: 0.4rem;
             padding: 0.5rem;
-            border: 1px dashed var(--border);
-            border-radius: 2px;
-            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--hover-subtle);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.85rem;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
             width: 100%;
@@ -1890,10 +2054,13 @@
         /* ─── Responsive ─── */
         @media (max-width: 1400px) {
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
+            .overview-system-stats { grid-template-columns: repeat(3, 1fr); }
+            .overview-columns-3 { grid-template-columns: 1.5fr 1fr; }
         }
 
         @media (max-width: 1100px) {
             .overview-columns { grid-template-columns: 1fr; }
+            .overview-columns-3 { grid-template-columns: 1fr; }
             .overview-bottom { grid-template-columns: 1fr; }
         }
 
@@ -1903,6 +2070,7 @@
                 width: 100%;
                 min-height: auto;
                 border-right: none;
+                box-shadow: none;
                 border-bottom: 1px solid var(--border);
             }
 
@@ -1913,12 +2081,15 @@
             .search-input { margin-left: 0; width: 100%; }
 
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
+            .overview-system-stats { grid-template-columns: repeat(2, 1fr); }
+            .overview-greeting { flex-direction: column; align-items: flex-start; }
+            .nav-group-label { display: none; }
 
             .content-modal {
                 width: 100vw;
                 max-height: 100vh;
                 max-height: 100dvh;
-                border-radius: 0;
+                border-radius: var(--radius-lg) var(--radius-lg) 0 0;
                 top: 0;
                 left: 0;
                 transform: translate(0, 100%);
@@ -1943,7 +2114,7 @@
             width: 40px;
             height: 40px;
             object-fit: cover;
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             flex-shrink: 0;
         }
 
@@ -1954,7 +2125,7 @@
             align-items: center;
             justify-content: center;
             background: var(--void-lighter);
-            border-radius: 2px;
+            border-radius: var(--radius-sm);
             font-size: 1rem;
             flex-shrink: 0;
         }
@@ -1963,7 +2134,7 @@
             width: 100%;
             max-height: 300px;
             object-fit: cover;
-            border-radius: 2px;
+            border-radius: var(--radius-md);
             margin-bottom: 1rem;
         }
 
@@ -1999,24 +2170,24 @@
         .summary-type-support { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
 
         .btn-action {
-            padding: 0.5rem 1rem;
+            padding: 0.5rem 1.2rem;
             background: var(--accent);
             color: var(--void);
             border: none;
-            border-radius: 4px;
-            font-family: var(--mono);
+            border-radius: var(--radius-sm);
             font-size: 0.85rem;
             font-weight: 500;
             cursor: pointer;
-            transition: opacity 0.2s;
+            transition: opacity 0.2s, transform 0.2s;
         }
-        .btn-action:hover { opacity: 0.85; }
-        .btn-action:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-action:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-action:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
         .btn-secondary {
             background: var(--void-lighter);
             color: var(--text-body);
             border: 1px solid var(--border-hover);
+            border-radius: var(--radius-sm);
         }
         .btn-secondary:hover { background: var(--tint-subtle); }
 
@@ -2024,7 +2195,6 @@
             background: none;
             border: none;
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.9rem;
             cursor: pointer;
             padding: 0.3rem 0;
@@ -2034,7 +2204,7 @@
         .generate-form {
             background: var(--void-light);
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: var(--radius-md);
             padding: 1rem;
             margin-bottom: 1rem;
         }
@@ -2056,7 +2226,7 @@
             background: var(--void);
             color: var(--star);
             border: 1px solid var(--border-hover);
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             padding: 0.4rem 0.6rem;
             font-family: var(--mono);
             font-size: 0.85rem;
@@ -2065,14 +2235,14 @@
         .summary-content {
             background: var(--void-light);
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: var(--radius-md);
             padding: 1.5rem 2rem;
             line-height: 1.7;
             color: var(--text-body);
         }
         .summary-content h1, .summary-content h2, .summary-content h3 {
             color: var(--star);
-            font-weight: 400;
+            font-weight: 600;
             margin: 1.5rem 0 0.5rem;
         }
         .summary-content h2 { font-size: 1.2rem; }
@@ -2102,7 +2272,7 @@
             background: var(--void);
             color: var(--star);
             border: 1px solid var(--border-hover);
-            border-radius: 4px;
+            border-radius: var(--radius-sm);
             padding: 1rem;
             font-family: var(--mono);
             font-size: 0.9rem;
@@ -2113,7 +2283,7 @@
         /* ─── Assets ─── */
         .asset-upload-zone {
             border: 2px dashed var(--border-hover);
-            border-radius: 6px;
+            border-radius: var(--radius-md);
             padding: 2rem;
             text-align: center;
             color: var(--text-muted);
@@ -2143,12 +2313,12 @@
         .asset-card {
             background: var(--void-light);
             border: 1px solid var(--border);
-            border-radius: 4px;
+            border-radius: var(--radius-md);
             overflow: hidden;
             cursor: pointer;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
         }
-        .asset-card:hover { border-color: var(--border-hover); }
+        .asset-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-sm); transform: translateY(-2px); }
 
         .asset-card-preview {
             height: 140px;
@@ -2201,18 +2371,18 @@
             align-items: center;
             justify-content: center;
             background: var(--void-lighter);
-            border-radius: 4px;
-            min-height: 300px;
+            border-radius: var(--radius-md);
+            min-height: calc(100vh - 180px);
             overflow: hidden;
         }
         .asset-detail-preview img {
             max-width: 100%;
-            max-height: 500px;
+            max-height: calc(100vh - 200px);
             object-fit: contain;
         }
         .asset-detail-preview iframe {
             width: 100%;
-            height: 500px;
+            height: calc(100vh - 180px);
             border: none;
         }
         .asset-detail-sidebar {
@@ -2225,7 +2395,8 @@
         .asset-detail-label {
             font-size: 0.75rem;
             text-transform: uppercase;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.04em;
+            font-weight: 500;
             color: var(--text-muted);
             margin-bottom: 0.3rem;
         }
@@ -2250,7 +2421,7 @@
         .asset-list-row:hover { background: var(--hover-subtle); }
         .asset-list-thumb {
             width: 48px; height: 36px;
-            border-radius: 3px;
+            border-radius: var(--radius-sm);
             overflow: hidden;
             display: flex; align-items: center; justify-content: center;
             background: var(--void-lighter);
@@ -2259,17 +2430,17 @@
         .asset-list-thumb img { width: 100%; height: 100%; object-fit: cover; }
         .asset-list-thumb canvas { width: 100%; height: 100%; object-fit: cover; }
         .asset-list-name {
-            font-size: 0.9rem; color: var(--star);
+            font-size: 0.9rem; color: var(--star); font-weight: 500;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .asset-list-type { font-size: 0.8rem; color: var(--text-muted); }
-        .asset-list-size { font-size: 0.8rem; color: var(--text-muted); text-align: right; }
-        .asset-list-date { font-size: 0.8rem; color: var(--text-muted); }
+        .asset-list-size { font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono); text-align: right; }
+        .asset-list-date { font-size: 0.8rem; color: var(--text-muted); font-family: var(--mono); }
 
         .asset-copy-btn {
             background: none; border: none; cursor: pointer;
             color: var(--text-muted); font-size: 0.9rem;
-            padding: 0.2rem; border-radius: 3px;
+            padding: 0.2rem; border-radius: var(--radius-sm);
             transition: color 0.2s;
         }
         .asset-copy-btn:hover { color: var(--accent); }
@@ -2282,13 +2453,13 @@
             background: var(--void-lighter);
             border: 1px solid var(--border-hover);
             color: var(--text-muted);
-            font-family: var(--mono);
             font-size: 0.85rem;
+            font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
         }
-        .asset-view-toggle button:first-child { border-radius: 4px 0 0 4px; }
-        .asset-view-toggle button:last-child { border-radius: 0 4px 4px 0; border-left: none; }
+        .asset-view-toggle button:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+        .asset-view-toggle button:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; border-left: none; }
         .asset-view-toggle button.active {
             background: var(--accent-dim); color: var(--accent); border-color: var(--accent);
         }
@@ -2322,7 +2493,7 @@
 
         /* ─── Light theme overrides for elements with hardcoded colours ─── */
         [data-theme="light"] .sidebar {
-            box-shadow: 1px 0 3px var(--shadow);
+            box-shadow: var(--shadow-sm);
         }
 
         [data-theme="light"] .tiptap-editor {
@@ -2330,7 +2501,7 @@
         }
 
         [data-theme="light"] .content-modal {
-            box-shadow: -4px 0 20px var(--shadow);
+            box-shadow: var(--shadow-lg);
         }
 
         [data-theme="light"] .filter-btn:hover {
@@ -2349,6 +2520,58 @@
             color-scheme: dark;
         }
 
+        /* ─── Ask AI view ─── */
+        .ask-container { max-width: 900px; }
+        .ask-input {
+            width: 100%; padding: 0.75rem 1rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md);
+            background: var(--void-light); color: var(--star); font-size: 0.95rem;
+            resize: vertical; min-height: 44px;
+        }
+        .ask-input:focus { outline: none; border-color: var(--accent); }
+        .ask-buttons { display: flex; gap: 0.5rem; margin-top: 0.5rem; }
+        .ask-answer {
+            margin-top: 1.5rem; padding: 1.25rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md);
+            background: var(--void-light); line-height: 1.6;
+        }
+        .ask-answer h1, .ask-answer h2, .ask-answer h3 { color: var(--star); margin-top: 1rem; font-weight: 600; }
+        .ask-answer p { margin: 0.5rem 0; }
+        .ask-answer code { background: var(--hover-bg); padding: 0.15rem 0.4rem; border-radius: var(--radius-sm); font-size: 0.9em; font-family: var(--mono); }
+        .ask-answer ul, .ask-answer ol { padding-left: 1.5rem; }
+        .ask-sources { margin-top: 1rem; }
+        .ask-sources h4 { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500; margin-bottom: 0.5rem; }
+        .ask-source-item {
+            display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.75rem; border-radius: var(--radius-md);
+            background: var(--void-light); margin-bottom: 0.35rem; font-size: 0.85rem; cursor: pointer;
+            border: 1px solid transparent; transition: border-color 0.15s;
+        }
+        .ask-source-item:hover { border-color: var(--border-hover); }
+        .ask-source-icon { font-size: 1rem; }
+        .ask-source-title { flex: 1; color: var(--star); font-weight: 500; }
+        .ask-source-date { color: var(--text-muted); font-family: var(--mono); font-size: 0.8rem; }
+        .ask-source-score {
+            background: var(--accent); color: white; padding: 0.15rem 0.5rem; border-radius: var(--radius-pill);
+            font-size: 0.75rem; font-family: var(--mono); font-weight: 600;
+        }
+        .ask-loading { padding: 2rem; text-align: center; color: var(--text-muted); }
+        .ask-loading .spinner { display: inline-block; width: 20px; height: 20px; border: 2px solid var(--border-hover); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; margin-right: 0.5rem; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .ask-filter-toggle { font-size: 0.8rem; color: var(--text-muted); cursor: pointer; margin-top: 0.5rem; }
+        .ask-filter-toggle:hover { color: var(--accent); }
+        .ask-filters { display: none; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); }
+        .ask-filters.open { display: flex; }
+        .ask-filters label { font-size: 0.8rem; color: var(--text-body); display: flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+        .embed-progress { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); background: var(--void-light); }
+        .embed-progress .count { font-family: var(--mono); color: var(--accent); }
+
+        /* Lucide icon styling */
+        .icon { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
+        .icon svg { width: 1em; height: 1em; stroke-width: 1.75; }
+        .icon-sm svg { width: 0.875em; height: 0.875em; }
+        .icon-lg svg { width: 1.25em; height: 1.25em; }
+        .icon-xl svg { width: 2em; height: 2em; }
+        .nav-item .icon svg { width: 16px; height: 16px; stroke-width: 1.75; opacity: 0.7; }
+        .nav-item.active .icon svg { opacity: 1; }
+
     </style>
 </head>
 <body>
@@ -2360,51 +2583,67 @@
             </div>
             <div class="sidebar-nav">
                 <button class="nav-item active" data-view="overview">
-                    Overview
+                    <i class="icon" data-lucide="layout-dashboard"></i> Overview
                 </button>
                 <button class="nav-item" data-view="daily-note">
-                    Daily Note
+                    <i class="icon" data-lucide="calendar-days"></i> Daily Note
                 </button>
+
+                <div class="nav-group-label">Content</div>
                 <button class="nav-item" data-view="articles">
-                    Articles <span class="count" id="countArticles">-</span>
+                    <i class="icon" data-lucide="newspaper"></i> Articles <span class="count" id="countArticles">-</span>
                 </button>
                 <button class="nav-item" data-view="thoughts">
-                    Thoughts & Signals <span class="count" id="countThoughts">-</span>
+                    <i class="icon" data-lucide="lightbulb"></i> Thoughts & Signals <span class="count" id="countThoughts">-</span>
                 </button>
                 <button class="nav-item" data-view="reflections">
-                    Reflections <span class="count" id="countReflections">-</span>
+                    <i class="icon" data-lucide="brain"></i> Reflections <span class="count" id="countReflections">-</span>
                 </button>
                 <button class="nav-item" data-view="summaries">
-                    Summaries <span class="count" id="countSummaries">-</span>
+                    <i class="icon" data-lucide="scroll-text"></i> Summaries <span class="count" id="countSummaries">-</span>
                 </button>
+
+                <div class="nav-group-label">Sources</div>
                 <button class="nav-item" data-view="feed-items">
-                    Feed Items <span class="count" id="countFeedItems">-</span>
+                    <i class="icon" data-lucide="rss"></i> Feed Items <span class="count" id="countFeedItems">-</span>
                 </button>
                 <button class="nav-item" data-view="feeds">
-                    Feeds <span class="count" id="countFeeds">-</span>
+                    <i class="icon" data-lucide="list"></i> Feeds <span class="count" id="countFeeds">-</span>
                 </button>
+
+                <div class="nav-group-label">Library</div>
                 <button class="nav-item" data-view="assets">
-                    Assets <span class="count" id="countAssets">-</span>
+                    <i class="icon" data-lucide="folder-open"></i> Assets <span class="count" id="countAssets">-</span>
                 </button>
                 <button class="nav-item" data-view="tags">
-                    Tags
+                    <i class="icon" data-lucide="tags"></i> Tags
                 </button>
+
+                <div class="nav-group-label">Knowledge</div>
                 <button class="nav-item" data-view="people">
-                    People <span class="count" id="countPeople">-</span>
+                    <i class="icon" data-lucide="users"></i> People <span class="count" id="countPeople">-</span>
                 </button>
                 <button class="nav-item" data-view="companies">
-                    Companies <span class="count" id="countCompanies">-</span>
+                    <i class="icon" data-lucide="building-2"></i> Companies <span class="count" id="countCompanies">-</span>
                 </button>
                 <button class="nav-item" data-view="products">
-                    Products <span class="count" id="countProducts">-</span>
+                    <i class="icon" data-lucide="box"></i> Products <span class="count" id="countProducts">-</span>
                 </button>
                 <button class="nav-item" data-view="projects">
-                    Projects <span class="count" id="countProjects">-</span>
+                    <i class="icon" data-lucide="kanban"></i> Projects <span class="count" id="countProjects">-</span>
+                </button>
+                <button class="nav-item" data-view="competition">
+                    <i class="icon" data-lucide="swords"></i> Competition
+                </button>
+
+                <div class="nav-group-label">Tools</div>
+                <button class="nav-item" data-view="ask">
+                    <i class="icon" data-lucide="sparkles"></i> Ask AI
                 </button>
             </div>
             <div class="sidebar-footer">
-                <button class="nav-item" data-view="settings" style="padding: 0.4rem 1.5rem; font-size: 0.8rem; opacity: 0.6;">
-                    ⚙ Settings
+                <button class="nav-item" data-view="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
+                    <i class="icon" data-lucide="settings"></i> Settings
                 </button>
                 <div style="padding: 0.3rem 1.5rem; font-size: 0.75rem;">
                     Last refreshed: <span id="lastRefresh">-</span>
@@ -2520,6 +2759,9 @@
 
         loadCounts();
         loadView('overview');
+
+        // Initialize Lucide icons for sidebar
+        refreshIcons();
     }
 
     // ─── Counts ───────────────────────────────────────────────
@@ -2564,28 +2806,43 @@
     }
 
     // ─── View router ──────────────────────────────────────────
-    function loadView(view) {
+    // Refresh Lucide icons in the DOM
+    function refreshIcons() {
+        if (window.lucide) lucide.createIcons();
+    }
+
+    async function loadView(view) {
         closeContentModal();
         switch (view) {
-            case 'overview': return loadOverview();
-            case 'daily-note': return loadDailyNote();
-            case 'articles': return loadArticles();
-            case 'thoughts': return loadThoughts();
-            case 'reflections': return loadReflections();
-            case 'summaries': return loadSummaries();
-            case 'feed-items': return loadFeedItems();
-            case 'feeds': return loadFeeds();
-            case 'tags': return loadTags();
-            case 'assets': return loadAssets();
-            case 'people': return loadPeople();
-            case 'companies': return loadCompanies();
-            case 'products': return loadProducts();
-            case 'projects': return loadProjects();
-            case 'settings': return loadSettingsView();
+            case 'overview': await loadOverview(); break;
+            case 'daily-note': await loadDailyNote(); break;
+            case 'articles': await loadArticles(); break;
+            case 'thoughts': await loadThoughts(); break;
+            case 'reflections': await loadReflections(); break;
+            case 'summaries': await loadSummaries(); break;
+            case 'feed-items': await loadFeedItems(); break;
+            case 'feeds': await loadFeeds(); break;
+            case 'tags': await loadTags(); break;
+            case 'assets': await loadAssets(); break;
+            case 'people': await loadPeople(); break;
+            case 'companies': await loadCompanies(); break;
+            case 'products': await loadProducts(); break;
+            case 'projects': await loadProjects(); break;
+            case 'competition': await loadCompetition(); break;
+            case 'ask': await loadAsk(); break;
+            case 'settings': await loadSettingsView(); break;
         }
+        refreshIcons();
     }
 
     // ─── Overview ─────────────────────────────────────────────
+    function navigateToView(view) {
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
+        currentView = view;
+        loadView(view);
+    }
+
     async function loadOverview() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading overview</div>';
@@ -2594,22 +2851,38 @@
         const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
+        const todayDateStr = now.toISOString().split('T')[0];
 
         const [
             allContent,
             recentContent,
             feedItemCount,
             uncapturedCount,
+            peopleCount,
+            companiesCount,
+            productsCount,
+            projectsCount,
+            assetsCount,
+            dailyNoteToday,
+            summariesCount,
         ] = await Promise.all([
             db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata'),
             db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata')
                 .order('captured_at', { ascending: false }).limit(15),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false),
+            db.from('people').select('id', { count: 'exact', head: true }),
+            db.from('companies').select('id', { count: 'exact', head: true }),
+            db.from('products').select('id', { count: 'exact', head: true }),
+            db.from('projects').select('id', { count: 'exact', head: true }),
+            db.from('assets').select('id', { count: 'exact', head: true }),
+            db.from('daily_notes').select('id').eq('note_date', todayDateStr).maybeSingle(),
+            db.from('summaries').select('id', { count: 'exact', head: true }),
         ]);
 
         const content = allContent.data || [];
         const recent = recentContent.data || [];
+        const hasDailyNote = !!dailyNoteToday.data;
 
         // Counts
         const articles = content.filter(c => c.type === 'article');
@@ -2634,6 +2907,12 @@
             if (!a.tags || a.tags.length === 0) needsAttention.push({ ...a, reason: 'No tags' });
             else if (a.body && a.body.startsWith(STUB)) needsAttention.push({ ...a, reason: 'No content' });
         });
+
+        // Greeting
+        const hour = now.getHours();
+        const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+        const dateOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
+        const formattedDate = now.toLocaleDateString('en-GB', dateOptions);
 
         // Group recent by date
         function dateGroup(iso) {
@@ -2668,15 +2947,22 @@
             ? '<div class="empty-attention">All clear — nothing needs attention</div>'
             : needsAttention.slice(0, 8).map(a => `
                 <div class="attention-item" data-id="${a.id}">
-                    <span class="attention-icon">${a.reason === 'No tags' ? '🏷' : '📄'}</span>
+                    <span class="attention-icon">${a.reason === 'No tags' ? icon('tag') : icon('file')}</span>
                     <span class="attention-title">${esc(a.title)}</span>
                     <span class="attention-reason">${a.reason}</span>
                 </div>
             `).join('');
 
         main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Overview</h2>
+            <div class="overview-greeting">
+                <div class="greeting-left">
+                    <div class="greeting-text">${greeting}</div>
+                    <div class="greeting-date">${formattedDate}</div>
+                </div>
+                <button class="daily-note-pill ${hasDailyNote ? 'active' : 'inactive'}" id="dailyNotePill">
+                    ${hasDailyNote ? icon('check-circle', 'icon-sm') : icon('calendar-plus', 'icon-sm')}
+                    ${hasDailyNote ? "Today's note started" : 'Start daily note'}
+                </button>
             </div>
 
             <div class="overview-stats">
@@ -2696,13 +2982,51 @@
                     <div class="stat-card-sub">${uncapturedCount.count || 0} uncaptured</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-card-value">${Object.keys(tagCounts).length}</div>
-                    <div class="stat-card-label">Tags</div>
-                    <div class="stat-card-sub">${topTags.length > 0 ? topTags[0][0] + ' most used' : 'none yet'}</div>
+                    <div class="stat-card-value">${summariesCount.count || 0}</div>
+                    <div class="stat-card-label">Summaries</div>
+                    <div class="stat-card-sub">${Object.keys(tagCounts).length} tags</div>
                 </div>
             </div>
 
-            <div class="overview-columns">
+            <div class="overview-system-stats">
+                <div class="system-stat-card" data-nav="people">
+                    ${icon('users')}
+                    <div class="system-stat-info">
+                        <div class="system-stat-value">${peopleCount.count || 0}</div>
+                        <div class="system-stat-label">People</div>
+                    </div>
+                </div>
+                <div class="system-stat-card" data-nav="companies">
+                    ${icon('building-2')}
+                    <div class="system-stat-info">
+                        <div class="system-stat-value">${companiesCount.count || 0}</div>
+                        <div class="system-stat-label">Companies</div>
+                    </div>
+                </div>
+                <div class="system-stat-card" data-nav="products">
+                    ${icon('box')}
+                    <div class="system-stat-info">
+                        <div class="system-stat-value">${productsCount.count || 0}</div>
+                        <div class="system-stat-label">Products</div>
+                    </div>
+                </div>
+                <div class="system-stat-card" data-nav="projects">
+                    ${icon('kanban')}
+                    <div class="system-stat-info">
+                        <div class="system-stat-value">${projectsCount.count || 0}</div>
+                        <div class="system-stat-label">Projects</div>
+                    </div>
+                </div>
+                <div class="system-stat-card" data-nav="assets">
+                    ${icon('folder-open')}
+                    <div class="system-stat-info">
+                        <div class="system-stat-value">${assetsCount.count || 0}</div>
+                        <div class="system-stat-label">Assets</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="overview-columns-3">
                 <div class="overview-section">
                     <div class="overview-section-title">Recent Activity</div>
                     ${activityHtml || '<div class="empty-attention">No recent activity</div>'}
@@ -2710,6 +3034,21 @@
                 <div class="overview-section">
                     <div class="overview-section-title">Needs Attention (${needsAttention.length})</div>
                     ${attentionHtml}
+                </div>
+                <div class="overview-section">
+                    <div class="overview-section-title">Knowledge</div>
+                    <div class="knowledge-stat-row" data-nav="people">
+                        ${icon('users')} <span class="knowledge-stat-name">People</span> <span class="knowledge-stat-count">${peopleCount.count || 0}</span>
+                    </div>
+                    <div class="knowledge-stat-row" data-nav="companies">
+                        ${icon('building-2')} <span class="knowledge-stat-name">Companies</span> <span class="knowledge-stat-count">${companiesCount.count || 0}</span>
+                    </div>
+                    <div class="knowledge-stat-row" data-nav="products">
+                        ${icon('box')} <span class="knowledge-stat-name">Products</span> <span class="knowledge-stat-count">${productsCount.count || 0}</span>
+                    </div>
+                    <div class="knowledge-stat-row" data-nav="projects">
+                        ${icon('kanban')} <span class="knowledge-stat-name">Projects</span> <span class="knowledge-stat-count">${projectsCount.count || 0}</span>
+                    </div>
                 </div>
             </div>
 
@@ -2733,6 +3072,19 @@
             </div>
         `;
 
+        // Wire up daily note pill
+        document.getElementById('dailyNotePill')?.addEventListener('click', () => navigateToView('daily-note'));
+
+        // Wire up system stat card clicks
+        main.querySelectorAll('.system-stat-card[data-nav]').forEach(el => {
+            el.addEventListener('click', () => navigateToView(el.dataset.nav));
+        });
+
+        // Wire up knowledge row clicks
+        main.querySelectorAll('.knowledge-stat-row[data-nav]').forEach(el => {
+            el.addEventListener('click', () => navigateToView(el.dataset.nav));
+        });
+
         // Wire up recent activity clicks
         main.querySelectorAll('.activity-item').forEach(el => {
             el.addEventListener('click', () => {
@@ -2753,12 +3105,8 @@
         document.getElementById('overviewTagCloud')?.querySelectorAll('.tag').forEach(el => {
             el.addEventListener('click', () => {
                 const tag = el.dataset.tag;
-                // Switch to articles view and pre-filter by tag
                 articleFilters = { source: null, tag: tag, dateRange: null, status: null, page: 1 };
-                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-                document.querySelector('[data-view="articles"]').classList.add('active');
-                currentView = 'articles';
-                loadArticles();
+                navigateToView('articles');
             });
         });
     }
@@ -4137,7 +4485,7 @@
                     ${appSettings.showThumbnails
                         ? (a.metadata?.image_url
                             ? `<img src="${a.metadata.image_url}" class="article-thumb" loading="lazy" onerror="this.style.display='none'">`
-                            : '<span class="article-thumb-placeholder">📄</span>')
+                            : `<span class="article-thumb-placeholder">${icon('file-text')}</span>`)
                         : ''}
                     <div>
                         <div class="title-text">${esc(a.title)}</div>
@@ -4301,6 +4649,28 @@
     }
 
     // ─── Feed Items ───────────────────────────────────────────
+    async function captureFeedItem(btn, itemId) {
+        btn.disabled = true;
+        btn.textContent = 'Capturing...';
+        try {
+            const resp = await fetch('/api/feed-items/capture', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ feed_item_id: itemId }),
+            });
+            const result = await resp.json();
+            if (result.captured || result.already_captured) {
+                btn.outerHTML = '<span class="captured-yes">Captured</span>';
+            } else {
+                btn.textContent = 'Failed';
+                btn.disabled = false;
+            }
+        } catch (e) {
+            btn.textContent = 'Error';
+            btn.disabled = false;
+        }
+    }
+
     async function loadFeedItems() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading feed items</div>';
@@ -4354,7 +4724,10 @@
                         <a class="title-url" href="${esc(i.item_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(truncUrl(i.item_url))}</a>
                     </td>
                     <td class="source-cell">${esc(i.feeds?.name || '-')}</td>
-                    <td class="${i.captured ? 'captured-yes' : 'captured-no'}">${i.captured ? 'Yes' : 'No'}</td>
+                    <td>${i.captured
+                        ? '<span class="captured-yes">Captured</span>'
+                        : `<button class="btn btn-sm" style="font-size:0.75rem; padding:0.25rem 0.6rem;" onclick="event.stopPropagation(); captureFeedItem(this, '${i.id}')">${icon('download')} Capture</button>`
+                    }</td>
                     <td class="date-cell">${formatDate(i.first_seen_at)}</td>
                 </tr>
             `).join('');
@@ -4387,7 +4760,7 @@
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">RSS Feeds</h2>
+                <h2 class="page-title">Feeds</h2>
             </div>
             <div class="table-wrap">
                 <table>
@@ -4856,24 +5229,35 @@
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading products</div>';
 
-        const { data, error } = await db
-            .from('products')
-            .select('id, name, description, status, tags')
-            .order('name', { ascending: true });
+        const [productsRes, companiesRes] = await Promise.all([
+            db.from('products').select('id, name, description, status, tags, company_id, companies(name, type)').order('name', { ascending: true }),
+            db.from('companies').select('id, name, type').order('name'),
+        ]);
+
+        const { data, error } = productsRes;
+        const companyList = companiesRes.data || [];
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
         if (!data.length) { main.innerHTML = '<div class="empty">No products yet.</div>'; return; }
+
+        let activeFilter = 'all';
 
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Products</h2>
                 <input type="text" class="search-input" placeholder="Filter by name..." id="searchProducts">
             </div>
+            <div class="filters" id="productFilters">
+                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn" data-filter="internal">Our Products</button>
+                <button class="filter-btn" data-filter="competitor">Competitor</button>
+            </div>
             <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Company</th>
                             <th>Status</th>
                             <th>Tags</th>
                         </tr>
@@ -4883,22 +5267,33 @@
             </div>
         `;
 
-        renderProductRows(data);
+        function filterAndRender() {
+            const q = (document.getElementById('searchProducts')?.value || '').toLowerCase();
+            let filtered = data;
+            if (activeFilter === 'internal') filtered = filtered.filter(p => p.companies?.type === 'internal');
+            if (activeFilter === 'competitor') filtered = filtered.filter(p => p.companies?.type === 'competitor');
+            if (q) filtered = filtered.filter(p => (p.name || '').toLowerCase().includes(q) || (p.companies?.name || '').toLowerCase().includes(q));
+            renderProductRows(filtered, companyList);
+        }
 
-        document.getElementById('searchProducts').addEventListener('input', e => {
-            const q = e.target.value.toLowerCase();
-            const filtered = data.filter(p =>
-                (p.name || '').toLowerCase().includes(q)
-            );
-            renderProductRows(filtered);
+        document.getElementById('productFilters').addEventListener('click', e => {
+            if (!e.target.classList.contains('filter-btn')) return;
+            document.querySelectorAll('#productFilters .filter-btn').forEach(b => b.classList.remove('active'));
+            e.target.classList.add('active');
+            activeFilter = e.target.dataset.filter;
+            filterAndRender();
         });
+
+        document.getElementById('searchProducts').addEventListener('input', filterAndRender);
+        filterAndRender();
     }
 
-    function renderProductRows(data) {
+    function renderProductRows(data, companyList) {
         const tbody = document.getElementById('productsBody');
         tbody.innerHTML = data.map(p => `
             <tr class="expandable" data-id="${p.id}">
                 <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                <td class="source-cell">${p.companies ? `<span class="type-badge type-${p.companies.type === 'competitor' ? 'signal' : 'article'}">${esc(p.companies.name)}</span>` : '<span style="color:var(--text-muted)">-</span>'}</td>
                 <td><span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}">${esc(p.status || '-')}</span></td>
                 <td>${(p.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
             </tr>
@@ -4921,22 +5316,32 @@
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
-        // Fetch product overview, evidence, and decisions in parallel
-        const [productRes, evidenceRes, decisionsRes] = await Promise.all([
-            db.from('products').select('overview').eq('id', product.id).single(),
+        // Fetch product overview, evidence, decisions, and companies in parallel
+        const [productRes, evidenceRes, decisionsRes, companiesRes] = await Promise.all([
+            db.from('products').select('overview, company_id').eq('id', product.id).single(),
             db.from('product_evidence').select('note_date, evidence, evidence_type').eq('product_id', product.id).order('note_date', { ascending: false }),
             db.from('product_decisions').select('note_date, decision, context').eq('product_id', product.id).order('note_date', { ascending: false }),
+            db.from('companies').select('id, name, type').order('name'),
         ]);
 
         const overview = productRes.data?.overview || '';
+        const currentCompanyId = productRes.data?.company_id || product.company_id || '';
         const evidenceData = evidenceRes.data || [];
         const decisionsData = decisionsRes.data || [];
+        const companyList = companiesRes.data || [];
 
-        // Build header: editable name, status, tags
+        // Build header: editable name, company, status, tags
         let html = `
             <div class="modal-edit-field">
                 <div class="modal-edit-label">Name</div>
                 <input class="modal-edit-input" id="editProductName" value="${esc(product.name || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Company</div>
+                <select class="modal-edit-input" id="editProductCompany">
+                    <option value="">— None —</option>
+                    ${companyList.map(c => `<option value="${c.id}"${c.id === currentCompanyId ? ' selected' : ''}>${esc(c.name)} (${c.type})</option>`).join('')}
+                </select>
             </div>
             <div class="modal-edit-field">
                 <div class="modal-edit-label">Status</div>
@@ -5024,9 +5429,11 @@
             status.textContent = 'saving...';
             status.className = 'modal-save-status saving';
             try {
+                const companyVal = document.getElementById('editProductCompany').value;
                 const updates = {
                     name: document.getElementById('editProductName').value.trim(),
                     status: document.getElementById('editProductStatus').value,
+                    company_id: companyVal || null,
                     tags: getEntityTags('product'),
                 };
                 const res = await fetch('/api/entity-update', {
@@ -5048,6 +5455,275 @@
 
         // Wire entity tag editor
         wireEntityTagEditor('product');
+    }
+
+    // ─── Competition ────────────────────────────────────────────
+
+    async function loadCompetition() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading competitive intelligence</div>';
+
+        // Fetch all competitor data in parallel
+        const [competitorsRes, productsRes, assetsRes, contentRes] = await Promise.all([
+            db.from('companies').select('id, name, industry, website, notes, type').eq('type', 'competitor').order('name'),
+            db.from('products').select('id, name, status, company_id, companies(name, type)').order('name'),
+            db.from('assets').select('id, filename, mime_type, uploaded_at, metadata').order('uploaded_at', { ascending: false }),
+            db.from('content').select('id, title, type, tags, source, captured_at, url, metadata')
+                .order('captured_at', { ascending: false }).limit(500),
+        ]);
+
+        const competitors = competitorsRes.data || [];
+        const allProducts = productsRes.data || [];
+        const allAssets = assetsRes.data || [];
+        const allContent = contentRes.data || [];
+
+        // Build competitor name list for smart surfacing
+        const competitorNames = competitors.map(c => c.name.toLowerCase());
+        const competitorIds = competitors.map(c => c.id);
+
+        // Products by competitor
+        const competitorProducts = allProducts.filter(p => p.companies?.type === 'competitor');
+
+        // Assets linked to competitors
+        const competitorAssets = allAssets.filter(a => {
+            const compId = a.metadata?.company_id;
+            return compId && competitorIds.includes(compId);
+        });
+
+        // Smart content surfacing: find articles mentioning competitors or tagged with competition
+        const competitionTags = ['competition', 'competitor', 'market-research', 'competitive'];
+        const competitionContent = allContent.filter(item => {
+            // Check tags
+            const tags = item.tags || [];
+            if (tags.some(t => competitionTags.includes(t.toLowerCase()))) return true;
+            // Check type
+            if (item.type === 'signal') return true;
+            // Check title/source for competitor names
+            const titleLower = (item.title || '').toLowerCase();
+            const sourceLower = (item.source || '').toLowerCase();
+            if (competitorNames.some(name => titleLower.includes(name) || sourceLower.includes(name))) return true;
+            return false;
+        });
+
+        // Build timeline: merge content + assets, sort by date
+        const timeline = [];
+        competitionContent.forEach(item => {
+            timeline.push({
+                date: item.captured_at,
+                type: item.type,
+                title: item.title,
+                source: item.source || '',
+                id: item.id,
+                kind: 'content',
+                url: item.url,
+            });
+        });
+        competitorAssets.forEach(asset => {
+            const company = competitors.find(c => c.id === asset.metadata?.company_id);
+            timeline.push({
+                date: asset.uploaded_at,
+                type: 'asset',
+                title: asset.filename,
+                source: company?.name || '',
+                id: asset.id,
+                kind: 'asset',
+            });
+        });
+        timeline.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+        // Count articles/assets per competitor
+        const competitorStats = {};
+        competitors.forEach(c => { competitorStats[c.id] = { articles: 0, assets: 0, products: 0 }; });
+        competitorProducts.forEach(p => {
+            if (competitorStats[p.company_id]) competitorStats[p.company_id].products++;
+        });
+        competitorAssets.forEach(a => {
+            const cid = a.metadata?.company_id;
+            if (competitorStats[cid]) competitorStats[cid].assets++;
+        });
+        competitionContent.forEach(item => {
+            const titleLower = (item.title || '').toLowerCase();
+            const sourceLower = (item.source || '').toLowerCase();
+            competitors.forEach(c => {
+                if (titleLower.includes(c.name.toLowerCase()) || sourceLower.includes(c.name.toLowerCase())) {
+                    competitorStats[c.id].articles++;
+                }
+            });
+        });
+
+        // Render competitor cards
+        const cardsHtml = competitors.map(c => {
+            const stats = competitorStats[c.id] || { articles: 0, assets: 0, products: 0 };
+            return `
+                <div class="competitor-card" data-id="${c.id}">
+                    <div class="competitor-card-name">${esc(c.name)}</div>
+                    <div class="competitor-card-industry">${esc(c.industry || 'No industry set')}</div>
+                    <div class="competitor-card-stats">
+                        <span class="competitor-card-stat">${icon('box', 'icon-sm')} ${stats.products}</span>
+                        <span class="competitor-card-stat">${icon('newspaper', 'icon-sm')} ${stats.articles}</span>
+                        <span class="competitor-card-stat">${icon('folder-open', 'icon-sm')} ${stats.assets}</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Render timeline
+        const timelineHtml = timeline.slice(0, 30).map(item => `
+            <div class="timeline-item" data-id="${item.id}" data-kind="${item.kind}">
+                <span class="timeline-date">${formatDate(item.date)}</span>
+                <div class="timeline-body">
+                    <div class="timeline-title">${esc(item.title)}</div>
+                    ${item.source ? `<div class="timeline-source">${esc(item.source)}</div>` : ''}
+                </div>
+                <div class="timeline-badges">
+                    <span class="type-badge type-${item.type}">${item.type}</span>
+                </div>
+            </div>
+        `).join('');
+
+        // Render competitor products table
+        const productsHtml = competitorProducts.length === 0
+            ? '<div class="empty-attention">No competitor products added yet. Add products and link them to competitor companies.</div>'
+            : competitorProducts.map(p => `
+                <div class="knowledge-stat-row" data-product-id="${p.id}">
+                    ${icon('box')}
+                    <span class="knowledge-stat-name">${esc(p.name)}</span>
+                    <span style="font-size:0.75rem; color:var(--text-muted)">${esc(p.companies?.name || '')}</span>
+                    <span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}" style="margin-left:auto">${esc(p.status || '')}</span>
+                </div>
+            `).join('');
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Competitive Intelligence</h2>
+            </div>
+
+            <div class="overview-section" style="margin-bottom: 1.5rem; padding: 1rem 1.2rem;">
+                <div class="overview-section-title">Competitors (${competitors.length})</div>
+                <div class="competitor-grid">
+                    ${cardsHtml || '<div class="empty-attention">No competitors added yet. Add companies with type "competitor".</div>'}
+                </div>
+            </div>
+
+            <div class="competition-columns">
+                <div class="overview-section">
+                    <div class="overview-section-title">Intelligence Timeline (${timeline.length})</div>
+                    <div class="timeline-feed">
+                        ${timelineHtml || '<div class="empty-attention">No competitive intelligence found. Tag articles with "competition" or add signals.</div>'}
+                    </div>
+                </div>
+                <div class="overview-section">
+                    <div class="overview-section-title">Competitor Products (${competitorProducts.length})</div>
+                    ${productsHtml}
+                </div>
+            </div>
+        `;
+
+        // Wire competitor card clicks → open company detail
+        main.querySelectorAll('.competitor-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const competitor = competitors.find(c => c.id === card.dataset.id);
+                if (competitor) openCompetitorDetail(competitor, allProducts, allAssets, competitionContent, competitors);
+            });
+        });
+
+        // Wire timeline clicks
+        main.querySelectorAll('.timeline-item').forEach(el => {
+            el.addEventListener('click', () => {
+                if (el.dataset.kind === 'content') {
+                    const item = allContent.find(c => c.id === el.dataset.id);
+                    if (item) openContentModal(item);
+                } else if (el.dataset.kind === 'asset') {
+                    navigateToView('assets');
+                }
+            });
+        });
+
+        // Wire product row clicks
+        main.querySelectorAll('.knowledge-stat-row[data-product-id]').forEach(el => {
+            el.addEventListener('click', async () => {
+                const product = allProducts.find(p => p.id === el.dataset.productId);
+                if (product) await openProductModal(product);
+            });
+        });
+    }
+
+    async function openCompetitorDetail(competitor, allProducts, allAssets, allCompetitionContent, allCompetitors) {
+        document.getElementById('contentModalTitle').textContent = competitor.name;
+        document.getElementById('contentModalMeta').innerHTML = `<span class="type-badge type-signal">competitor</span>`;
+
+        const compProducts = allProducts.filter(p => p.company_id === competitor.id);
+        const compAssets = allAssets.filter(a => a.metadata?.company_id === competitor.id);
+        const nameLower = competitor.name.toLowerCase();
+        const compContent = allCompetitionContent.filter(item => {
+            const titleLower = (item.title || '').toLowerCase();
+            const sourceLower = (item.source || '').toLowerCase();
+            return titleLower.includes(nameLower) || sourceLower.includes(nameLower);
+        });
+
+        let html = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Website</div>
+                <div>${competitor.website ? `<a href="${esc(competitor.website)}" target="_blank" rel="noopener">${esc(competitor.website)}</a>` : '<span style="color:var(--text-muted)">Not set</span>'}</div>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Industry</div>
+                <div>${esc(competitor.industry || 'Not set')}</div>
+            </div>
+            ${competitor.notes ? `<div class="modal-edit-field"><div class="modal-edit-label">Notes</div><div>${marked.parse(competitor.notes)}</div></div>` : ''}
+
+            <div class="modal-tabs">
+                <button class="modal-tab active" data-tab="products">Products (${compProducts.length})</button>
+                <button class="modal-tab" data-tab="articles">Articles (${compContent.length})</button>
+                <button class="modal-tab" data-tab="assets">Assets (${compAssets.length})</button>
+            </div>
+
+            <div class="modal-tab-content active" data-tab-content="products">
+                ${compProducts.length === 0 ? '<em style="color:var(--text-muted)">No products linked to this competitor.</em>' :
+                    compProducts.map(p => `
+                        <div class="log-entry">
+                            <div class="log-date"><span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}">${esc(p.status || '')}</span></div>
+                            <div class="log-body"><strong>${esc(p.name)}</strong></div>
+                        </div>
+                    `).join('')}
+            </div>
+
+            <div class="modal-tab-content" data-tab-content="articles">
+                ${compContent.length === 0 ? '<em style="color:var(--text-muted)">No articles found mentioning this competitor.</em>' :
+                    compContent.map(item => `
+                        <div class="log-entry" style="cursor:pointer" data-content-id="${item.id}">
+                            <div class="log-date">${formatDate(item.date || item.captured_at)} <span class="type-badge type-${item.type}">${item.type}</span></div>
+                            <div class="log-body">${esc(item.title)}</div>
+                        </div>
+                    `).join('')}
+            </div>
+
+            <div class="modal-tab-content" data-tab-content="assets">
+                ${compAssets.length === 0 ? '<em style="color:var(--text-muted)">No assets linked to this competitor.</em>' :
+                    compAssets.map(a => `
+                        <div class="log-entry">
+                            <div class="log-date">${formatDate(a.uploaded_at)}</div>
+                            <div class="log-body">${icon('file')} ${esc(a.filename)}</div>
+                        </div>
+                    `).join('')}
+            </div>
+        `;
+
+        document.getElementById('contentModalBody').innerHTML = html;
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        // Wire tabs
+        document.querySelectorAll('.modal-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.querySelector(`[data-tab-content="${tab.dataset.tab}"]`).classList.add('active');
+            });
+        });
+
+        refreshIcons();
     }
 
     // ─── Projects ──────────────────────────────────────────────
@@ -5877,7 +6553,7 @@
             </div>
 
             <div class="asset-upload-zone" id="assetDropZone">
-                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;">📁</div>
+                <div style="font-size: 1.5rem; margin-bottom: 0.5rem;"><i class="icon icon-xl" data-lucide="upload-cloud"></i></div>
                 <div>Drop files here or <strong>click to upload</strong></div>
                 <div style="font-size: 0.8rem; margin-top: 0.3rem;">PDF, PNG, JPEG, Office files — up to 100 MB</div>
                 <input type="file" id="assetFileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip">
@@ -5948,7 +6624,7 @@
                 <div class="asset-card-info">
                     <div style="display: flex; align-items: center; gap: 0.3rem;">
                         <div class="asset-card-name" title="${esc(asset.filename)}" style="flex: 1;">${esc(asset.filename)}</div>
-                        <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()">🔗</button>
+                        <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()"><i class="icon icon-sm" data-lucide="link"></i></button>
                     </div>
                     <div class="asset-card-meta">${size} · ${date}</div>
                     ${(asset.tags || []).length ? `
@@ -5982,7 +6658,7 @@
                 <div class="asset-list-type">${ext}</div>
                 <div class="asset-list-size">${size}</div>
                 <div class="asset-list-date">${date}</div>
-                <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()">🔗</button>
+                <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()"><i class="icon icon-sm" data-lucide="link"></i></button>
             </div>
         `;
     }
@@ -6002,21 +6678,28 @@
                 await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
             } catch {
                 // If PDF rendering fails, show icon instead
-                canvas.parentElement.innerHTML = '<span class="asset-icon">📕</span>';
+                canvas.parentElement.innerHTML = `<span class="asset-icon">${icon('file-text', 'icon-xl')}</span>`;
+                refreshIcons();
             }
         });
     }
 
+    // Lucide icon helper — returns inline SVG HTML
+    function icon(name, cls = '') {
+        const sizeClass = cls ? ` ${cls}` : '';
+        return `<i class="icon${sizeClass}" data-lucide="${name}"></i>`;
+    }
+
     function getFileIcon(mimeType) {
-        if (!mimeType) return '📄';
-        if (mimeType.startsWith('image/')) return '🖼️';
-        if (mimeType === 'application/pdf') return '📕';
-        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return '📊';
-        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return '📙';
-        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return '📘';
-        if (mimeType.startsWith('text/')) return '📝';
-        if (mimeType.includes('zip') || mimeType.includes('compressed')) return '📦';
-        return '📄';
+        if (!mimeType) return icon('file');
+        if (mimeType.startsWith('image/')) return icon('image');
+        if (mimeType === 'application/pdf') return icon('file-text');
+        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return icon('sheet');
+        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return icon('presentation');
+        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return icon('file-text');
+        if (mimeType.startsWith('text/')) return icon('file-type');
+        if (mimeType.includes('zip') || mimeType.includes('compressed')) return icon('archive');
+        return icon('file');
     }
 
     function formatFileSize(bytes) {
@@ -6085,7 +6768,7 @@
                 try {
                     await navigator.clipboard.writeText(url);
                     btn.textContent = '✓';
-                    setTimeout(() => { btn.textContent = '🔗'; }, 1500);
+                    setTimeout(() => { btn.innerHTML = '<i class="icon icon-sm" data-lucide="link"></i>'; refreshIcons(); }, 1500);
                 } catch {
                     // Fallback
                     const tmp = document.createElement('input');
@@ -6095,7 +6778,7 @@
                     document.execCommand('copy');
                     document.body.removeChild(tmp);
                     btn.textContent = '✓';
-                    setTimeout(() => { btn.textContent = '🔗'; }, 1500);
+                    setTimeout(() => { btn.innerHTML = '<i class="icon icon-sm" data-lucide="link"></i>'; refreshIcons(); }, 1500);
                 }
             });
         });
@@ -6290,6 +6973,168 @@
         });
     }
 
+    // ─── Ask AI (RAG) ──────────────────────────────────────────
+
+    async function loadAsk() {
+        const main = document.getElementById('mainContent');
+        const sourceTableLabels = {
+            content: `${icon('file-text')} Content`,
+            daily_notes: `${icon('calendar-days')} Daily Note`,
+            summaries: `${icon('scroll-text')} Summary`,
+            people: `${icon('user')} Person`,
+            companies: `${icon('building-2')} Company`,
+            products: `${icon('box')} Product`,
+            projects: `${icon('kanban')} Project`,
+            people_log: `${icon('users')} People Note`,
+            product_evidence: `${icon('microscope')} Product Evidence`,
+            product_decisions: `${icon('scale')} Decision`,
+            reflections_log: `${icon('brain')} Reflection`,
+        };
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Ask AI</h2>
+            </div>
+            <div class="ask-container">
+                <textarea id="askInput" class="ask-input" placeholder="Ask a question about your knowledge base..." rows="2"></textarea>
+                <div class="ask-buttons">
+                    <button id="askBtn" class="btn btn-primary">Ask</button>
+                    <button id="searchBtn" class="btn">Search Only</button>
+                </div>
+                <div class="ask-filter-toggle" id="askFilterToggle">▸ Filter by source type</div>
+                <div class="ask-filters" id="askFilters">
+                    ${Object.entries(sourceTableLabels).map(([key, label]) => `
+                        <label><input type="checkbox" value="${key}" checked> ${label}</label>
+                    `).join('')}
+                </div>
+                <div id="askResult"></div>
+            </div>
+        `;
+
+        const input = document.getElementById('askInput');
+        const resultDiv = document.getElementById('askResult');
+
+        // Filter toggle
+        document.getElementById('askFilterToggle').addEventListener('click', () => {
+            const filters = document.getElementById('askFilters');
+            filters.classList.toggle('open');
+            document.getElementById('askFilterToggle').textContent =
+                filters.classList.contains('open') ? '▾ Filter by source type' : '▸ Filter by source type';
+        });
+
+        function getSelectedTables() {
+            const checkboxes = document.querySelectorAll('#askFilters input:checked');
+            const all = document.querySelectorAll('#askFilters input');
+            if (checkboxes.length === all.length) return null; // all selected = no filter
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        function renderSources(sources) {
+            if (!sources || !sources.length) return '';
+            return `
+                <div class="ask-sources">
+                    <h4>Sources (${sources.length})</h4>
+                    ${sources.map(s => {
+                        const icon = sourceTableLabels[s.source_table] || '📄 ' + s.source_table;
+                        return `
+                            <div class="ask-source-item" data-table="${esc(s.source_table)}" data-id="${esc(s.source_id)}">
+                                <span class="ask-source-title">${esc(icon.split(' ').slice(1).join(' '))} — ${esc(s.title)}</span>
+                                <span class="ask-source-date">${esc(s.date || '')}</span>
+                                <span class="ask-source-score">${s.similarity}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        // Ask button
+        document.getElementById('askBtn').addEventListener('click', async () => {
+            const question = input.value.trim();
+            if (!question) return;
+
+            resultDiv.innerHTML = '<div class="ask-loading"><span class="spinner"></span> Searching knowledge base and generating answer...</div>';
+
+            try {
+                const body = { question };
+                const tables = getSelectedTables();
+                if (tables) body.tables = tables;
+
+                const res = await fetch('/api/ask', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Ask failed');
+
+                resultDiv.innerHTML = `
+                    <div class="ask-answer">${marked.parse(data.answer)}</div>
+                    ${renderSources(data.sources)}
+                `;
+            } catch (err) {
+                resultDiv.innerHTML = `<div class="ask-answer" style="color: #c45050;">Error: ${esc(err.message)}</div>`;
+            }
+        });
+
+        // Search only button
+        document.getElementById('searchBtn').addEventListener('click', async () => {
+            const query = input.value.trim();
+            if (!query) return;
+
+            resultDiv.innerHTML = '<div class="ask-loading"><span class="spinner"></span> Searching...</div>';
+
+            try {
+                const body = { query, limit: 15 };
+                const tables = getSelectedTables();
+                if (tables) body.tables = tables;
+
+                const res = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Search failed');
+
+                if (!data.results.length) {
+                    resultDiv.innerHTML = '<div class="ask-answer" style="color: var(--text-muted);">No matching results found.</div>';
+                    return;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="ask-sources" style="margin-top: 1.5rem;">
+                        <h4>Results (${data.results.length})</h4>
+                        ${data.results.map(r => {
+                            const meta = r.metadata || {};
+                            const icon = sourceTableLabels[r.source_table] || r.source_table;
+                            return `
+                                <div class="ask-source-item" data-table="${esc(r.source_table)}" data-id="${esc(r.source_id)}" style="flex-direction: column; align-items: stretch;">
+                                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                        <span class="ask-source-title">${esc(icon.split(' ').slice(1).join(' '))} — ${esc(meta.title || r.source_table)}</span>
+                                        <span class="ask-source-date">${esc(meta.date || '')}</span>
+                                        <span class="ask-source-score">${Math.round(r.similarity * 100) / 100}</span>
+                                    </div>
+                                    <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 0.35rem; white-space: pre-wrap;">${esc(r.content_text.substring(0, 300))}${r.content_text.length > 300 ? '...' : ''}</div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+            } catch (err) {
+                resultDiv.innerHTML = `<div class="ask-answer" style="color: #c45050;">Error: ${esc(err.message)}</div>`;
+            }
+        });
+
+        // Enter key to ask
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                document.getElementById('askBtn').click();
+            }
+        });
+    }
+
     // ─── Settings ─────────────────────────────────────────────
 
     function loadSettingsView() {
@@ -6318,13 +7163,13 @@
                             <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem; text-transform: uppercase; letter-spacing: 0.08em;">Mode</div>
                             <div style="display: flex; gap: 0.5rem;">
                                 <button class="theme-mode-btn ${appSettings.theme === 'dark' ? 'active' : ''}" data-mode="dark"
-                                    style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: 6px; background: #08080c; cursor: pointer; text-align: center; transition: all 0.2s;">
-                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;">🌙</div>
+                                    style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: 6px; background: #131318; cursor: pointer; text-align: center; transition: all 0.2s;">
+                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;"><i class="icon icon-lg" data-lucide="moon"></i></div>
                                     <div style="font-size: 0.85rem; color: #c8bfa8;">Dark</div>
                                 </button>
                                 <button class="theme-mode-btn ${appSettings.theme === 'light' ? 'active' : ''}" data-mode="light"
                                     style="flex: 1; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: 6px; background: #f5f2ec; cursor: pointer; text-align: center; transition: all 0.2s;">
-                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;">☀️</div>
+                                    <div style="font-size: 1.1rem; margin-bottom: 0.25rem;"><i class="icon icon-lg" data-lucide="sun"></i></div>
                                     <div style="font-size: 0.85rem; color: #1a1a2e;">Light</div>
                                 </button>
                             </div>
@@ -6375,6 +7220,18 @@
                     </div>
                 </div>
 
+                <!-- Vector Embeddings -->
+                <div class="daily-section" style="margin-bottom: 1.5rem;">
+                    <div class="daily-section-header"><span>Vector Embeddings</span></div>
+                    <div style="padding: 1rem;">
+                        <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.75rem;">
+                            Generate vector embeddings for all content to enable semantic search in the Ask AI view.
+                        </div>
+                        <button id="embedAllBtn" class="btn btn-primary">Embed All Content</button>
+                        <div id="embedProgress" style="display: none;" class="embed-progress"></div>
+                    </div>
+                </div>
+
             </div>
         `;
 
@@ -6414,6 +7271,56 @@
             appSettings.showThumbnails = e.target.checked;
             saveSettings();
         });
+
+        // Embed all content
+        document.getElementById('embedAllBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('embedAllBtn');
+            const progress = document.getElementById('embedProgress');
+            btn.disabled = true;
+            btn.textContent = 'Embedding...';
+            progress.style.display = 'block';
+
+            let totalEmbedded = {};
+            let hasMore = true;
+            let rounds = 0;
+
+            while (hasMore && rounds < 100) {
+                rounds++;
+                if (rounds > 1) await new Promise(r => setTimeout(r, 500)); // brief pause between rounds
+                try {
+                    const res = await fetch('/api/embed-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({}),
+                    });
+                    const data = await res.json();
+                    if (!data.ok) {
+                        progress.innerHTML = `<span style="color: #c45050;">Error: ${data.error || 'Unknown error'}</span>`;
+                        break;
+                    }
+
+                    // Accumulate counts
+                    for (const [table, count] of Object.entries(data.embedded)) {
+                        totalEmbedded[table] = (totalEmbedded[table] || 0) + count;
+                    }
+
+                    const total = Object.values(totalEmbedded).reduce((a, b) => a + b, 0);
+                    const breakdown = Object.entries(totalEmbedded)
+                        .filter(([, c]) => c > 0)
+                        .map(([t, c]) => `${t}: <span class="count">${c}</span>`)
+                        .join(', ');
+
+                    progress.innerHTML = `Embedded <span class="count">${total}</span> items${data.remaining ? ' (continuing...)' : ' (done!)'}<br>${breakdown || 'No new items to embed.'}`;
+                    hasMore = data.remaining;
+                } catch (err) {
+                    progress.innerHTML = `<span style="color: #c45050;">Error: ${err.message}</span>`;
+                    hasMore = false;
+                }
+            }
+
+            btn.disabled = false;
+            btn.textContent = 'Embed All Content';
+        });
     }
 
     // ─── Content modal ─────────────────────────────────────────
@@ -6439,6 +7346,7 @@
         document.getElementById('contentModalBody').innerHTML = heroImg + renderBody(item.body);
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
+        refreshIcons();
     }
 
     function closeContentModal() {

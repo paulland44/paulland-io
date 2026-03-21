@@ -16,10 +16,14 @@
  *   POST /api/assets/upload    — Upload file to R2 + create metadata in Supabase
  *   GET  /api/assets/file/:key — Serve file from R2
  *   DELETE /api/assets/:id     — Delete asset from R2 + Supabase
+ *   POST /api/embed            — Embed a single item (source_table, source_id)
+ *   POST /api/embed-batch      — Batch embed unembedded content
+ *   POST /api/search           — Vector similarity search
+ *   POST /api/ask              — RAG: vector search + Claude answer
  */
 
-export async function onRequest(context) {
-  const { request, env } = context;
+export async function onRequest(ctx) {
+  const { request, env } = ctx;
 
   // CORS preflight
   if (request.method === 'OPTIONS') {
@@ -67,19 +71,29 @@ export async function onRequest(context) {
   if (request.method === 'POST') {
     switch (path) {
       case 'content/tags':
-        return handleUpdateTags(request, env);
+        return handleUpdateTags(request, env, ctx);
       case 'daily-notes':
-        return handleUpsertDailyNote(request, env);
+        return handleUpsertDailyNote(request, env, ctx);
       case 'daily-review':
-        return handleDailyReview(request, env);
+        return handleDailyReview(request, env, ctx);
       case 'entity-update':
-        return handleEntityUpdate(request, env);
+        return handleEntityUpdate(request, env, ctx);
       case 'entity-log':
-        return handleEntityLog(request, env);
+        return handleEntityLog(request, env, ctx);
       case 'generate-summary':
-        return handleGenerateSummary(request, env);
+        return handleGenerateSummary(request, env, ctx);
       case 'assets/upload':
         return handleAssetUpload(request, env);
+      case 'embed':
+        return handleEmbed(request, env);
+      case 'embed-batch':
+        return handleEmbedBatch(request, env);
+      case 'search':
+        return handleSearch(request, env);
+      case 'ask':
+        return handleAsk(request, env);
+      case 'feed-items/capture':
+        return handleFeedItemCapture(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -90,7 +104,7 @@ export async function onRequest(context) {
 
 // ─── Handlers ────────────────────────────────────────────────
 
-async function handleUpdateTags(request, env) {
+async function handleUpdateTags(request, env, ctx) {
   const { id, tags } = await request.json();
 
   if (!id || !Array.isArray(tags)) {
@@ -129,10 +143,15 @@ async function handleUpdateTags(request, env) {
     return json({ error: 'Supabase error', detail: text }, res.status);
   }
 
+  // Background embed
+  if (id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx.waitUntil(embedItem(env, 'content', id).catch(() => {}));
+  }
+
   return json({ ok: true, tags: cleanTags });
 }
 
-async function handleEntityUpdate(request, env) {
+async function handleEntityUpdate(request, env, ctx) {
   const { table, id, updates } = await request.json();
 
   const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies'];
@@ -172,10 +191,16 @@ async function handleEntityUpdate(request, env) {
     return json({ error: 'Supabase error', detail: text }, res.status);
   }
 
+  // Background embed (for embeddable entity tables)
+  const embeddableTables = ['people', 'products', 'projects', 'summaries', 'companies'];
+  if (embeddableTables.includes(table) && id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx.waitUntil(embedItem(env, table, id).catch(() => {}));
+  }
+
   return json({ ok: true });
 }
 
-async function handleEntityLog(request, env) {
+async function handleEntityLog(request, env, ctx) {
   const { table, data } = await request.json();
 
   const allowedTables = ['people_log', 'project_updates', 'companies'];
@@ -215,7 +240,7 @@ async function handleEntityLog(request, env) {
   return json({ ok: true });
 }
 
-async function handleUpsertDailyNote(request, env) {
+async function handleUpsertDailyNote(request, env, ctx) {
   const { note_date, tasks, notes, meetings, metadata } = await request.json();
 
   if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
@@ -262,12 +287,18 @@ async function handleUpsertDailyNote(request, env) {
   }
 
   const data = await res.json();
+
+  // Background embed
+  if (data[0]?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx.waitUntil(embedItem(env, 'daily_notes', data[0].id).catch(() => {}));
+  }
+
   return json({ ok: true, daily_note: data[0] });
 }
 
 // ─── AI Summary Generation ───────────────────────────────────
 
-async function handleGenerateSummary(request, env) {
+async function handleGenerateSummary(request, env, ctx) {
   const { type, period_start, period_end, context_data } = await request.json();
 
   if (!type || !['weekly', 'monthly'].includes(type)) {
@@ -374,6 +405,11 @@ async function handleGenerateSummary(request, env) {
     });
   } catch (e) { /* audit is non-critical */ }
 
+  // Background embed the new summary
+  if (saved[0]?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx.waitUntil(embedItem(env, 'summaries', saved[0].id).catch(() => {}));
+  }
+
   return json({ ok: true, summary: saved[0] || summaryData });
 }
 
@@ -479,7 +515,7 @@ Top priorities and strategic intentions for the coming month.
 
 // ─── AI Daily Review ─────────────────────────────────────────
 
-async function handleDailyReview(request, env) {
+async function handleDailyReview(request, env, ctx) {
   const { note_date } = await request.json();
 
   if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
@@ -671,6 +707,11 @@ async function handleDailyReview(request, env) {
           tasks: updatedTasks,
         });
     }
+  }
+
+  // Background re-embed the daily note (now has review_summary)
+  if (dailyNote.id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx.waitUntil(embedItem(env, 'daily_notes', dailyNote.id).catch(() => {}));
   }
 
   return json({
@@ -1020,6 +1061,681 @@ async function handleAssetDelete(assetId, env) {
   });
 
   return json({ ok: true });
+}
+
+// ─── Vector Embedding & RAG ──────────────────────────────────
+
+/**
+ * Build the text representation to embed for a given source table + row.
+ */
+function buildEmbeddingText(sourceTable, row) {
+  switch (sourceTable) {
+    case 'content': {
+      const prefix = row.type === 'article' ? 'Article' :
+                     row.type === 'thought' ? 'Thought' :
+                     row.type === 'signal' ? 'Signal' : 'Reflection';
+      const parts = [`${prefix}: ${row.title || 'Untitled'}`];
+      if (row.body) parts.push(row.body);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
+    case 'daily_notes': {
+      const summary = row.metadata?.review_summary;
+      if (summary) {
+        return `Daily Note ${row.note_date}:\n${summary}`;
+      }
+      // Fall back to raw content
+      const parts = [`Daily Note ${row.note_date}:`];
+      if (row.tasks) parts.push(`Tasks:\n${row.tasks}`);
+      if (row.notes) parts.push(`Notes:\n${row.notes}`);
+      if (row.meetings) parts.push(`Meetings:\n${row.meetings}`);
+      return parts.join('\n').substring(0, 4000);
+    }
+    case 'summaries':
+      return `${row.type} Summary (${row.period_start} to ${row.period_end}):\n${row.content || ''}`;
+    case 'people': {
+      const parts = [`Person: ${row.name}`];
+      if (row.role) parts.push(`Role: ${row.role}`);
+      if (row.organization) parts.push(`Organization: ${row.organization}`);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
+    case 'companies': {
+      const parts = [`Company: ${row.name}`];
+      if (row.type) parts.push(`Type: ${row.type}`);
+      if (row.industry) parts.push(`Industry: ${row.industry}`);
+      if (row.notes) parts.push(row.notes);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
+    case 'products': {
+      const parts = [`Product: ${row.name}`];
+      if (row.overview) parts.push(row.overview);
+      if (row.description) parts.push(row.description);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
+    case 'projects': {
+      const parts = [`Project: ${row.name}`];
+      if (row.status) parts.push(`Status: ${row.status}`);
+      if (row.description) parts.push(row.description);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
+    case 'people_log':
+      return `People Note (${row.note_date}): ${row.entry || ''}`;
+    case 'product_evidence':
+      return `Product Evidence (${row.note_date}, ${row.evidence_type || 'observation'}): ${row.evidence || ''}`;
+    case 'product_decisions':
+      return `Decision (${row.note_date}): ${row.decision || ''}\nContext: ${row.context || ''}`;
+    case 'reflections_log':
+      return `Reflection (${row.note_date}, ${row.category || 'leadership'}): ${row.observation || ''}\nCoach: ${row.coach_perspective || ''}`;
+    default:
+      return JSON.stringify(row);
+  }
+}
+
+/**
+ * Build metadata for an embedding row (for filtering & display).
+ */
+function buildEmbeddingMetadata(sourceTable, row) {
+  const meta = { source_table: sourceTable };
+  switch (sourceTable) {
+    case 'content':
+      meta.title = row.title || '';
+      meta.type = row.type || '';
+      meta.date = row.captured_at || '';
+      break;
+    case 'daily_notes':
+      meta.title = `Daily Note ${row.note_date}`;
+      meta.date = row.note_date;
+      break;
+    case 'summaries':
+      meta.title = `${row.type} Summary (${row.period_start} to ${row.period_end})`;
+      meta.type = row.type;
+      meta.date = row.period_start;
+      break;
+    case 'people':
+      meta.title = row.name || '';
+      break;
+    case 'companies':
+      meta.title = row.name || '';
+      meta.type = row.type || '';
+      break;
+    case 'products':
+      meta.title = row.name || '';
+      break;
+    case 'projects':
+      meta.title = row.name || '';
+      meta.status = row.status || '';
+      break;
+    case 'people_log':
+      meta.title = `People Note`;
+      meta.date = row.note_date;
+      break;
+    case 'product_evidence':
+      meta.title = `Product Evidence (${row.evidence_type || 'observation'})`;
+      meta.date = row.note_date;
+      break;
+    case 'product_decisions':
+      meta.title = `Product Decision`;
+      meta.date = row.note_date;
+      break;
+    case 'reflections_log':
+      meta.title = `Reflection (${row.category || 'leadership'})`;
+      meta.date = row.note_date;
+      break;
+  }
+  return meta;
+}
+
+/**
+ * Chunk text into pieces of roughly maxChars, splitting on paragraph boundaries.
+ * Returns array of { chunkIndex, text } objects.
+ */
+function chunkText(text, maxChars = 2000) {
+  if (text.length <= maxChars) return [{ chunkIndex: 0, text }];
+
+  // Extract first line as title prefix (reattach to each chunk)
+  const firstNewline = text.indexOf('\n');
+  const titlePrefix = firstNewline > 0 && firstNewline < 200 ? text.substring(0, firstNewline) : '';
+  const body = titlePrefix ? text.substring(firstNewline + 1) : text;
+
+  const paragraphs = body.split(/\n\n+/);
+  const chunks = [];
+  let current = titlePrefix;
+  let idx = 0;
+
+  for (const para of paragraphs) {
+    if (current.length + para.length + 2 > maxChars && current.length > titlePrefix.length) {
+      chunks.push({ chunkIndex: idx++, text: current.trim() });
+      current = titlePrefix ? titlePrefix + '\n' + para : para;
+    } else {
+      current += (current ? '\n\n' : '') + para;
+    }
+  }
+  if (current.trim()) {
+    chunks.push({ chunkIndex: idx, text: current.trim() });
+  }
+
+  return chunks;
+}
+
+/**
+ * Generate embeddings for an array of texts.
+ * Tries Workers AI binding first, falls back to REST API.
+ */
+async function generateEmbeddings(env, texts) {
+  // Try the AI binding first
+  if (env.AI) {
+    try {
+      const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: texts });
+      if (result?.data) return result.data;
+    } catch (e) {
+      // Binding failed, try REST API fallback
+    }
+  }
+
+  // REST API fallback
+  const accountId = env.CF_ACCOUNT_ID;
+  const apiToken = env.CF_API_TOKEN;
+  if (!accountId || !apiToken) {
+    throw new Error('Workers AI not available. Set CF_ACCOUNT_ID and CF_API_TOKEN env vars, or configure [ai] binding.');
+  }
+
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-base-en-v1.5`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ text: texts }),
+    }
+  );
+
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Workers AI REST API error (${res.status}): ${err}`);
+  }
+
+  const data = await res.json();
+  if (!data.result?.data) throw new Error('Unexpected Workers AI response format');
+  return data.result.data;
+}
+
+/**
+ * Embed a single item: fetch row, build text, generate embeddings, upsert.
+ */
+async function embedItem(env, sourceTable, sourceId) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Fetch the source row
+  const rows = await supabaseGet(supabaseUrl, serviceKey,
+    `${sourceTable}?id=eq.${sourceId}&limit=1`);
+  if (!rows.length) return { ok: false, error: 'Row not found' };
+  const row = rows[0];
+
+  // Build text to embed
+  const fullText = buildEmbeddingText(sourceTable, row);
+  if (!fullText || fullText.length < 10) return { ok: false, error: 'Insufficient text' };
+
+  // Chunk if necessary
+  const chunks = chunkText(fullText);
+  const metadata = buildEmbeddingMetadata(sourceTable, row);
+
+  // Generate embeddings via Workers AI
+  const texts = chunks.map(c => c.text);
+  let embeddings;
+  try {
+    embeddings = await generateEmbeddings(env, texts);
+  } catch (err) {
+    return { ok: false, error: `Embedding error: ${err.message}` };
+  }
+
+  if (!embeddings || embeddings.length !== chunks.length) {
+    return { ok: false, error: 'Embedding count mismatch' };
+  }
+
+  // Delete existing embeddings for this source
+  await fetch(
+    `${supabaseUrl}/rest/v1/embeddings?source_table=eq.${sourceTable}&source_id=eq.${sourceId}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+    }
+  );
+
+  // Insert new embeddings
+  const embeddingRows = chunks.map((chunk, i) => ({
+    source_table: sourceTable,
+    source_id: sourceId,
+    chunk_index: chunk.chunkIndex,
+    content_text: chunk.text,
+    embedding: JSON.stringify(embeddings[i]),
+    metadata,
+  }));
+
+  await fetch(`${supabaseUrl}/rest/v1/embeddings`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify(embeddingRows),
+  });
+
+  // Update embedded_at on the source row
+  await supabasePatch(supabaseUrl, serviceKey,
+    `${sourceTable}?id=eq.${sourceId}`,
+    { embedded_at: new Date().toISOString() }
+  );
+
+  return { ok: true, chunks: chunks.length };
+}
+
+/**
+ * POST /api/embed — Embed a single item.
+ */
+async function handleEmbed(request, env) {
+  const { source_table, source_id } = await request.json();
+
+  if (!source_table || !source_id) {
+    return json({ error: 'Missing source_table or source_id' }, 400);
+  }
+
+  const result = await embedItem(env, source_table, source_id);
+  if (!result.ok) {
+    return json({ error: result.error }, 500);
+  }
+  return json({ ok: true, chunks: result.chunks });
+}
+
+/**
+ * POST /api/embed-batch — Batch embed unembedded content across all tables.
+ */
+async function handleEmbedBatch(request, env) {
+  try {
+  const body = await request.json().catch(() => ({}));
+  const requestedTables = body.tables || null;
+  const startTime = Date.now();
+  const TIMEOUT_MS = 25000; // Return before 30s Worker timeout
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Tables to embed and their ID columns
+  const tableConfigs = [
+    { table: 'content', idCol: 'id' },
+    { table: 'daily_notes', idCol: 'id' },
+    { table: 'summaries', idCol: 'id' },
+    { table: 'people', idCol: 'id' },
+    { table: 'companies', idCol: 'id' },
+    { table: 'products', idCol: 'id' },
+    { table: 'projects', idCol: 'id' },
+    { table: 'people_log', idCol: 'id' },
+    { table: 'product_evidence', idCol: 'id' },
+    { table: 'product_decisions', idCol: 'id' },
+    { table: 'reflections_log', idCol: 'id' },
+  ];
+
+  const MAX_ITEMS = 6; // ~5 subrequests each = ~30 + overhead, stays under 50 limit
+  const results = {};
+  let remaining = false;
+  let totalProcessed = 0;
+
+  for (const config of tableConfigs) {
+    if (requestedTables && !requestedTables.includes(config.table)) continue;
+    if (totalProcessed >= MAX_ITEMS) { remaining = true; break; }
+
+    // Check timeout
+    if (Date.now() - startTime > TIMEOUT_MS) {
+      remaining = true;
+      break;
+    }
+
+    // Fetch unembedded rows
+    const limit = Math.min(MAX_ITEMS - totalProcessed, 6);
+    const rows = await supabaseGet(supabaseUrl, serviceKey,
+      `${config.table}?embedded_at=is.null&select=id&limit=${limit}`);
+
+    if (!rows.length) {
+      results[config.table] = 0;
+      continue;
+    }
+
+    let count = 0;
+    for (const row of rows) {
+      if (totalProcessed >= MAX_ITEMS || Date.now() - startTime > TIMEOUT_MS) {
+        remaining = true;
+        break;
+      }
+
+      try {
+        const result = await embedItem(env, config.table, row.id);
+        if (result.ok) { count++; totalProcessed++; }
+      } catch (e) {
+        // Skip failures, continue with next
+      }
+    }
+
+    results[config.table] = count;
+    if (remaining) break;
+  }
+
+  // Check if there are more unembedded items across all tables
+  if (!remaining) {
+    for (const config of tableConfigs) {
+      if (requestedTables && !requestedTables.includes(config.table)) continue;
+      if (results[config.table] !== undefined) continue; // already checked
+      const rows = await supabaseGet(supabaseUrl, serviceKey,
+        `${config.table}?embedded_at=is.null&select=id&limit=1`);
+      if (rows.length) { remaining = true; break; }
+    }
+  }
+
+  return json({ ok: true, embedded: results, remaining, totalProcessed });
+  } catch (err) {
+    return json({ error: 'Embed batch failed: ' + err.message }, 500);
+  }
+}
+
+/**
+ * POST /api/feed-items/capture — Capture a feed item into the content table.
+ */
+async function handleFeedItemCapture(request, env) {
+  const { feed_item_id } = await request.json();
+  if (!feed_item_id) {
+    return json({ error: 'Missing feed_item_id' }, 400);
+  }
+
+  const supabase = getSupabase(env);
+
+  // Fetch the feed item
+  const { data: feedItem, error: fetchErr } = await supabase
+    .from('feed_items')
+    .select('*')
+    .eq('id', feed_item_id)
+    .single();
+
+  if (fetchErr || !feedItem) {
+    return json({ error: 'Feed item not found' }, 404);
+  }
+
+  if (feedItem.captured) {
+    return json({ already_captured: true, content_id: feedItem.content_id });
+  }
+
+  // Check if URL already exists in content (dedup)
+  const { data: existing } = await supabase
+    .from('content')
+    .select('id')
+    .eq('url', feedItem.item_url)
+    .limit(1)
+    .maybeSingle();
+
+  if (existing) {
+    // Link and mark captured
+    await supabase.from('feed_items')
+      .update({ captured: true, content_id: existing.id })
+      .eq('id', feed_item_id);
+    return json({ captured: true, content_id: existing.id, deduplicated: true });
+  }
+
+  // Fetch the page and extract basic metadata
+  let title = feedItem.item_title || 'Untitled';
+  let description = feedItem.item_summary || '';
+  let body = '';
+
+  try {
+    const pageResp = await fetch(feedItem.item_url, {
+      headers: { 'User-Agent': 'CaptureBot/1.0' },
+      redirect: 'follow',
+    });
+    if (pageResp.ok) {
+      const html = await pageResp.text();
+      // Extract title from meta tags
+      const ogTitle = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i);
+      if (ogTitle) title = ogTitle[1];
+      else {
+        const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+        if (htmlTitle) title = htmlTitle[1].trim();
+      }
+      // Extract description
+      const ogDesc = html.match(/<meta\s+(?:property|name)="og:description"\s+content="([^"]+)"/i);
+      const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
+      if (ogDesc) description = ogDesc[1];
+      else if (metaDesc) description = metaDesc[1];
+      // Extract image
+      const ogImage = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i);
+      const imageUrl = ogImage ? ogImage[1] : null;
+      // Build body — use description as fallback
+      body = description || `*View original article: ${feedItem.item_url}*`;
+      // Store image in metadata if found
+      var extractedImage = imageUrl;
+    }
+  } catch (e) {
+    // Extraction failed — use feed item data as fallback
+    body = description || feedItem.item_summary || `*View original article: ${feedItem.item_url}*`;
+  }
+
+  // Save to content table
+  const { data: contentRow, error: insertErr } = await supabase
+    .from('content')
+    .insert({
+      type: 'article',
+      title: title,
+      body: body,
+      url: feedItem.item_url,
+      source: 'Readwise Reader',
+      tags: [],
+      status: 'new',
+      metadata: {
+        feed_item_id: feedItem.id,
+        description: description,
+        image_url: extractedImage || null,
+        source_app: 'reader',
+      },
+    })
+    .select('id')
+    .single();
+
+  if (insertErr) {
+    return json({ error: 'Failed to create content: ' + insertErr.message }, 500);
+  }
+
+  // Mark feed item as captured
+  await supabase.from('feed_items')
+    .update({ captured: true, content_id: contentRow.id })
+    .eq('id', feed_item_id);
+
+  return json({ captured: true, content_id: contentRow.id });
+}
+
+/**
+ * POST /api/search — Vector similarity search.
+ */
+async function handleSearch(request, env) {
+  const { query, limit = 10, tables } = await request.json();
+  if (!query || typeof query !== 'string') {
+    return json({ error: 'Missing query string' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Embed the query
+  let queryEmbedding;
+  try {
+    const embeddings = await generateEmbeddings(env, [query]);
+    queryEmbedding = embeddings[0];
+  } catch (err) {
+    return json({ error: `Embedding failed: ${err.message}` }, 500);
+  }
+
+  // Call the search_embeddings RPC function
+  const rpcBody = {
+    query_embedding: JSON.stringify(queryEmbedding),
+    match_count: Math.min(limit, 20),
+    similarity_threshold: 0.3,
+  };
+  if (tables && Array.isArray(tables)) {
+    rpcBody.filter_tables = tables;
+  }
+
+  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(rpcBody),
+  });
+
+  if (!rpcRes.ok) {
+    const err = await rpcRes.text();
+    return json({ error: 'Search failed', detail: err }, 500);
+  }
+
+  const results = await rpcRes.json();
+  return json({ ok: true, results });
+}
+
+/**
+ * POST /api/ask — RAG: vector search + Claude answer generation.
+ */
+async function handleAsk(request, env) {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const { question, tables } = await request.json();
+  if (!question || typeof question !== 'string') {
+    return json({ error: 'Missing question string' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // 1. Embed the question
+  let queryEmbedding;
+  try {
+    const embeddings = await generateEmbeddings(env, [question]);
+    queryEmbedding = embeddings[0];
+  } catch (err) {
+    return json({ error: `Embedding failed: ${err.message}` }, 500);
+  }
+
+  // 2. Vector search for relevant context
+  const rpcBody = {
+    query_embedding: JSON.stringify(queryEmbedding),
+    match_count: 8,
+    similarity_threshold: 0.3,
+  };
+  if (tables && Array.isArray(tables)) {
+    rpcBody.filter_tables = tables;
+  }
+
+  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(rpcBody),
+  });
+
+  if (!rpcRes.ok) {
+    const err = await rpcRes.text();
+    return json({ error: 'Search failed', detail: err }, 500);
+  }
+
+  const searchResults = await rpcRes.json();
+
+  if (!searchResults.length) {
+    return json({
+      ok: true,
+      answer: "I couldn't find any relevant information in your knowledge base for this question.",
+      sources: [],
+    });
+  }
+
+  // 3. Build context for Claude
+  const contextBlocks = searchResults.map((r, i) => {
+    const meta = r.metadata || {};
+    const source = `[Source ${i + 1}: ${meta.title || r.source_table} ${meta.date ? '(' + meta.date + ')' : ''}]`;
+    return `${source}\n${r.content_text}`;
+  }).join('\n\n---\n\n');
+
+  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+
+Answer questions based ONLY on the provided context from his knowledge base. Follow these rules:
+- Always cite your sources by referencing the source number, type, and date (e.g. "[Source 1]")
+- If the context doesn't contain enough information, say so honestly
+- Be concise and direct
+- Use markdown formatting for readability
+- When summarising across multiple sources, note the date range covered`;
+
+  const userMessage = `## Context from Knowledge Base
+
+${contextBlocks}
+
+---
+
+## Question
+
+${question}`;
+
+  // 4. Call Claude API
+  let answer;
+  try {
+    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
+    }
+
+    const claudeData = await claudeRes.json();
+    answer = claudeData.content?.[0]?.text || '';
+  } catch (err) {
+    return json({ error: 'AI processing failed', detail: err.message }, 500);
+  }
+
+  // 5. Return answer with sources
+  const sources = searchResults.map(r => ({
+    source_table: r.source_table,
+    source_id: r.source_id,
+    title: r.metadata?.title || r.source_table,
+    date: r.metadata?.date || '',
+    similarity: Math.round(r.similarity * 100) / 100,
+    snippet: r.content_text.substring(0, 200),
+  }));
+
+  return json({ ok: true, answer, sources });
 }
 
 // ─── Supabase helpers ────────────────────────────────────────
@@ -1404,7 +2120,7 @@ function json(data, status = 200) {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 }
