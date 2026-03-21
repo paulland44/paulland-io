@@ -6008,12 +6008,14 @@
         main.innerHTML = '<div class="loading">Loading competitor</div>';
 
         // Fetch competitor + related data in parallel
-        const [compRes, productsRes, assetsRes, contentRes] = await Promise.all([
+        const [compRes, productsRes, assetsRes, contentRes, linkedContentRes] = await Promise.all([
             db.from('companies').select('*').eq('id', competitorId).single(),
             db.from('products').select('id, name, status, description, tags, url, company_id').eq('company_id', competitorId).order('name'),
             db.from('assets').select('id, filename, mime_type, uploaded_at, metadata').order('uploaded_at', { ascending: false }),
             db.from('content').select('id, title, type, tags, source, captured_at, url')
                 .order('captured_at', { ascending: false }).limit(500),
+            db.from('company_content').select('id, content_id, content(id, title, type, tags, source, captured_at, url)')
+                .eq('company_id', competitorId),
         ]);
 
         if (compRes.error || !compRes.data) {
@@ -6027,18 +6029,21 @@
         // Filter assets by company_id in metadata
         const compAssets = (assetsRes.data || []).filter(a => a.metadata?.company_id === competitorId);
 
-        // Smart content surfacing for this competitor
+        // Build set of explicitly linked content
+        const linkedContent = (linkedContentRes.data || []).filter(lc => lc.content).map(lc => lc.content);
+        const linkedContentIds = new Set(linkedContent.map(c => c.id));
+
+        // Smart content surfacing for this competitor (name matching, avoiding duplicates)
         const nameLower = competitor.name.toLowerCase();
-        const competitionTags = ['competition', 'competitor', 'market-research', 'competitive'];
-        const compContent = (contentRes.data || []).filter(item => {
+        const nameMatched = (contentRes.data || []).filter(item => {
+            if (linkedContentIds.has(item.id)) return false; // already linked explicitly
             const titleLower = (item.title || '').toLowerCase();
             const sourceLower = (item.source || '').toLowerCase();
-            if (titleLower.includes(nameLower) || sourceLower.includes(nameLower)) return true;
-            const tags = item.tags || [];
-            if (tags.some(t => competitionTags.includes(t.toLowerCase())) &&
-                (titleLower.includes(nameLower) || sourceLower.includes(nameLower))) return true;
-            return false;
+            return titleLower.includes(nameLower) || sourceLower.includes(nameLower);
         });
+
+        // Merge: explicit links first, then name-matched
+        const compContent = [...linkedContent, ...nameMatched];
 
         // Render products list HTML
         const productsListHtml = compProducts.length === 0
@@ -7042,7 +7047,7 @@
     // ─── Search Picker (reusable) ──────────────────────────────
     // Usage: showSearchPicker({ placeholder, searchFn, renderResult, onSelect })
     // searchFn(query) → Promise<array>, renderResult(item) → { title, meta }, onSelect(item) → void
-    function showSearchPicker({ placeholder, searchFn, renderResult, onSelect }) {
+    function showSearchPicker({ placeholder, searchFn, renderResult, onSelect, onCreate, createLabel }) {
         // Remove any existing picker
         document.querySelector('.search-picker-overlay')?.remove();
         document.querySelector('.search-picker')?.remove();
@@ -7071,6 +7076,13 @@
             picker.remove();
         }
 
+        function renderCreateOption(q) {
+            if (!onCreate) return '';
+            return `<div class="search-picker-item search-picker-create" data-action="create">
+                <span class="search-picker-item-title" style="color:var(--accent);">+ ${createLabel || 'Create'} "${esc(q)}"</span>
+            </div>`;
+        }
+
         overlay.addEventListener('click', close);
         input.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
 
@@ -7085,23 +7097,32 @@
                 results.innerHTML = '<div class="search-picker-empty">Searching...</div>';
                 try {
                     const items = await searchFn(q);
-                    if (!items.length) {
-                        results.innerHTML = '<div class="search-picker-empty">No results found</div>';
-                        return;
-                    }
-                    results.innerHTML = items.map((item, i) => {
+                    let html = items.map((item, i) => {
                         const r = renderResult(item);
                         return `<div class="search-picker-item" data-idx="${i}">
                             <span class="search-picker-item-title">${esc(r.title)}</span>
                             ${r.meta ? `<span class="search-picker-item-meta">${esc(r.meta)}</span>` : ''}
                         </div>`;
                     }).join('');
-                    results.querySelectorAll('.search-picker-item').forEach(el => {
+                    html += renderCreateOption(q);
+                    if (!items.length && !onCreate) {
+                        results.innerHTML = '<div class="search-picker-empty">No results found</div>';
+                        return;
+                    }
+                    results.innerHTML = html;
+                    results.querySelectorAll('.search-picker-item:not(.search-picker-create)').forEach(el => {
                         el.addEventListener('click', () => {
                             const idx = parseInt(el.dataset.idx);
                             onSelect(items[idx]);
                             close();
                         });
+                    });
+                    results.querySelector('.search-picker-create')?.addEventListener('click', async () => {
+                        const created = await onCreate(q);
+                        if (created) {
+                            onSelect(created);
+                        }
+                        close();
                     });
                 } catch (err) {
                     results.innerHTML = `<div class="search-picker-empty">Error: ${err.message}</div>`;
@@ -8008,6 +8029,18 @@
                         body: JSON.stringify({ table: 'company_content', data: { company_id: c.id, content_id: item.id } }),
                     });
                     await openContentModal(item);
+                },
+                createLabel: 'Create competitor',
+                onCreate: async (name) => {
+                    const { data, error } = await db.from('companies').insert({ name, type: 'competitor' }).select().single();
+                    if (error) { console.error('Failed to create competitor:', error); return null; }
+                    // Also link it
+                    await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'company_content', data: { company_id: data.id, content_id: item.id } }),
+                    });
+                    return data;
                 },
             });
         });
