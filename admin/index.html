@@ -6297,7 +6297,7 @@
 
             btn.disabled = true;
             btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;"></span> Researching...`;
-            resultsEl.innerHTML = '<div class="empty-attention">Searching the web for competitive intelligence... This may take 15-30 seconds.</div>';
+            resultsEl.innerHTML = '<div class="research-report" id="researchReportLive"></div>';
 
             // Elapsed timer
             const startTime = Date.now();
@@ -6319,28 +6319,69 @@
                     }),
                 });
 
+                // Check if response is SSE stream or error JSON
+                const contentType = res.headers.get('content-type') || '';
+                if (!contentType.includes('text/event-stream')) {
+                    clearInterval(timerInterval);
+                    let errMsg = 'Unknown error';
+                    try {
+                        const errData = await res.json();
+                        errMsg = errData.error || errData.detail || errMsg;
+                    } catch (_) {
+                        errMsg = `Server returned ${res.status}`;
+                    }
+                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(errMsg)}</div>`;
+                    return;
+                }
+
+                // Read the SSE stream progressively
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let reportText = '';
+                let buffer = '';
+                let renderTimer = null;
+                const liveEl = document.getElementById('researchReportLive');
+
+                function scheduleRender() {
+                    if (renderTimer) return;
+                    renderTimer = setTimeout(() => {
+                        renderTimer = null;
+                        if (liveEl) liveEl.innerHTML = renderBody(reportText);
+                    }, 400);
+                }
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        try {
+                            const event = JSON.parse(line.slice(6));
+                            if (event.type === 'delta' && event.text) {
+                                reportText += event.text;
+                                scheduleRender();
+                            } else if (event.type === 'error') {
+                                reportText += `\n\n**Error:** ${event.message}`;
+                                scheduleRender();
+                            }
+                        } catch (_) {}
+                    }
+                }
+
+                // Final render
+                clearTimeout(renderTimer);
                 clearInterval(timerInterval);
-                const text = await res.text();
-                let result;
-                try {
-                    result = JSON.parse(text);
-                } catch (parseErr) {
-                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: unexpected response from server</div>`;
-                    console.error('Non-JSON response:', text.substring(0, 500));
-                    return;
-                }
-
-                if (!res.ok || !result.report) {
-                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(result.error || result.detail || 'Unknown error')}</div>`;
-                    return;
-                }
-
-                lastResearchReport = result.report;
+                lastResearchReport = reportText;
                 const elapsed = Math.round((Date.now() - startTime) / 1000);
                 timerEl.textContent = `Completed in ${elapsed}s`;
 
                 resultsEl.innerHTML = `
-                    <div class="research-report">${renderBody(result.report)}</div>
+                    <div class="research-report">${renderBody(reportText)}</div>
                     <div class="research-actions">
                         <button class="btn-action" id="saveResearchToNotes" style="font-size:0.8rem;">
                             ${icon('file-text', 'icon-sm')} Append to Notes
@@ -6379,7 +6420,6 @@
                     const saveBtn = document.getElementById('saveResearchAsContent');
                     saveBtn.textContent = 'Saving...';
                     const datestamp = new Date().toLocaleDateString('en-GB');
-                    // Create content item via API
                     const createRes = await fetch('/api/entity-log', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -6399,7 +6439,6 @@
                     });
                     const createResult = await createRes.json();
                     if (createRes.ok && createResult.row) {
-                        // Link to competitor
                         await fetch('/api/entity-log', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },

@@ -1850,6 +1850,8 @@ Format your response as a structured markdown report with clear section headers.
 
 ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 strategic observations.' : ''}`;
 
+  // Use streaming to avoid Cloudflare Pages Function timeout (~30s).
+  // Web search responses can take 30-60s, but streaming keeps the connection alive.
   try {
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1861,6 +1863,7 @@ ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 16000,
+        stream: true,
         tools: [{ type: 'web_search_20250305' }],
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -1871,19 +1874,75 @@ ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 
       return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
     }
 
-    const claudeData = await claudeRes.json();
+    // Pipe the Anthropic SSE stream through, extracting text deltas
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
 
-    // Extract text blocks (web search responses contain tool_use + tool_result + text blocks)
-    const report = (claudeData.content || [])
-      .filter(b => b.type === 'text')
-      .map(b => b.text)
-      .join('\n\n');
+    const send = (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
-    if (!report) {
-      return json({ error: 'No research results generated. Try a different focus area.' }, 500);
-    }
+    // Process the stream in background
+    (async () => {
+      try {
+        const reader = claudeRes.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-    return json({ ok: true, report });
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop(); // keep incomplete line
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const data = line.slice(6).trim();
+            if (data === '[DONE]') continue;
+
+            try {
+              const event = JSON.parse(data);
+
+              // Forward text deltas to client
+              if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+                await send({ type: 'delta', text: event.delta.text });
+              }
+
+              // Signal completion
+              if (event.type === 'message_stop') {
+                await send({ type: 'done' });
+              }
+
+              // Forward errors
+              if (event.type === 'error') {
+                await send({ type: 'error', message: event.error?.message || 'Unknown error' });
+              }
+            } catch (parseErr) {
+              // Skip unparseable lines (e.g. event: type lines)
+            }
+          }
+        }
+
+        // Ensure we send done even if message_stop wasn't received
+        await send({ type: 'done' });
+      } catch (streamErr) {
+        try {
+          await send({ type: 'error', message: streamErr.message });
+        } catch (_) {}
+      } finally {
+        try { await writer.close(); } catch (_) {}
+      }
+    })();
+
+    return new Response(readable, {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Access-Control-Allow-Origin': '*',
+      },
+    });
   } catch (err) {
     return json({ error: 'Research failed', detail: err.message }, 500);
   }
