@@ -53,6 +53,11 @@ export async function onRequest(ctx) {
     return handleAssetServe(r2Key, env);
   }
 
+  // Link deletion — DELETE /api/product-link?table=...&id=...
+  if (request.method === 'DELETE' && (path === 'product-link' || path === 'entity-link')) {
+    return handleProductUnlink(request, env);
+  }
+
   // Asset deletion — DELETE /api/assets/:id
   if (request.method === 'DELETE' && path.startsWith('assets/')) {
     const assetId = path.replace('assets/', '');
@@ -203,7 +208,7 @@ async function handleEntityUpdate(request, env, ctx) {
 async function handleEntityLog(request, env, ctx) {
   const { table, data } = await request.json();
 
-  const allowedTables = ['people_log', 'project_updates', 'companies'];
+  const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -229,6 +234,42 @@ async function handleEntityLog(request, env, ctx) {
         'Prefer': 'return=minimal',
       },
       body: JSON.stringify(data),
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+
+  return json({ ok: true });
+}
+
+async function handleProductUnlink(request, env) {
+  const url = new URL(request.url);
+  const table = url.searchParams.get('table');
+  const id = url.searchParams.get('id');
+
+  const allowedTables = ['product_content', 'product_assets', 'company_content'];
+  if (!table || !allowedTables.includes(table)) {
+    return json({ error: 'Invalid table. Must be product_content, product_assets, or company_content' }, 400);
+  }
+  if (!id) {
+    return json({ error: 'Missing id' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/${table}?id=eq.${id}`,
+    {
+      method: 'DELETE',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Prefer': 'return=minimal',
+      },
     }
   );
 
@@ -961,6 +1002,7 @@ async function handleAssetUpload(request, env) {
 
   const tags = formData.get('tags') || '';
   const description = formData.get('description') || '';
+  const productId = formData.get('product_id') || null;
 
   // Generate a unique R2 key: YYYY/MM/uuid-filename
   const now = new Date();
@@ -1008,7 +1050,23 @@ async function handleAssetUpload(request, env) {
   }
 
   const saved = await insertRes.json();
-  return json({ ok: true, asset: saved[0] });
+  const asset = saved[0];
+
+  // If product_id provided, also link to product
+  if (productId && asset?.id) {
+    await fetch(`${supabaseUrl}/rest/v1/product_assets`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ product_id: productId, asset_id: asset.id }),
+    });
+  }
+
+  return json({ ok: true, asset });
 }
 
 async function handleAssetServe(r2Key, env) {

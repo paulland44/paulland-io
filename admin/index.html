@@ -237,6 +237,30 @@
             user-select: none;
             font-family: var(--sans);
             font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: opacity 0.15s;
+        }
+        .nav-group-label:hover { opacity: 0.8; }
+        .nav-group-label .nav-group-chevron {
+            font-size: 0.55rem;
+            transition: transform 0.2s;
+            margin-right: 0.5rem;
+        }
+        .nav-group-label.collapsed .nav-group-chevron {
+            transform: rotate(-90deg);
+        }
+        .nav-group-items {
+            overflow: hidden;
+            transition: max-height 0.25s ease, opacity 0.2s ease;
+            max-height: 500px;
+            opacity: 1;
+        }
+        .nav-group-items.collapsed {
+            max-height: 0;
+            opacity: 0;
         }
 
         .sidebar-footer {
@@ -1205,6 +1229,125 @@
             text-align: center;
         }
 
+        /* ── Competitor Detail (full-page) ────────────── */
+        .competitor-detail-grid {
+            display: grid;
+            grid-template-columns: 340px 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        @media (max-width: 900px) {
+            .competitor-detail-grid { grid-template-columns: 1fr; }
+        }
+        .competitor-info-panel { position: sticky; top: 1rem; }
+        .competitor-content-panel { min-height: 400px; }
+        .back-btn {
+            display: flex; align-items: center; justify-content: center;
+            width: 32px; height: 32px; background: none;
+            border: 1px solid var(--border); border-radius: var(--radius-sm);
+            color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+        }
+        .back-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+        .add-product-inline {
+            background: var(--void-light); border: 1px solid var(--border);
+            border-radius: var(--radius-sm); padding: 0.75rem; margin-bottom: 0.75rem;
+            display: flex; flex-direction: column; gap: 0.5rem;
+        }
+        .add-product-inline .inline-row { display: flex; gap: 0.5rem; align-items: center; }
+        .competitor-detail-article {
+            display: flex; gap: 0.75rem; padding: 0.6rem 0.75rem;
+            border-bottom: 1px solid var(--border); cursor: pointer;
+            border-radius: var(--radius-sm); transition: background 0.15s;
+            align-items: flex-start;
+        }
+        .competitor-detail-article:hover { background: var(--hover-subtle); }
+        .competitor-detail-article:last-child { border-bottom: none; }
+
+        /* ── Search picker (reusable) ─────────────── */
+        .search-picker-overlay {
+            position: fixed; inset: 0; z-index: 400;
+            background: rgba(0,0,0,0.3); backdrop-filter: blur(2px);
+        }
+        .search-picker {
+            position: fixed; top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 410;
+            width: min(480px, 90vw);
+            max-height: 420px;
+            background: var(--void-light);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-lg);
+            display: flex; flex-direction: column;
+            overflow: hidden;
+        }
+        .search-picker-input {
+            width: 100%; padding: 0.75rem 1rem;
+            background: transparent; border: none;
+            border-bottom: 1px solid var(--border);
+            color: var(--star); font-size: 0.9rem;
+            font-family: var(--sans); outline: none;
+        }
+        .search-picker-input::placeholder { color: var(--text-muted); }
+        .search-picker-results {
+            flex: 1; overflow-y: auto; padding: 0.25rem 0;
+        }
+        .search-picker-empty {
+            padding: 1.5rem 1rem; text-align: center;
+            color: var(--text-muted); font-size: 0.85rem;
+        }
+        .search-picker-item {
+            padding: 0.5rem 1rem; cursor: pointer;
+            transition: background 0.12s; display: flex;
+            align-items: center; gap: 0.5rem;
+        }
+        .search-picker-item:hover { background: var(--hover-subtle); }
+        .search-picker-item-title { font-size: 0.85rem; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .search-picker-item-meta { font-size: 0.75rem; color: var(--text-muted); flex-shrink: 0; }
+
+        /* ── Linked product pills ─────────────────── */
+        .linked-products-bar {
+            display: flex; flex-wrap: wrap; gap: 0.4rem;
+            align-items: center; margin-bottom: 1rem;
+        }
+        .linked-pill {
+            display: inline-flex; align-items: center; gap: 0.3rem;
+            padding: 0.25rem 0.6rem; border-radius: var(--radius-pill);
+            background: var(--accent-dim); color: var(--accent);
+            font-size: 0.78rem; font-weight: 500;
+        }
+        .linked-pill.competitor {
+            background: rgba(239, 68, 68, 0.12); color: #ef4444;
+        }
+        .linked-pill .unlink-x {
+            cursor: pointer; opacity: 0.5; font-size: 0.9rem;
+            line-height: 1; transition: opacity 0.15s;
+        }
+        .linked-pill .unlink-x:hover { opacity: 1; }
+        .link-add-btn {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            padding: 0.25rem 0.6rem; border-radius: var(--radius-pill);
+            background: var(--void-lighter); color: var(--text-muted);
+            font-size: 0.78rem; border: 1px dashed var(--border);
+            cursor: pointer; transition: all 0.15s;
+        }
+        .link-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ── Product modal linked rows ────────────── */
+        .linked-row {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        .linked-row:last-child { border-bottom: none; }
+        .linked-row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .linked-row .unlink-btn {
+            background: none; border: none; color: var(--text-muted);
+            cursor: pointer; font-size: 0.8rem; opacity: 0.4;
+            transition: opacity 0.15s, color 0.15s; padding: 0.2rem;
+        }
+        .linked-row .unlink-btn:hover { opacity: 1; color: var(--red); }
+
         /* ─── Tags view ─── */
         .tags-grid {
             display: flex;
@@ -2084,6 +2227,7 @@
             .overview-system-stats { grid-template-columns: repeat(2, 1fr); }
             .overview-greeting { flex-direction: column; align-items: flex-start; }
             .nav-group-label { display: none; }
+            .nav-group-items.collapsed { max-height: 500px; opacity: 1; }
 
             .content-modal {
                 width: 100vw;
@@ -2589,57 +2733,67 @@
                     <i class="icon" data-lucide="calendar-days"></i> Daily Note
                 </button>
 
-                <div class="nav-group-label">Content</div>
-                <button class="nav-item" data-view="articles">
-                    <i class="icon" data-lucide="newspaper"></i> Articles <span class="count" id="countArticles">-</span>
-                </button>
-                <button class="nav-item" data-view="thoughts">
-                    <i class="icon" data-lucide="lightbulb"></i> Thoughts & Signals <span class="count" id="countThoughts">-</span>
-                </button>
-                <button class="nav-item" data-view="reflections">
-                    <i class="icon" data-lucide="brain"></i> Reflections <span class="count" id="countReflections">-</span>
-                </button>
-                <button class="nav-item" data-view="summaries">
-                    <i class="icon" data-lucide="scroll-text"></i> Summaries <span class="count" id="countSummaries">-</span>
-                </button>
+                <div class="nav-group-label" data-group="content">Content <span class="nav-group-chevron">▼</span></div>
+                <div class="nav-group-items" data-group="content">
+                    <button class="nav-item" data-view="articles">
+                        <i class="icon" data-lucide="newspaper"></i> Articles <span class="count" id="countArticles">-</span>
+                    </button>
+                    <button class="nav-item" data-view="thoughts">
+                        <i class="icon" data-lucide="lightbulb"></i> Thoughts & Signals <span class="count" id="countThoughts">-</span>
+                    </button>
+                    <button class="nav-item" data-view="reflections">
+                        <i class="icon" data-lucide="brain"></i> Reflections <span class="count" id="countReflections">-</span>
+                    </button>
+                    <button class="nav-item" data-view="summaries">
+                        <i class="icon" data-lucide="scroll-text"></i> Summaries <span class="count" id="countSummaries">-</span>
+                    </button>
+                </div>
 
-                <div class="nav-group-label">Sources</div>
-                <button class="nav-item" data-view="feed-items">
-                    <i class="icon" data-lucide="rss"></i> Feed Items <span class="count" id="countFeedItems">-</span>
-                </button>
-                <button class="nav-item" data-view="feeds">
-                    <i class="icon" data-lucide="list"></i> Feeds <span class="count" id="countFeeds">-</span>
-                </button>
+                <div class="nav-group-label" data-group="sources">Sources <span class="nav-group-chevron">▼</span></div>
+                <div class="nav-group-items" data-group="sources">
+                    <button class="nav-item" data-view="feed-items">
+                        <i class="icon" data-lucide="rss"></i> Feed Items <span class="count" id="countFeedItems">-</span>
+                    </button>
+                    <button class="nav-item" data-view="feeds">
+                        <i class="icon" data-lucide="list"></i> Feeds <span class="count" id="countFeeds">-</span>
+                    </button>
+                </div>
 
-                <div class="nav-group-label">Library</div>
-                <button class="nav-item" data-view="assets">
-                    <i class="icon" data-lucide="folder-open"></i> Assets <span class="count" id="countAssets">-</span>
-                </button>
-                <button class="nav-item" data-view="tags">
-                    <i class="icon" data-lucide="tags"></i> Tags
-                </button>
+                <div class="nav-group-label" data-group="library">Library <span class="nav-group-chevron">▼</span></div>
+                <div class="nav-group-items" data-group="library">
+                    <button class="nav-item" data-view="assets">
+                        <i class="icon" data-lucide="folder-open"></i> Assets <span class="count" id="countAssets">-</span>
+                    </button>
+                    <button class="nav-item" data-view="tags">
+                        <i class="icon" data-lucide="tags"></i> Tags
+                    </button>
+                </div>
 
-                <div class="nav-group-label">Knowledge</div>
-                <button class="nav-item" data-view="people">
-                    <i class="icon" data-lucide="users"></i> People <span class="count" id="countPeople">-</span>
-                </button>
-                <button class="nav-item" data-view="companies">
-                    <i class="icon" data-lucide="building-2"></i> Companies <span class="count" id="countCompanies">-</span>
-                </button>
-                <button class="nav-item" data-view="products">
-                    <i class="icon" data-lucide="box"></i> Products <span class="count" id="countProducts">-</span>
-                </button>
-                <button class="nav-item" data-view="projects">
-                    <i class="icon" data-lucide="kanban"></i> Projects <span class="count" id="countProjects">-</span>
-                </button>
-                <button class="nav-item" data-view="competition">
-                    <i class="icon" data-lucide="swords"></i> Competition
-                </button>
+                <div class="nav-group-label" data-group="knowledge">Knowledge <span class="nav-group-chevron">▼</span></div>
+                <div class="nav-group-items" data-group="knowledge">
+                    <button class="nav-item" data-view="people">
+                        <i class="icon" data-lucide="users"></i> People <span class="count" id="countPeople">-</span>
+                    </button>
+                    <button class="nav-item" data-view="companies">
+                        <i class="icon" data-lucide="building-2"></i> Companies <span class="count" id="countCompanies">-</span>
+                    </button>
+                    <button class="nav-item" data-view="products">
+                        <i class="icon" data-lucide="box"></i> Products <span class="count" id="countProducts">-</span>
+                    </button>
+                    <button class="nav-item" data-view="projects">
+                        <i class="icon" data-lucide="kanban"></i> Projects <span class="count" id="countProjects">-</span>
+                    </button>
+                    <button class="nav-item" data-view="competition">
+                        <i class="icon" data-lucide="swords"></i> Competition
+                    </button>
+                </div>
 
-                <div class="nav-group-label">Tools</div>
-                <button class="nav-item" data-view="ask">
-                    <i class="icon" data-lucide="sparkles"></i> Ask AI
-                </button>
+                <div class="nav-group-label" data-group="tools">Tools <span class="nav-group-chevron">▼</span></div>
+                <div class="nav-group-items" data-group="tools">
+                    <button class="nav-item" data-view="ask">
+                        <i class="icon" data-lucide="sparkles"></i> Ask AI
+                    </button>
+                </div>
             </div>
             <div class="sidebar-footer">
                 <button class="nav-item" data-view="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
@@ -2687,6 +2841,7 @@
     // ─── Init ─────────────────────────────────────────────────
     let db;
     let currentView = 'overview';
+    let currentSubView = null; // e.g. { type: 'competitor-detail', id: 'uuid' }
     let allTags = [];
 
     // ─── Article filter state ──────────────────────────────────
@@ -2754,6 +2909,35 @@
                 btn.classList.add('active');
                 currentView = btn.dataset.view;
                 loadView(currentView);
+            });
+        });
+
+        // Wire collapsible nav groups
+        const savedGroups = JSON.parse(localStorage.getItem('paulland_collapsed_groups') || '[]');
+        document.querySelectorAll('.nav-group-label[data-group]').forEach(label => {
+            const group = label.dataset.group;
+            const items = document.querySelector(`.nav-group-items[data-group="${group}"]`);
+            if (!items) return;
+
+            // Restore collapsed state
+            if (savedGroups.includes(group)) {
+                label.classList.add('collapsed');
+                items.classList.add('collapsed');
+            }
+
+            label.addEventListener('click', () => {
+                const isCollapsed = label.classList.toggle('collapsed');
+                items.classList.toggle('collapsed', isCollapsed);
+
+                // Persist to localStorage
+                const current = JSON.parse(localStorage.getItem('paulland_collapsed_groups') || '[]');
+                if (isCollapsed) {
+                    if (!current.includes(group)) current.push(group);
+                } else {
+                    const idx = current.indexOf(group);
+                    if (idx >= 0) current.splice(idx, 1);
+                }
+                localStorage.setItem('paulland_collapsed_groups', JSON.stringify(current));
             });
         });
 
@@ -2828,7 +3012,13 @@
             case 'companies': await loadCompanies(); break;
             case 'products': await loadProducts(); break;
             case 'projects': await loadProjects(); break;
-            case 'competition': await loadCompetition(); break;
+            case 'competition':
+                if (currentSubView?.type === 'competitor-detail') {
+                    await loadCompetitorDetail(currentSubView.id);
+                } else {
+                    await loadCompetition();
+                }
+                break;
             case 'ask': await loadAsk(); break;
             case 'settings': await loadSettingsView(); break;
         }
@@ -2837,10 +3027,24 @@
 
     // ─── Overview ─────────────────────────────────────────────
     function navigateToView(view) {
+        currentSubView = null;
         document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
         document.querySelector(`[data-view="${view}"]`)?.classList.add('active');
         currentView = view;
         loadView(view);
+    }
+
+    function navigateToCompetitorDetail(competitorId) {
+        currentSubView = { type: 'competitor-detail', id: competitorId };
+        currentView = 'competition';
+        document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+        document.querySelector('[data-view="competition"]')?.classList.add('active');
+        loadView('competition');
+    }
+
+    function navigateBackToCompetition() {
+        currentSubView = null;
+        loadView('competition');
     }
 
     async function loadOverview() {
@@ -5230,7 +5434,7 @@
         main.innerHTML = '<div class="loading">Loading products</div>';
 
         const [productsRes, companiesRes] = await Promise.all([
-            db.from('products').select('id, name, description, status, tags, company_id, companies(name, type)').order('name', { ascending: true }),
+            db.from('products').select('id, name, description, status, tags, url, company_id, companies(name, type)').order('name', { ascending: true }),
             db.from('companies').select('id, name, type').order('name'),
         ]);
 
@@ -5316,12 +5520,14 @@
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
-        // Fetch product overview, evidence, decisions, and companies in parallel
-        const [productRes, evidenceRes, decisionsRes, companiesRes] = await Promise.all([
-            db.from('products').select('overview, company_id').eq('id', product.id).single(),
+        // Fetch product overview, evidence, decisions, companies, and linked items in parallel
+        const [productRes, evidenceRes, decisionsRes, companiesRes, linkedContentRes, linkedAssetsRes] = await Promise.all([
+            db.from('products').select('overview, company_id, url').eq('id', product.id).single(),
             db.from('product_evidence').select('note_date, evidence, evidence_type').eq('product_id', product.id).order('note_date', { ascending: false }),
             db.from('product_decisions').select('note_date, decision, context').eq('product_id', product.id).order('note_date', { ascending: false }),
             db.from('companies').select('id, name, type').order('name'),
+            db.from('product_content').select('id, content_id, content(id, title, type, source, captured_at, url)').eq('product_id', product.id),
+            db.from('product_assets').select('id, asset_id, assets(id, filename, mime_type, uploaded_at)').eq('product_id', product.id),
         ]);
 
         const overview = productRes.data?.overview || '';
@@ -5329,6 +5535,8 @@
         const evidenceData = evidenceRes.data || [];
         const decisionsData = decisionsRes.data || [];
         const companyList = companiesRes.data || [];
+        const linkedContent = (linkedContentRes.data || []).filter(lc => lc.content);
+        const linkedAssets = (linkedAssetsRes.data || []).filter(la => la.assets);
 
         // Build header: editable name, company, status, tags
         let html = `
@@ -5352,6 +5560,10 @@
                 </select>
             </div>
             <div class="modal-edit-field">
+                <div class="modal-edit-label">URL</div>
+                <input class="modal-edit-input" id="editProductUrl" value="${esc(product.url || '')}" placeholder="https://...">
+            </div>
+            <div class="modal-edit-field">
                 <div class="modal-edit-label">Tags</div>
                 ${buildEntityTagEditor(product.tags || [], 'product')}
             </div>
@@ -5367,6 +5579,8 @@
                 <button class="modal-tab active" data-tab="overview">Overview</button>
                 <button class="modal-tab" data-tab="evidence">Evidence (${evidenceData.length})</button>
                 <button class="modal-tab" data-tab="decisions">Decisions (${decisionsData.length})</button>
+                <button class="modal-tab" data-tab="p-articles">Articles (${linkedContent.length})</button>
+                <button class="modal-tab" data-tab="p-assets">Assets (${linkedAssets.length})</button>
             </div>
         `;
 
@@ -5411,6 +5625,47 @@
         }
         html += `</div>`;
 
+        // Articles tab
+        html += `<div class="modal-tab-content" data-tab-content="p-articles">`;
+        html += `<div style="margin-bottom:0.75rem;"><button class="link-add-btn" id="linkArticleBtn">+ Link Article</button></div>`;
+        html += `<div id="productLinkedArticles">`;
+        if (!linkedContent.length) {
+            html += '<em style="color:var(--text-muted)">No articles linked yet.</em>';
+        } else {
+            html += linkedContent.map(lc => `
+                <div class="linked-row">
+                    <span class="type-badge type-${lc.content.type}">${lc.content.type}</span>
+                    <span class="linked-row-title" style="cursor:pointer" data-content-id="${lc.content.id}">${esc(lc.content.title)}</span>
+                    <span style="font-size:0.75rem;color:var(--text-muted)">${formatDate(lc.content.captured_at)}</span>
+                    <button class="unlink-btn" data-junction-id="${lc.id}" data-junction-table="product_content" title="Unlink">✕</button>
+                </div>
+            `).join('');
+        }
+        html += `</div></div>`;
+
+        // Assets tab
+        html += `<div class="modal-tab-content" data-tab-content="p-assets">`;
+        html += `<div style="margin-bottom:0.75rem; display:flex; gap:0.5rem;">
+            <button class="link-add-btn" id="linkAssetBtn">+ Link Existing</button>
+            <label class="link-add-btn" id="uploadAssetLabel" style="cursor:pointer">+ Upload New
+                <input type="file" id="uploadAssetForProduct" style="display:none" multiple>
+            </label>
+        </div>`;
+        html += `<div id="productLinkedAssets">`;
+        if (!linkedAssets.length) {
+            html += '<em style="color:var(--text-muted)">No assets linked yet.</em>';
+        } else {
+            html += linkedAssets.map(la => `
+                <div class="linked-row">
+                    ${icon('file')}
+                    <span class="linked-row-title">${esc(la.assets.filename)}</span>
+                    <span style="font-size:0.75rem;color:var(--text-muted)">${formatDate(la.assets.uploaded_at)}</span>
+                    <button class="unlink-btn" data-junction-id="${la.id}" data-junction-table="product_assets" title="Unlink">✕</button>
+                </div>
+            `).join('');
+        }
+        html += `</div></div>`;
+
         document.getElementById('contentModalBody').innerHTML = html;
 
         // Wire tab switching
@@ -5434,6 +5689,7 @@
                     name: document.getElementById('editProductName').value.trim(),
                     status: document.getElementById('editProductStatus').value,
                     company_id: companyVal || null,
+                    url: document.getElementById('editProductUrl').value.trim() || null,
                     tags: getEntityTags('product'),
                 };
                 const res = await fetch('/api/entity-update', {
@@ -5455,6 +5711,86 @@
 
         // Wire entity tag editor
         wireEntityTagEditor('product');
+
+        // Wire unlink buttons (articles + assets)
+        document.querySelectorAll('.unlink-btn[data-junction-id]').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const jId = btn.dataset.junctionId;
+                const jTable = btn.dataset.junctionTable;
+                btn.textContent = '...';
+                const res = await fetch(`/api/product-link?table=${jTable}&id=${jId}`, { method: 'DELETE' });
+                if (res.ok) {
+                    btn.closest('.linked-row').remove();
+                } else {
+                    btn.textContent = '✕';
+                }
+            });
+        });
+
+        // Wire "Link Article" button
+        document.getElementById('linkArticleBtn')?.addEventListener('click', () => {
+            showSearchPicker({
+                placeholder: 'Search articles by title...',
+                searchFn: async (q) => {
+                    const { data } = await db.from('content').select('id, title, type, source, captured_at').ilike('title', `%${q}%`).order('captured_at', { ascending: false }).limit(15);
+                    return data || [];
+                },
+                renderResult: (item) => ({ title: item.title, meta: item.type }),
+                onSelect: async (item) => {
+                    await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'product_content', data: { product_id: product.id, content_id: item.id } }),
+                    });
+                    // Refresh modal
+                    await openProductModal(product);
+                },
+            });
+        });
+
+        // Wire "Link Existing" asset button
+        document.getElementById('linkAssetBtn')?.addEventListener('click', () => {
+            showSearchPicker({
+                placeholder: 'Search assets by filename...',
+                searchFn: async (q) => {
+                    const { data } = await db.from('assets').select('id, filename, mime_type, uploaded_at').ilike('filename', `%${q}%`).order('uploaded_at', { ascending: false }).limit(15);
+                    return data || [];
+                },
+                renderResult: (item) => ({ title: item.filename, meta: item.mime_type?.split('/')[1] || '' }),
+                onSelect: async (item) => {
+                    await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'product_assets', data: { product_id: product.id, asset_id: item.id } }),
+                    });
+                    await openProductModal(product);
+                },
+            });
+        });
+
+        // Wire "Upload New" asset for product
+        document.getElementById('uploadAssetForProduct')?.addEventListener('change', async (e) => {
+            const files = e.target.files;
+            if (!files.length) return;
+            const label = document.getElementById('uploadAssetLabel');
+            label.textContent = 'Uploading...';
+            for (const file of files) {
+                const formData = new FormData();
+                formData.append('file', file);
+                formData.append('product_id', product.id);
+                await fetch('/api/assets/upload', { method: 'POST', body: formData });
+            }
+            await openProductModal(product);
+        });
+
+        // Wire article title clicks → open content modal
+        document.querySelectorAll('.linked-row-title[data-content-id]').forEach(el => {
+            el.addEventListener('click', async () => {
+                const { data } = await db.from('content').select('*').eq('id', el.dataset.contentId).single();
+                if (data) openContentModal(data);
+            });
+        });
     }
 
     // ─── Competition ────────────────────────────────────────────
@@ -5464,22 +5800,33 @@
         main.innerHTML = '<div class="loading">Loading competitive intelligence</div>';
 
         // Fetch all competitor data in parallel
-        const [competitorsRes, productsRes, assetsRes, contentRes] = await Promise.all([
+        const [competitorsRes, productsRes, assetsRes, contentRes, companyContentRes] = await Promise.all([
             db.from('companies').select('id, name, industry, website, notes, type').eq('type', 'competitor').order('name'),
             db.from('products').select('id, name, status, company_id, companies(name, type)').order('name'),
             db.from('assets').select('id, filename, mime_type, uploaded_at, metadata').order('uploaded_at', { ascending: false }),
             db.from('content').select('id, title, type, tags, source, captured_at, url, metadata')
                 .order('captured_at', { ascending: false }).limit(500),
+            db.from('company_content').select('id, company_id, content_id'),
         ]);
 
         const competitors = competitorsRes.data || [];
         const allProducts = productsRes.data || [];
         const allAssets = assetsRes.data || [];
         const allContent = contentRes.data || [];
+        const companyContentLinks = companyContentRes.data || [];
 
         // Build competitor name list for smart surfacing
         const competitorNames = competitors.map(c => c.name.toLowerCase());
         const competitorIds = competitors.map(c => c.id);
+
+        // Build set of explicitly linked content IDs per company
+        const linkedContentByCompany = {};
+        const linkedContentIds = new Set();
+        companyContentLinks.forEach(link => {
+            if (!linkedContentByCompany[link.company_id]) linkedContentByCompany[link.company_id] = [];
+            linkedContentByCompany[link.company_id].push(link.content_id);
+            linkedContentIds.add(link.content_id);
+        });
 
         // Products by competitor
         const competitorProducts = allProducts.filter(p => p.companies?.type === 'competitor');
@@ -5490,9 +5837,11 @@
             return compId && competitorIds.includes(compId);
         });
 
-        // Smart content surfacing: find articles mentioning competitors or tagged with competition
+        // Smart content surfacing: explicitly linked OR tag/name matches
         const competitionTags = ['competition', 'competitor', 'market-research', 'competitive'];
         const competitionContent = allContent.filter(item => {
+            // Explicitly linked to a competitor
+            if (linkedContentIds.has(item.id)) return true;
             // Check tags
             const tags = item.tags || [];
             if (tags.some(t => competitionTags.includes(t.toLowerCase()))) return true;
@@ -5541,7 +5890,13 @@
             const cid = a.metadata?.company_id;
             if (competitorStats[cid]) competitorStats[cid].assets++;
         });
+        // Count explicitly linked articles
+        competitors.forEach(c => {
+            competitorStats[c.id].articles += (linkedContentByCompany[c.id] || []).length;
+        });
+        // Also count name-matched articles (avoid double-counting)
         competitionContent.forEach(item => {
+            if (linkedContentIds.has(item.id)) return; // already counted via explicit link
             const titleLower = (item.title || '').toLowerCase();
             const sourceLower = (item.source || '').toLowerCase();
             competitors.forEach(c => {
@@ -5623,7 +5978,7 @@
         main.querySelectorAll('.competitor-card').forEach(card => {
             card.addEventListener('click', () => {
                 const competitor = competitors.find(c => c.id === card.dataset.id);
-                if (competitor) openCompetitorDetail(competitor, allProducts, allAssets, competitionContent, competitors);
+                if (competitor) navigateToCompetitorDetail(competitor.id);
             });
         });
 
@@ -5648,78 +6003,249 @@
         });
     }
 
-    async function openCompetitorDetail(competitor, allProducts, allAssets, allCompetitionContent, allCompetitors) {
-        document.getElementById('contentModalTitle').textContent = competitor.name;
-        document.getElementById('contentModalMeta').innerHTML = `<span class="type-badge type-signal">competitor</span>`;
+    async function loadCompetitorDetail(competitorId) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading competitor</div>';
 
-        const compProducts = allProducts.filter(p => p.company_id === competitor.id);
-        const compAssets = allAssets.filter(a => a.metadata?.company_id === competitor.id);
+        // Fetch competitor + related data in parallel
+        const [compRes, productsRes, assetsRes, contentRes] = await Promise.all([
+            db.from('companies').select('*').eq('id', competitorId).single(),
+            db.from('products').select('id, name, status, description, tags, url, company_id').eq('company_id', competitorId).order('name'),
+            db.from('assets').select('id, filename, mime_type, uploaded_at, metadata').order('uploaded_at', { ascending: false }),
+            db.from('content').select('id, title, type, tags, source, captured_at, url')
+                .order('captured_at', { ascending: false }).limit(500),
+        ]);
+
+        if (compRes.error || !compRes.data) {
+            main.innerHTML = '<div class="empty">Competitor not found.</div>';
+            return;
+        }
+
+        const competitor = compRes.data;
+        const compProducts = productsRes.data || [];
+
+        // Filter assets by company_id in metadata
+        const compAssets = (assetsRes.data || []).filter(a => a.metadata?.company_id === competitorId);
+
+        // Smart content surfacing for this competitor
         const nameLower = competitor.name.toLowerCase();
-        const compContent = allCompetitionContent.filter(item => {
+        const competitionTags = ['competition', 'competitor', 'market-research', 'competitive'];
+        const compContent = (contentRes.data || []).filter(item => {
             const titleLower = (item.title || '').toLowerCase();
             const sourceLower = (item.source || '').toLowerCase();
-            return titleLower.includes(nameLower) || sourceLower.includes(nameLower);
+            if (titleLower.includes(nameLower) || sourceLower.includes(nameLower)) return true;
+            const tags = item.tags || [];
+            if (tags.some(t => competitionTags.includes(t.toLowerCase())) &&
+                (titleLower.includes(nameLower) || sourceLower.includes(nameLower))) return true;
+            return false;
         });
 
-        let html = `
-            <div class="modal-edit-field">
-                <div class="modal-edit-label">Website</div>
-                <div>${competitor.website ? `<a href="${esc(competitor.website)}" target="_blank" rel="noopener">${esc(competitor.website)}</a>` : '<span style="color:var(--text-muted)">Not set</span>'}</div>
-            </div>
-            <div class="modal-edit-field">
-                <div class="modal-edit-label">Industry</div>
-                <div>${esc(competitor.industry || 'Not set')}</div>
-            </div>
-            ${competitor.notes ? `<div class="modal-edit-field"><div class="modal-edit-label">Notes</div><div>${marked.parse(competitor.notes)}</div></div>` : ''}
+        // Render products list HTML
+        const productsListHtml = compProducts.length === 0
+            ? '<div class="empty-attention">No products linked yet.</div>'
+            : compProducts.map(p => `
+                <div class="knowledge-stat-row" data-product-id="${p.id}">
+                    ${icon('box')}
+                    <span class="knowledge-stat-name">${esc(p.name)}</span>
+                    <span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}" style="margin-left:auto">${esc(p.status || '')}</span>
+                </div>
+            `).join('');
 
-            <div class="modal-tabs">
-                <button class="modal-tab active" data-tab="products">Products (${compProducts.length})</button>
-                <button class="modal-tab" data-tab="articles">Articles (${compContent.length})</button>
-                <button class="modal-tab" data-tab="assets">Assets (${compAssets.length})</button>
+        // Render articles list HTML
+        const articlesListHtml = compContent.length === 0
+            ? '<div class="empty-attention">No articles found mentioning this competitor.</div>'
+            : compContent.map(item => `
+                <div class="competitor-detail-article" data-content-id="${item.id}">
+                    <span class="timeline-date">${formatDate(item.captured_at)}</span>
+                    <div class="timeline-body">
+                        <div class="timeline-title">${esc(item.title)}</div>
+                        <div class="timeline-source">${esc(item.source || '')}</div>
+                    </div>
+                    <div class="timeline-badges">
+                        <span class="type-badge type-${item.type}">${item.type}</span>
+                    </div>
+                </div>
+            `).join('');
+
+        // Render assets list HTML
+        const assetsListHtml = compAssets.length === 0
+            ? '<div class="empty-attention">No assets linked to this competitor.</div>'
+            : compAssets.map(a => `
+                <div class="knowledge-stat-row" data-asset-id="${a.id}">
+                    ${icon('file')}
+                    <span class="knowledge-stat-name">${esc(a.filename)}</span>
+                    <span style="font-size:0.75rem; color:var(--text-muted); margin-left:auto">${formatDate(a.uploaded_at)}</span>
+                </div>
+            `).join('');
+
+        main.innerHTML = `
+            <div class="page-header">
+                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                    <button class="back-btn" id="backToCompetition" title="Back to Competition">
+                        <i class="icon" data-lucide="arrow-left"></i>
+                    </button>
+                    <h2 class="page-title" id="competitorPageTitle">${esc(competitor.name)}</h2>
+                    <span class="type-badge type-signal">competitor</span>
+                </div>
             </div>
 
-            <div class="modal-tab-content active" data-tab-content="products">
-                ${compProducts.length === 0 ? '<em style="color:var(--text-muted)">No products linked to this competitor.</em>' :
-                    compProducts.map(p => `
-                        <div class="log-entry">
-                            <div class="log-date"><span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}">${esc(p.status || '')}</span></div>
-                            <div class="log-body"><strong>${esc(p.name)}</strong></div>
+            <div class="competitor-detail-grid">
+                <!-- Left: editable company info -->
+                <div class="overview-section competitor-info-panel" style="padding: 1rem 1.2rem;">
+                    <div class="overview-section-title">Company Details</div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Name</div>
+                        <input class="modal-edit-input" id="editCompetitorName" value="${esc(competitor.name)}">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Website</div>
+                        <input class="modal-edit-input" id="editCompetitorWebsite" value="${esc(competitor.website || '')}" placeholder="https://...">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Industry</div>
+                        <input class="modal-edit-input" id="editCompetitorIndustry" value="${esc(competitor.industry || '')}">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Notes</div>
+                        <textarea class="modal-edit-input" id="editCompetitorNotes" rows="6" style="resize:vertical; font-family:var(--sans);">${esc(competitor.notes || '')}</textarea>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+                        <button class="btn-action" id="saveCompetitorBtn" style="font-size:0.8rem;">Save</button>
+                        <span class="modal-save-status" id="competitorSaveStatus"></span>
+                    </div>
+                </div>
+
+                <!-- Right: tabbed content -->
+                <div class="overview-section competitor-content-panel" style="padding: 1rem 1.2rem;">
+                    <div class="modal-tabs" style="margin-top:0;">
+                        <button class="modal-tab active" data-tab="products">Products (${compProducts.length})</button>
+                        <button class="modal-tab" data-tab="articles">Articles (${compContent.length})</button>
+                        <button class="modal-tab" data-tab="assets">Assets (${compAssets.length})</button>
+                    </div>
+
+                    <div class="modal-tab-content active" data-tab-content="products">
+                        <div style="margin-bottom: 0.75rem;">
+                            <button class="btn-action" id="addCompetitorProductBtn" style="font-size:0.8rem;">+ Add Product</button>
                         </div>
-                    `).join('')}
-            </div>
-
-            <div class="modal-tab-content" data-tab-content="articles">
-                ${compContent.length === 0 ? '<em style="color:var(--text-muted)">No articles found mentioning this competitor.</em>' :
-                    compContent.map(item => `
-                        <div class="log-entry" style="cursor:pointer" data-content-id="${item.id}">
-                            <div class="log-date">${formatDate(item.date || item.captured_at)} <span class="type-badge type-${item.type}">${item.type}</span></div>
-                            <div class="log-body">${esc(item.title)}</div>
+                        <div id="competitorProductsList">
+                            ${productsListHtml}
                         </div>
-                    `).join('')}
-            </div>
+                    </div>
 
-            <div class="modal-tab-content" data-tab-content="assets">
-                ${compAssets.length === 0 ? '<em style="color:var(--text-muted)">No assets linked to this competitor.</em>' :
-                    compAssets.map(a => `
-                        <div class="log-entry">
-                            <div class="log-date">${formatDate(a.uploaded_at)}</div>
-                            <div class="log-body">${icon('file')} ${esc(a.filename)}</div>
-                        </div>
-                    `).join('')}
+                    <div class="modal-tab-content" data-tab-content="articles">
+                        ${articlesListHtml}
+                    </div>
+
+                    <div class="modal-tab-content" data-tab-content="assets">
+                        ${assetsListHtml}
+                    </div>
+                </div>
             </div>
         `;
 
-        document.getElementById('contentModalBody').innerHTML = html;
-        document.querySelector('.content-modal-scroll').scrollTop = 0;
-        document.body.classList.add('content-open');
+        // ── Wire events ──
 
-        // Wire tabs
-        document.querySelectorAll('.modal-tab').forEach(tab => {
+        // Back button
+        document.getElementById('backToCompetition').addEventListener('click', navigateBackToCompetition);
+
+        // Tab switching
+        main.querySelectorAll('.modal-tab').forEach(tab => {
             tab.addEventListener('click', () => {
-                document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-                document.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
+                main.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+                main.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
                 tab.classList.add('active');
-                document.querySelector(`[data-tab-content="${tab.dataset.tab}"]`).classList.add('active');
+                main.querySelector(`[data-tab-content="${tab.dataset.tab}"]`).classList.add('active');
+            });
+        });
+
+        // Save company fields
+        document.getElementById('saveCompetitorBtn').addEventListener('click', async () => {
+            const status = document.getElementById('competitorSaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+            try {
+                const updates = {
+                    name: document.getElementById('editCompetitorName').value.trim(),
+                    website: document.getElementById('editCompetitorWebsite').value.trim(),
+                    industry: document.getElementById('editCompetitorIndustry').value.trim(),
+                    notes: document.getElementById('editCompetitorNotes').value.trim(),
+                };
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'companies', id: competitorId, updates }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                Object.assign(competitor, updates);
+                document.getElementById('competitorPageTitle').textContent = updates.name;
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 2000);
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Competitor save failed:', err);
+            }
+        });
+
+        // Add Product button → inline form
+        document.getElementById('addCompetitorProductBtn').addEventListener('click', () => {
+            if (document.getElementById('inlineAddProductForm')) return;
+            const container = document.getElementById('competitorProductsList');
+            const formHtml = `
+                <div class="add-product-inline" id="inlineAddProductForm">
+                    <div class="modal-edit-field" style="margin-bottom:0;">
+                        <input class="modal-edit-input" id="newProductName" placeholder="Product name">
+                    </div>
+                    <div class="modal-edit-field" style="margin-bottom:0;">
+                        <input class="modal-edit-input" id="newProductUrl" placeholder="Product URL (optional)">
+                    </div>
+                    <div class="inline-row">
+                        <select class="modal-edit-input" id="newProductStatus" style="width:auto; padding:0.4rem 0.6rem;">
+                            <option value="active">active</option>
+                            <option value="planned">planned</option>
+                            <option value="sunset">sunset</option>
+                        </select>
+                        <button class="btn-action" id="confirmAddProduct" style="font-size:0.8rem;">Create</button>
+                        <button class="btn-action" id="cancelAddProduct" style="font-size:0.8rem; background:var(--void-lighter); color:var(--text-muted);">Cancel</button>
+                    </div>
+                </div>
+            `;
+            container.insertAdjacentHTML('beforebegin', formHtml);
+            document.getElementById('newProductName').focus();
+
+            document.getElementById('confirmAddProduct').addEventListener('click', async () => {
+                const name = document.getElementById('newProductName').value.trim();
+                if (!name) return;
+                const statusVal = document.getElementById('newProductStatus').value;
+                const urlVal = document.getElementById('newProductUrl').value.trim() || null;
+                const { error } = await db.from('products').insert({ name, status: statusVal, url: urlVal, company_id: competitorId });
+                if (error) {
+                    console.error('Failed to create product:', error);
+                    return;
+                }
+                // Reload the detail page to show the new product
+                await loadCompetitorDetail(competitorId);
+            });
+
+            document.getElementById('cancelAddProduct').addEventListener('click', () => {
+                document.getElementById('inlineAddProductForm')?.remove();
+            });
+        });
+
+        // Product row clicks → open product modal
+        main.querySelectorAll('.knowledge-stat-row[data-product-id]').forEach(row => {
+            row.addEventListener('click', async () => {
+                const { data } = await db.from('products').select('*').eq('id', row.dataset.productId).single();
+                if (data) await openProductModal(data);
+            });
+        });
+
+        // Article row clicks → open content modal
+        main.querySelectorAll('.competitor-detail-article[data-content-id]').forEach(row => {
+            row.addEventListener('click', async () => {
+                const { data } = await db.from('content').select('*').eq('id', row.dataset.contentId).single();
+                if (data) openContentModal(data);
             });
         });
 
@@ -6511,6 +7037,79 @@
             const path = u.pathname.length > 40 ? u.pathname.substring(0, 40) + '...' : u.pathname;
             return u.hostname + path;
         } catch { return url.substring(0, 60); }
+    }
+
+    // ─── Search Picker (reusable) ──────────────────────────────
+    // Usage: showSearchPicker({ placeholder, searchFn, renderResult, onSelect })
+    // searchFn(query) → Promise<array>, renderResult(item) → { title, meta }, onSelect(item) → void
+    function showSearchPicker({ placeholder, searchFn, renderResult, onSelect }) {
+        // Remove any existing picker
+        document.querySelector('.search-picker-overlay')?.remove();
+        document.querySelector('.search-picker')?.remove();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'search-picker-overlay';
+
+        const picker = document.createElement('div');
+        picker.className = 'search-picker';
+        picker.innerHTML = `
+            <input class="search-picker-input" placeholder="${esc(placeholder || 'Search...')}" autofocus>
+            <div class="search-picker-results">
+                <div class="search-picker-empty">Type to search...</div>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(picker);
+
+        const input = picker.querySelector('.search-picker-input');
+        const results = picker.querySelector('.search-picker-results');
+        let debounceTimer = null;
+
+        function close() {
+            overlay.remove();
+            picker.remove();
+        }
+
+        overlay.addEventListener('click', close);
+        input.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+
+        input.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            const q = input.value.trim();
+            if (q.length < 2) {
+                results.innerHTML = '<div class="search-picker-empty">Type to search...</div>';
+                return;
+            }
+            debounceTimer = setTimeout(async () => {
+                results.innerHTML = '<div class="search-picker-empty">Searching...</div>';
+                try {
+                    const items = await searchFn(q);
+                    if (!items.length) {
+                        results.innerHTML = '<div class="search-picker-empty">No results found</div>';
+                        return;
+                    }
+                    results.innerHTML = items.map((item, i) => {
+                        const r = renderResult(item);
+                        return `<div class="search-picker-item" data-idx="${i}">
+                            <span class="search-picker-item-title">${esc(r.title)}</span>
+                            ${r.meta ? `<span class="search-picker-item-meta">${esc(r.meta)}</span>` : ''}
+                        </div>`;
+                    }).join('');
+                    results.querySelectorAll('.search-picker-item').forEach(el => {
+                        el.addEventListener('click', () => {
+                            const idx = parseInt(el.dataset.idx);
+                            onSelect(items[idx]);
+                            close();
+                        });
+                    });
+                } catch (err) {
+                    results.innerHTML = `<div class="search-picker-empty">Error: ${err.message}</div>`;
+                }
+            }, 300);
+        });
+
+        setTimeout(() => input.focus(), 50);
     }
 
     // ─── Assets ───────────────────────────────────────────────
@@ -7326,7 +7925,7 @@
     // ─── Content modal ─────────────────────────────────────────
     let currentModalItem = null;
 
-    function openContentModal(item) {
+    async function openContentModal(item) {
         currentModalItem = item;
         document.getElementById('contentModalTitle').textContent = item.title || 'Untitled';
 
@@ -7340,12 +7939,99 @@
         document.getElementById('contentModalMeta').innerHTML = meta.join('');
         wireTagEditor();
 
+        // Fetch linked products and companies for this content item
+        const [{ data: productLinks }, { data: companyLinks }] = await Promise.all([
+            db.from('product_content')
+                .select('id, product_id, products(id, name, companies(name, type))')
+                .eq('content_id', item.id),
+            db.from('company_content')
+                .select('id, company_id, companies(id, name, type)')
+                .eq('content_id', item.id),
+        ]);
+        const linkedProducts = (productLinks || []).filter(pl => pl.products);
+        const linkedCompanies = (companyLinks || []).filter(cl => cl.companies);
+
+        // Build linked items bar (products + competitors)
+        const linkedBar = `
+            <div class="linked-products-bar" id="contentLinkedItems">
+                ${linkedCompanies.map(cl => `
+                    <span class="linked-pill competitor">
+                        <i class="icon" data-lucide="building-2" style="width:12px;height:12px"></i>
+                        ${esc(cl.companies.name)}
+                        <span class="unlink-x" data-junction-id="${cl.id}" data-junction-table="company_content" title="Unlink">×</span>
+                    </span>
+                `).join('')}
+                ${linkedProducts.map(pl => `
+                    <span class="linked-pill">
+                        ${esc(pl.products.name)}${pl.products.companies ? ` <span style="opacity:0.6">(${esc(pl.products.companies.name)})</span>` : ''}
+                        <span class="unlink-x" data-junction-id="${pl.id}" data-junction-table="product_content" title="Unlink">×</span>
+                    </span>
+                `).join('')}
+                <button class="link-add-btn" id="linkContentToCompetitor">+ Competitor</button>
+                <button class="link-add-btn" id="linkContentToProduct">+ Product</button>
+            </div>
+        `;
+
         const heroImg = item.metadata?.image_url
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
-        document.getElementById('contentModalBody').innerHTML = heroImg + renderBody(item.body);
+        document.getElementById('contentModalBody').innerHTML = linkedBar + heroImg + renderBody(item.body);
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
+
+        // Wire unlink pills (both products and competitors)
+        document.querySelectorAll('#contentLinkedItems .unlink-x').forEach(x => {
+            x.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const jId = x.dataset.junctionId;
+                const jTable = x.dataset.junctionTable;
+                x.textContent = '...';
+                const res = await fetch(`/api/entity-link?table=${jTable}&id=${jId}`, { method: 'DELETE' });
+                if (res.ok) x.closest('.linked-pill').remove();
+                else x.textContent = '×';
+            });
+        });
+
+        // Wire "Link to Competitor" button
+        document.getElementById('linkContentToCompetitor')?.addEventListener('click', () => {
+            showSearchPicker({
+                placeholder: 'Search competitors by name...',
+                searchFn: async (q) => {
+                    const { data } = await db.from('companies').select('id, name, type').neq('type', 'internal').ilike('name', `%${q}%`).order('name').limit(15);
+                    return data || [];
+                },
+                renderResult: (c) => ({ title: c.name, meta: c.type || 'competitor' }),
+                onSelect: async (c) => {
+                    await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'company_content', data: { company_id: c.id, content_id: item.id } }),
+                    });
+                    await openContentModal(item);
+                },
+            });
+        });
+
+        // Wire "Link to Product" button
+        document.getElementById('linkContentToProduct')?.addEventListener('click', () => {
+            showSearchPicker({
+                placeholder: 'Search products by name...',
+                searchFn: async (q) => {
+                    const { data } = await db.from('products').select('id, name, company_id, companies(name, type)').ilike('name', `%${q}%`).order('name').limit(15);
+                    return data || [];
+                },
+                renderResult: (p) => ({ title: p.name, meta: p.companies?.name || '' }),
+                onSelect: async (p) => {
+                    await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'product_content', data: { product_id: p.id, content_id: item.id } }),
+                    });
+                    await openContentModal(item);
+                },
+            });
+        });
+
         refreshIcons();
     }
 
