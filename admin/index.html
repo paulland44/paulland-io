@@ -6320,10 +6320,18 @@
                 });
 
                 clearInterval(timerInterval);
-                const result = await res.json();
+                const text = await res.text();
+                let result;
+                try {
+                    result = JSON.parse(text);
+                } catch (parseErr) {
+                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: unexpected response from server</div>`;
+                    console.error('Non-JSON response:', text.substring(0, 500));
+                    return;
+                }
 
                 if (!res.ok || !result.report) {
-                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(result.error || 'Unknown error')}</div>`;
+                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(result.error || result.detail || 'Unknown error')}</div>`;
                     return;
                 }
 

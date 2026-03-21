@@ -1855,16 +1855,15 @@ ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 
       method: 'POST',
       headers: {
         'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': '2025-01-01',
         'content-type': 'application/json',
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
+        max_tokens: 16000,
         tools: [{ type: 'web_search_20250305' }],
         messages: [{ role: 'user', content: prompt }],
       }),
-      signal: AbortSignal.timeout(90000), // 90 second timeout for web searches
     });
 
     if (!claudeRes.ok) {
@@ -1880,11 +1879,12 @@ ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 
       .map(b => b.text)
       .join('\n\n');
 
+    if (!report) {
+      return json({ error: 'No research results generated. Try a different focus area.' }, 500);
+    }
+
     return json({ ok: true, report });
   } catch (err) {
-    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-      return json({ error: 'Research timed out — the web search took too long. Try a more specific focus.' }, 504);
-    }
     return json({ error: 'Research failed', detail: err.message }, 500);
   }
 }
