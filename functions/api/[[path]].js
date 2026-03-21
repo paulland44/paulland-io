@@ -99,6 +99,8 @@ export async function onRequest(ctx) {
         return handleAsk(request, env);
       case 'feed-items/capture':
         return handleFeedItemCapture(request, env);
+      case 'competitor-research':
+        return handleCompetitorResearch(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -208,7 +210,7 @@ async function handleEntityUpdate(request, env, ctx) {
 async function handleEntityLog(request, env, ctx) {
   const { table, data, returnRow } = await request.json();
 
-  const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content'];
+  const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content', 'content'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -1799,6 +1801,92 @@ ${question}`;
   }));
 
   return json({ ok: true, answer, sources });
+}
+
+// ─── Competitor Research (web search) ─────────────────────────
+
+async function handleCompetitorResearch(request, env) {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const { name, website, industry, notes, focus } = await request.json();
+  if (!name) {
+    return json({ error: 'Missing competitor name' }, 400);
+  }
+
+  // Build focus-specific instructions
+  const focusSections = {
+    jobs: `## Job Postings & Hiring
+Search for recent job postings from ${name}. What roles are they hiring for? What does this reveal about their tech stack, growth areas, and organizational priorities?`,
+    news: `## Recent News & Press Releases
+Find recent news coverage, press releases, or announcements about ${name} from the past 6 months.`,
+    products: `## Product Updates & Launches
+Search for recent product updates, new feature launches, or product roadmap announcements from ${name}.`,
+    partnerships: `## Partnerships & Acquisitions
+Find any partnership announcements, M&A activity, or strategic alliances involving ${name}.`,
+    personnel: `## Key Personnel Changes
+Search for leadership changes, notable hires, or executive departures at ${name}.`,
+  };
+
+  const allSections = Object.values(focusSections).join('\n\n');
+  const focusedSection = focus && focus !== 'all' && focusSections[focus]
+    ? focusSections[focus]
+    : allSections;
+
+  const prompt = `You are a competitive intelligence analyst. Research the company "${name}"${website ? ' (website: ' + website + ')' : ''}${industry ? ' in the ' + industry + ' industry' : ''}.
+
+Use web search to find current information. Search thoroughly — try multiple queries to get comprehensive results.
+
+${focusedSection}
+
+${notes ? 'Additional context from our notes about this company:\n' + notes + '\n' : ''}
+Format your response as a structured markdown report with clear section headers. Under each section, include:
+- A brief summary of findings
+- Key bullet points with specific details
+- Source URLs where available (as markdown links)
+- "No significant findings" if nothing relevant was found
+
+${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 strategic observations.' : ''}`;
+
+  try {
+    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8000,
+        tools: [{ type: 'web_search_20250305' }],
+        messages: [{ role: 'user', content: prompt }],
+      }),
+      signal: AbortSignal.timeout(90000), // 90 second timeout for web searches
+    });
+
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
+    }
+
+    const claudeData = await claudeRes.json();
+
+    // Extract text blocks (web search responses contain tool_use + tool_result + text blocks)
+    const report = (claudeData.content || [])
+      .filter(b => b.type === 'text')
+      .map(b => b.text)
+      .join('\n\n');
+
+    return json({ ok: true, report });
+  } catch (err) {
+    if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+      return json({ error: 'Research timed out — the web search took too long. Try a more specific focus.' }, 504);
+    }
+    return json({ error: 'Research failed', detail: err.message }, 500);
+  }
 }
 
 // ─── Supabase helpers ────────────────────────────────────────

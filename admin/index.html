@@ -1263,6 +1263,18 @@
         .competitor-detail-article:hover { background: var(--hover-subtle); }
         .competitor-detail-article:last-child { border-bottom: none; }
 
+        /* ── Research report ────────────────────── */
+        .research-report h2 { font-size: 1rem; color: var(--star); margin: 1.4rem 0 0.5rem; font-family: var(--sans); }
+        .research-report h2:first-child { margin-top: 0; }
+        .research-report h3 { font-size: 0.9rem; color: var(--text-body); margin: 1rem 0 0.4rem; }
+        .research-report ul, .research-report ol { padding-left: 1.2rem; margin: 0.4rem 0; }
+        .research-report li { margin-bottom: 0.3rem; font-size: 0.85rem; line-height: 1.5; }
+        .research-report p { font-size: 0.85rem; line-height: 1.6; margin: 0.4rem 0; }
+        .research-report a { color: var(--accent); text-decoration: underline; }
+        .research-report strong { color: var(--text-heading); }
+        .research-timer { font-size: 0.75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+        .research-actions { display: flex; gap: 0.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+
         /* ── Search picker (reusable) ─────────────── */
         .search-picker-overlay {
             position: fixed; inset: 0; z-index: 400;
@@ -6126,6 +6138,7 @@
                         <button class="modal-tab active" data-tab="products">Products (${compProducts.length})</button>
                         <button class="modal-tab" data-tab="articles">Articles (${compContent.length})</button>
                         <button class="modal-tab" data-tab="assets">Assets (${compAssets.length})</button>
+                        <button class="modal-tab" data-tab="research">${icon('search', 'icon-sm')} Research</button>
                     </div>
 
                     <div class="modal-tab-content active" data-tab-content="products">
@@ -6143,6 +6156,26 @@
 
                     <div class="modal-tab-content" data-tab-content="assets">
                         ${assetsListHtml}
+                    </div>
+
+                    <div class="modal-tab-content" data-tab-content="research">
+                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
+                            <button class="btn-action" id="runResearchBtn" style="font-size:0.8rem;">
+                                ${icon('globe', 'icon-sm')} Run Research
+                            </button>
+                            <select class="modal-edit-input" id="researchFocus" style="width:auto; padding:0.4rem 0.6rem; font-size:0.8rem;">
+                                <option value="all">All Categories</option>
+                                <option value="jobs">Job Postings & Hiring</option>
+                                <option value="news">News & Press</option>
+                                <option value="products">Product Updates</option>
+                                <option value="partnerships">Partnerships & M&A</option>
+                                <option value="personnel">Personnel Changes</option>
+                            </select>
+                            <span class="research-timer" id="researchTimer"></span>
+                        </div>
+                        <div id="researchResults">
+                            <div class="empty-attention">Click "Run Research" to search the web for competitive intelligence on ${esc(competitor.name)}.</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -6252,6 +6285,137 @@
                 const { data } = await db.from('content').select('*').eq('id', row.dataset.contentId).single();
                 if (data) openContentModal(data);
             });
+        });
+
+        // ── Research tab ──
+        let lastResearchReport = '';
+        document.getElementById('runResearchBtn')?.addEventListener('click', async () => {
+            const btn = document.getElementById('runResearchBtn');
+            const resultsEl = document.getElementById('researchResults');
+            const timerEl = document.getElementById('researchTimer');
+            const focus = document.getElementById('researchFocus').value;
+
+            btn.disabled = true;
+            btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;"></span> Researching...`;
+            resultsEl.innerHTML = '<div class="empty-attention">Searching the web for competitive intelligence... This may take 15-30 seconds.</div>';
+
+            // Elapsed timer
+            const startTime = Date.now();
+            const timerInterval = setInterval(() => {
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                timerEl.textContent = `${elapsed}s`;
+            }, 1000);
+
+            try {
+                const res = await fetch('/api/competitor-research', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: competitor.name,
+                        website: competitor.website || '',
+                        industry: competitor.industry || '',
+                        notes: competitor.notes || '',
+                        focus,
+                    }),
+                });
+
+                clearInterval(timerInterval);
+                const result = await res.json();
+
+                if (!res.ok || !result.report) {
+                    resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(result.error || 'Unknown error')}</div>`;
+                    return;
+                }
+
+                lastResearchReport = result.report;
+                const elapsed = Math.round((Date.now() - startTime) / 1000);
+                timerEl.textContent = `Completed in ${elapsed}s`;
+
+                resultsEl.innerHTML = `
+                    <div class="research-report">${renderBody(result.report)}</div>
+                    <div class="research-actions">
+                        <button class="btn-action" id="saveResearchToNotes" style="font-size:0.8rem;">
+                            ${icon('file-text', 'icon-sm')} Append to Notes
+                        </button>
+                        <button class="btn-action" id="saveResearchAsContent" style="font-size:0.8rem; background:var(--void-lighter); color:var(--text-body);">
+                            ${icon('bookmark', 'icon-sm')} Save as Article
+                        </button>
+                    </div>
+                `;
+
+                // Wire save buttons
+                document.getElementById('saveResearchToNotes')?.addEventListener('click', async () => {
+                    const saveBtn = document.getElementById('saveResearchToNotes');
+                    saveBtn.textContent = 'Saving...';
+                    const existingNotes = document.getElementById('editCompetitorNotes').value;
+                    const datestamp = new Date().toLocaleDateString('en-GB');
+                    const updatedNotes = existingNotes
+                        ? existingNotes + '\n\n---\n## Research (' + datestamp + ')\n\n' + lastResearchReport
+                        : '## Research (' + datestamp + ')\n\n' + lastResearchReport;
+                    const saveRes = await fetch('/api/entity-update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'companies', id: competitorId, updates: { notes: updatedNotes } }),
+                    });
+                    if (saveRes.ok) {
+                        document.getElementById('editCompetitorNotes').value = updatedNotes;
+                        competitor.notes = updatedNotes;
+                        saveBtn.textContent = 'Saved to notes ✓';
+                        saveBtn.disabled = true;
+                    } else {
+                        saveBtn.textContent = 'Failed — try again';
+                    }
+                });
+
+                document.getElementById('saveResearchAsContent')?.addEventListener('click', async () => {
+                    const saveBtn = document.getElementById('saveResearchAsContent');
+                    saveBtn.textContent = 'Saving...';
+                    const datestamp = new Date().toLocaleDateString('en-GB');
+                    // Create content item via API
+                    const createRes = await fetch('/api/entity-log', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            table: 'content',
+                            data: {
+                                type: 'note',
+                                title: `Competitive Research: ${competitor.name} (${datestamp})`,
+                                body: lastResearchReport,
+                                source: 'AI Research',
+                                tags: ['competitive-intelligence', competitor.name.toLowerCase()],
+                                status: 'new',
+                                metadata: { company_id: competitorId, research_focus: focus },
+                            },
+                            returnRow: true,
+                        }),
+                    });
+                    const createResult = await createRes.json();
+                    if (createRes.ok && createResult.row) {
+                        // Link to competitor
+                        await fetch('/api/entity-log', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                table: 'company_content',
+                                data: { company_id: competitorId, content_id: createResult.row.id },
+                            }),
+                        });
+                        saveBtn.textContent = 'Saved as article ✓';
+                        saveBtn.disabled = true;
+                    } else {
+                        saveBtn.textContent = 'Failed — try again';
+                    }
+                });
+
+                refreshIcons();
+            } catch (err) {
+                clearInterval(timerInterval);
+                resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(err.message)}</div>`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = `${icon('globe', 'icon-sm')} Run Research`;
+                refreshIcons();
+            }
         });
 
         refreshIcons();
