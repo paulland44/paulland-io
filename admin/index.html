@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin — Paul Land</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
@@ -172,6 +173,9 @@
         }
 
         .sidebar-brand a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
             font-size: 0.75rem;
             font-weight: 500;
             letter-spacing: 0.08em;
@@ -179,6 +183,11 @@
             color: var(--text-muted);
             text-decoration: none;
             transition: color 0.2s;
+        }
+        .sidebar-brand a svg {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
         }
 
         .sidebar-brand a:hover { color: var(--accent); }
@@ -544,6 +553,91 @@
 
         .captured-yes { color: var(--accent); }
         .captured-no { color: var(--text-muted); }
+
+        /* ─── Feed item cards ─── */
+        .feed-item-cards { display: flex; flex-direction: column; gap: 0.5rem; }
+        .feed-item-card {
+            background: var(--void-lighter);
+            border-radius: var(--radius-md);
+            padding: 0.8rem 1rem;
+            cursor: pointer;
+            border-left: 3px solid transparent;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .feed-item-card:hover { border-left-color: var(--accent); background: var(--void-lightest, var(--void-lighter)); }
+        .feed-item-card.expanded { border-left-color: var(--accent); }
+        .feed-item-card.dismissed { opacity: 0.4; pointer-events: none; }
+        .feed-item-card-header {
+            display: flex; align-items: flex-start; gap: 0.75rem;
+        }
+        .feed-item-card-header input[type="checkbox"] {
+            margin-top: 0.25rem; accent-color: var(--accent); cursor: pointer; flex-shrink: 0;
+        }
+        .feed-item-card-info { flex: 1; min-width: 0; }
+        .feed-item-card-title {
+            font-size: 0.9rem; font-weight: 500; color: var(--text-heading);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .feed-item-card-meta {
+            display: flex; align-items: center; gap: 0.75rem;
+            font-size: 0.75rem; color: var(--text-muted); margin-top: 0.2rem;
+        }
+        .feed-item-card-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
+        .feed-item-card-url {
+            font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .feed-item-card-url a { color: var(--text-muted); text-decoration: none; }
+        .feed-item-card-url a:hover { color: var(--accent); text-decoration: underline; }
+        .feed-item-card-summary {
+            margin-top: 0.5rem;
+            font-size: 0.85rem; color: var(--text-body); line-height: 1.55;
+            display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .feed-item-card.expanded .feed-item-card-summary {
+            -webkit-line-clamp: unset; overflow: visible;
+        }
+        .feed-item-card-summary a { color: var(--accent); }
+        .feed-item-card-summary p { margin: 0; }
+        .feed-item-dismiss {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 28px; height: 28px; border-radius: var(--radius-sm);
+            border: 1px solid var(--border); background: transparent;
+            color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+            flex-shrink: 0;
+        }
+        .feed-item-dismiss:hover { border-color: #ef4444; color: #ef4444; background: rgba(239,68,68,0.08); }
+
+        /* ─── Bulk action bar ─── */
+        .bulk-bar {
+            display: none; align-items: center; gap: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: var(--accent-dim);
+            border-radius: var(--radius-md);
+            margin-bottom: 0.75rem;
+            font-size: 0.8rem;
+            color: var(--text-heading);
+        }
+        .bulk-bar.active { display: flex; }
+        .bulk-bar .bulk-count { font-weight: 600; }
+        .bulk-bar .btn-sm { font-size: 0.75rem; padding: 0.25rem 0.6rem; }
+
+        /* ─── Article status actions ─── */
+        .article-status-actions {
+            display: flex; gap: 0.4rem; align-items: center;
+            margin-top: 0.5rem; padding-top: 0.5rem;
+            border-top: 1px solid var(--border);
+        }
+        .article-status-actions .btn-sm {
+            font-size: 0.75rem; padding: 0.3rem 0.7rem; border-radius: var(--radius-sm);
+            cursor: pointer; border: 1px solid var(--border); background: var(--void-lighter);
+            color: var(--text-body); transition: all 0.15s;
+        }
+        .article-status-actions .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+        .article-status-actions .btn-sm.active-status { background: var(--accent-dim); color: var(--accent); border-color: var(--accent); }
+        .article-status-actions .btn-danger { color: #ef4444; }
+        .article-status-actions .btn-danger:hover { border-color: #ef4444; background: rgba(239,68,68,0.1); }
 
         /* ─── Content modal overlay ─── */
         .content-overlay {
@@ -2734,7 +2828,7 @@
     <div class="layout">
         <nav class="sidebar">
             <div class="sidebar-brand">
-                <a href="/">paulland.io</a>
+                <a href="/"><svg viewBox="0 0 100 100" fill="none"><path d="M 28,18 Q 48,38 78,50" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/><path d="M 78,50 Q 48,62 28,82" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" fill="none"/><circle cx="35" cy="38" r="4.5" fill="currentColor" opacity="0.6"/><circle cx="33" cy="60" r="4" fill="currentColor" opacity="0.5"/><circle cx="50" cy="50" r="5.5" fill="currentColor" opacity="0.85"/></svg> paulland.io</a>
                 <h1>Admin</h1>
             </div>
             <div class="sidebar-nav">
@@ -2765,9 +2859,6 @@
                 <div class="nav-group-items" data-group="sources">
                     <button class="nav-item" data-view="feed-items">
                         <i class="icon" data-lucide="rss"></i> Feed Items <span class="count" id="countFeedItems">-</span>
-                    </button>
-                    <button class="nav-item" data-view="feeds">
-                        <i class="icon" data-lucide="list"></i> Feeds <span class="count" id="countFeeds">-</span>
                     </button>
                 </div>
 
@@ -4874,16 +4965,42 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ feed_item_id: itemId }),
             });
-            const result = await resp.json();
+            const text = await resp.text();
+            let result;
+            try { result = JSON.parse(text); } catch (_) {
+                console.error('Capture response not JSON:', text.substring(0, 300));
+                btn.textContent = 'Error';
+                btn.disabled = false;
+                return;
+            }
             if (result.captured || result.already_captured) {
-                btn.outerHTML = '<span class="captured-yes">Captured</span>';
+                btn.outerHTML = '<span style="color:var(--accent); font-size:0.75rem;">✓ Captured</span>';
             } else {
-                btn.textContent = 'Failed';
+                console.error('Capture failed:', result);
+                btn.textContent = result.error ? 'Failed' : 'Failed';
+                btn.title = result.error || 'Unknown error';
                 btn.disabled = false;
             }
         } catch (e) {
+            console.error('Capture error:', e);
             btn.textContent = 'Error';
             btn.disabled = false;
+        }
+    }
+
+    async function dismissFeedItem(itemId, cardEl) {
+        try {
+            const res = await fetch('/api/entity-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'feed_items', id: itemId, updates: { dismissed: true } }),
+            });
+            if (res.ok && cardEl) {
+                cardEl.classList.add('dismissed');
+                setTimeout(() => cardEl.remove(), 300);
+            }
+        } catch (e) {
+            console.error('Dismiss failed:', e);
         }
     }
 
@@ -4893,9 +5010,9 @@
 
         const { data, error } = await db
             .from('feed_items')
-            .select('id, item_title, item_url, item_summary, captured, first_seen_at, feed_id, feeds(name)')
+            .select('id, item_title, item_url, item_summary, captured, dismissed, first_seen_at, feed_id, feeds(name)')
             .order('first_seen_at', { ascending: false })
-            .limit(100);
+            .limit(200);
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
         if (!data.length) { main.innerHTML = '<div class="empty">No feed items yet.</div>'; return; }
@@ -4906,48 +5023,148 @@
                 <input type="text" class="search-input" placeholder="Filter items..." id="searchFeedItems">
             </div>
             <div class="filters" id="feedItemFilters">
-                <button class="filter-btn active" data-filter="all">All</button>
+                <button class="filter-btn active" data-filter="inbox">Inbox</button>
+                <button class="filter-btn" data-filter="all">All</button>
                 <button class="filter-btn" data-filter="captured">Captured</button>
-                <button class="filter-btn" data-filter="uncaptured">Uncaptured</button>
+                <button class="filter-btn" data-filter="dismissed">Dismissed</button>
             </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr><th>Title</th><th>Feed</th><th>Captured</th><th>Seen</th></tr>
-                    </thead>
-                    <tbody id="feedItemsBody"></tbody>
-                </table>
+            <div class="bulk-bar" id="feedBulkBar">
+                <span class="bulk-count" id="feedBulkCount">0</span> selected
+                <button class="btn btn-sm btn-action" id="bulkCaptureFeed">${icon('download', 'icon-sm')} Capture</button>
+                <button class="btn btn-sm" id="bulkDismissFeed" style="background:var(--void-lighter);color:var(--text-body);">${icon('x', 'icon-sm')} Dismiss</button>
+                <button class="btn btn-sm" id="bulkDeselectFeed" style="background:transparent;color:var(--text-muted);">Deselect all</button>
             </div>
+            <div class="feed-item-cards" id="feedItemCards"></div>
         `;
 
-        let activeFilter = 'all';
+        let activeFilter = 'inbox';
+        const selectedIds = new Set();
 
-        function render() {
+        function getFiltered() {
             const q = (document.getElementById('searchFeedItems')?.value || '').toLowerCase();
             let filtered = data;
-            if (activeFilter === 'captured') filtered = filtered.filter(i => i.captured);
-            if (activeFilter === 'uncaptured') filtered = filtered.filter(i => !i.captured);
+            if (activeFilter === 'inbox') filtered = filtered.filter(i => !i.captured && !i.dismissed);
+            else if (activeFilter === 'captured') filtered = filtered.filter(i => i.captured);
+            else if (activeFilter === 'dismissed') filtered = filtered.filter(i => i.dismissed);
             if (q) filtered = filtered.filter(i =>
                 (i.item_title || '').toLowerCase().includes(q) ||
+                (i.item_summary || '').toLowerCase().includes(q) ||
                 (i.feeds?.name || '').toLowerCase().includes(q)
             );
-
-            const tbody = document.getElementById('feedItemsBody');
-            tbody.innerHTML = filtered.map(i => `
-                <tr>
-                    <td class="title-cell">
-                        <div class="title-text">${esc(i.item_title || 'Untitled')}</div>
-                        <a class="title-url" href="${esc(i.item_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(truncUrl(i.item_url))}</a>
-                    </td>
-                    <td class="source-cell">${esc(i.feeds?.name || '-')}</td>
-                    <td>${i.captured
-                        ? '<span class="captured-yes">Captured</span>'
-                        : `<button class="btn btn-sm" style="font-size:0.75rem; padding:0.25rem 0.6rem;" onclick="event.stopPropagation(); captureFeedItem(this, '${i.id}')">${icon('download')} Capture</button>`
-                    }</td>
-                    <td class="date-cell">${formatDate(i.first_seen_at)}</td>
-                </tr>
-            `).join('');
+            return filtered;
         }
+
+        function updateBulkBar() {
+            const bar = document.getElementById('feedBulkBar');
+            document.getElementById('feedBulkCount').textContent = selectedIds.size;
+            bar.classList.toggle('active', selectedIds.size > 0);
+        }
+
+        function render() {
+            const filtered = getFiltered();
+            const container = document.getElementById('feedItemCards');
+            container.innerHTML = filtered.length === 0
+                ? '<div class="empty">No items match this filter.</div>'
+                : filtered.map(i => `
+                <div class="feed-item-card" data-id="${i.id}">
+                    <div class="feed-item-card-header">
+                        ${!i.captured && !i.dismissed ? `<input type="checkbox" class="feed-check" data-id="${i.id}" ${selectedIds.has(i.id) ? 'checked' : ''}>` : ''}
+                        <div class="feed-item-card-info">
+                            <div class="feed-item-card-title">${esc(i.item_title || 'Untitled')}</div>
+                            <div class="feed-item-card-meta">
+                                <span>${esc(i.feeds?.name || 'Unknown feed')}</span>
+                                <span>·</span>
+                                <span>${formatDate(i.first_seen_at)}</span>
+                            </div>
+                            <div class="feed-item-card-url">
+                                <a href="${esc(i.item_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${esc(i.item_url)}</a>
+                            </div>
+                        </div>
+                        <div class="feed-item-card-actions">
+                            ${i.captured
+                                ? `<span style="color:var(--accent); font-size:0.75rem;">✓ Captured</span>`
+                                : i.dismissed
+                                    ? `<span style="color:var(--text-muted); font-size:0.75rem;">Dismissed</span>`
+                                    : `<button class="btn btn-sm btn-action capture-btn" data-id="${i.id}" style="font-size:0.75rem; padding:0.25rem 0.6rem;" onclick="event.stopPropagation();">${icon('download', 'icon-sm')} Capture</button>
+                                       <button class="feed-item-dismiss dismiss-btn" data-id="${i.id}" onclick="event.stopPropagation();" title="Dismiss">${icon('x', 'icon-sm')}</button>`
+                            }
+                        </div>
+                    </div>
+                    ${i.item_summary ? `<div class="feed-item-card-summary">${renderBody(i.item_summary)}</div>` : ''}
+                </div>
+            `).join('');
+
+            // Wire card click to expand/collapse summary
+            container.querySelectorAll('.feed-item-card').forEach(card => {
+                card.addEventListener('click', (e) => {
+                    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
+                    card.classList.toggle('expanded');
+                });
+            });
+
+            // Wire capture buttons
+            container.querySelectorAll('.capture-btn').forEach(btn => {
+                btn.addEventListener('click', async () => {
+                    const id = btn.dataset.id;
+                    captureFeedItem(btn, id);
+                });
+            });
+
+            // Wire dismiss buttons
+            container.querySelectorAll('.dismiss-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const id = btn.dataset.id;
+                    const card = btn.closest('.feed-item-card');
+                    const item = data.find(d => d.id === id);
+                    if (item) item.dismissed = true;
+                    dismissFeedItem(id, card);
+                });
+            });
+
+            // Wire checkboxes
+            container.querySelectorAll('.feed-check').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    if (cb.checked) selectedIds.add(cb.dataset.id);
+                    else selectedIds.delete(cb.dataset.id);
+                    updateBulkBar();
+                });
+            });
+
+            refreshIcons();
+            updateBulkBar();
+        }
+
+        // Bulk capture
+        document.getElementById('bulkCaptureFeed')?.addEventListener('click', async () => {
+            const ids = [...selectedIds];
+            for (const id of ids) {
+                const card = document.querySelector(`.feed-item-card[data-id="${id}"]`);
+                const btn = card?.querySelector('.capture-btn');
+                if (btn) await captureFeedItem(btn, id);
+                const item = data.find(d => d.id === id);
+                if (item) item.captured = true;
+            }
+            selectedIds.clear();
+            render();
+        });
+
+        // Bulk dismiss
+        document.getElementById('bulkDismissFeed')?.addEventListener('click', async () => {
+            const ids = [...selectedIds];
+            for (const id of ids) {
+                const item = data.find(d => d.id === id);
+                if (item) item.dismissed = true;
+                await dismissFeedItem(id);
+            }
+            selectedIds.clear();
+            render();
+        });
+
+        // Deselect all
+        document.getElementById('bulkDeselectFeed')?.addEventListener('click', () => {
+            selectedIds.clear();
+            render();
+        });
 
         document.getElementById('feedItemFilters').addEventListener('click', e => {
             if (!e.target.classList.contains('filter-btn')) return;
@@ -6297,7 +6514,7 @@
 
             btn.disabled = true;
             btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;"></span> Researching...`;
-            resultsEl.innerHTML = '<div class="research-report" id="researchReportLive"></div>';
+            resultsEl.innerHTML = '<div class="empty-attention" id="researchStatus">Connecting to AI...</div><div class="research-report" id="researchReportLive" style="display:none;"></div>';
 
             // Elapsed timer
             const startTime = Date.now();
@@ -6362,10 +6579,21 @@
                         if (!line.startsWith('data: ')) continue;
                         try {
                             const event = JSON.parse(line.slice(6));
-                            if (event.type === 'delta' && event.text) {
+                            if (event.type === 'status') {
+                                // Update status text while waiting for Claude
+                                const statusEl = document.getElementById('researchStatus');
+                                if (statusEl) statusEl.textContent = event.text;
+                            } else if (event.type === 'delta' && event.text) {
+                                // Hide status, show report area on first delta
+                                const statusEl = document.getElementById('researchStatus');
+                                if (statusEl) statusEl.style.display = 'none';
+                                if (liveEl) liveEl.style.display = 'block';
                                 reportText += event.text;
                                 scheduleRender();
                             } else if (event.type === 'error') {
+                                const statusEl = document.getElementById('researchStatus');
+                                if (statusEl) statusEl.style.display = 'none';
+                                if (liveEl) { liveEl.style.display = 'block'; }
                                 reportText += `\n\n**Error:** ${event.message}`;
                                 scheduleRender();
                             }
@@ -8203,12 +8431,55 @@
             </div>
         `;
 
+        // Status action buttons (only for articles/content, not for company/product modals)
+        const statusBar = item.status ? `
+            <div class="article-status-actions" id="articleStatusActions">
+                <span style="font-size:0.75rem; color:var(--text-muted); margin-right:0.25rem;">Status:</span>
+                <button class="btn-sm ${item.status === 'new' ? 'active-status' : ''}" data-set-status="new">New</button>
+                <button class="btn-sm ${item.status === 'read' ? 'active-status' : ''}" data-set-status="read">Read</button>
+                <button class="btn-sm ${item.status === 'archived' ? 'active-status' : ''}" data-set-status="archived">Archived</button>
+                <span style="flex:1"></span>
+                <button class="btn-sm btn-danger" id="deleteArticleBtn" title="Delete article">Delete</button>
+            </div>
+        ` : '';
+
         const heroImg = item.metadata?.image_url
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
-        document.getElementById('contentModalBody').innerHTML = linkedBar + heroImg + renderBody(item.body);
+        document.getElementById('contentModalBody').innerHTML = linkedBar + statusBar + heroImg + renderBody(item.body);
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
+
+        // Wire status buttons
+        document.querySelectorAll('#articleStatusActions [data-set-status]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const newStatus = btn.dataset.setStatus;
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', id: item.id, updates: { status: newStatus } }),
+                });
+                if (res.ok) {
+                    item.status = newStatus;
+                    document.querySelectorAll('#articleStatusActions [data-set-status]').forEach(b => b.classList.remove('active-status'));
+                    btn.classList.add('active-status');
+                }
+            });
+        });
+
+        // Wire delete button
+        document.getElementById('deleteArticleBtn')?.addEventListener('click', async () => {
+            if (!confirm('Delete this article permanently?')) return;
+            const res = await fetch('/api/entity-update', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'content', id: item.id, updates: { status: 'deleted' } }),
+            });
+            if (res.ok) {
+                document.body.classList.remove('content-open');
+                loadArticles();
+            }
+        });
 
         // Wire unlink pills (both products and competitors)
         document.querySelectorAll('#contentLinkedItems .unlink-x').forEach(x => {

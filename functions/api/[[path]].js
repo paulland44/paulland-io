@@ -161,7 +161,7 @@ async function handleUpdateTags(request, env, ctx) {
 async function handleEntityUpdate(request, env, ctx) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -1516,112 +1516,179 @@ async function handleEmbedBatch(request, env) {
  * POST /api/feed-items/capture — Capture a feed item into the content table.
  */
 async function handleFeedItemCapture(request, env) {
-  const { feed_item_id } = await request.json();
-  if (!feed_item_id) {
-    return json({ error: 'Missing feed_item_id' }, 400);
-  }
-
-  const supabase = getSupabase(env);
-
-  // Fetch the feed item
-  const { data: feedItem, error: fetchErr } = await supabase
-    .from('feed_items')
-    .select('*')
-    .eq('id', feed_item_id)
-    .single();
-
-  if (fetchErr || !feedItem) {
-    return json({ error: 'Feed item not found' }, 404);
-  }
-
-  if (feedItem.captured) {
-    return json({ already_captured: true, content_id: feedItem.content_id });
-  }
-
-  // Check if URL already exists in content (dedup)
-  const { data: existing } = await supabase
-    .from('content')
-    .select('id')
-    .eq('url', feedItem.item_url)
-    .limit(1)
-    .maybeSingle();
-
-  if (existing) {
-    // Link and mark captured
-    await supabase.from('feed_items')
-      .update({ captured: true, content_id: existing.id })
-      .eq('id', feed_item_id);
-    return json({ captured: true, content_id: existing.id, deduplicated: true });
-  }
-
-  // Fetch the page and extract basic metadata
-  let title = feedItem.item_title || 'Untitled';
-  let description = feedItem.item_summary || '';
-  let body = '';
-
   try {
-    const pageResp = await fetch(feedItem.item_url, {
-      headers: { 'User-Agent': 'CaptureBot/1.0' },
-      redirect: 'follow',
-    });
-    if (pageResp.ok) {
-      const html = await pageResp.text();
-      // Extract title from meta tags
-      const ogTitle = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i);
-      if (ogTitle) title = ogTitle[1];
-      else {
-        const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-        if (htmlTitle) title = htmlTitle[1].trim();
-      }
-      // Extract description
-      const ogDesc = html.match(/<meta\s+(?:property|name)="og:description"\s+content="([^"]+)"/i);
-      const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
-      if (ogDesc) description = ogDesc[1];
-      else if (metaDesc) description = metaDesc[1];
-      // Extract image
-      const ogImage = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i);
-      const imageUrl = ogImage ? ogImage[1] : null;
-      // Build body — use description as fallback
-      body = description || `*View original article: ${feedItem.item_url}*`;
-      // Store image in metadata if found
-      var extractedImage = imageUrl;
+    const supabaseUrl = env.SUPABASE_URL;
+    const serviceKey = env.SUPABASE_SERVICE_KEY;
+    const { feed_item_id } = await request.json();
+    if (!feed_item_id) {
+      return json({ error: 'Missing feed_item_id' }, 400);
     }
-  } catch (e) {
-    // Extraction failed — use feed item data as fallback
-    body = description || feedItem.item_summary || `*View original article: ${feedItem.item_url}*`;
-  }
 
-  // Save to content table
-  const { data: contentRow, error: insertErr } = await supabase
-    .from('content')
-    .insert({
-      type: 'article',
-      title: title,
-      body: body,
-      url: feedItem.item_url,
-      source: 'Readwise Reader',
-      tags: [],
-      status: 'new',
-      metadata: {
-        feed_item_id: feedItem.id,
-        description: description,
-        image_url: extractedImage || null,
-        source_app: 'reader',
+    // Fetch the feed item
+    const feedItems = await supabaseGet(supabaseUrl, serviceKey,
+      `feed_items?select=*&id=eq.${feed_item_id}`);
+
+    if (!feedItems || feedItems.length === 0) {
+      return json({ error: 'Feed item not found' }, 404);
+    }
+    const feedItem = feedItems[0];
+
+    if (feedItem.captured) {
+      return json({ already_captured: true });
+    }
+
+    // Check if URL already exists in content (dedup)
+    const existing = await supabaseGet(supabaseUrl, serviceKey,
+      `content?select=id&url=eq.${encodeURIComponent(feedItem.item_url)}&limit=1`);
+
+    if (existing && existing.length > 0) {
+      // Mark captured
+      await supabasePatch(supabaseUrl, serviceKey,
+        `feed_items?id=eq.${feed_item_id}`, { captured: true });
+      return json({ captured: true, deduplicated: true });
+    }
+
+    // Fetch the page and extract full article content
+    let title = feedItem.item_title || 'Untitled';
+    let description = feedItem.item_summary || '';
+    let body = '';
+    let extractedImage = null;
+    let metadata = {
+      feed_item_id: feedItem.id,
+      source_app: 'reader',
+    };
+
+    try {
+      const pageResp = await fetch(feedItem.item_url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000),
+      });
+      if (pageResp.ok) {
+        const html = await pageResp.text();
+
+        // Extract metadata from head
+        const ogTitle = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i);
+        if (ogTitle) title = ogTitle[1];
+        else {
+          const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+          if (htmlTitle) title = htmlTitle[1].trim();
+        }
+        const ogDesc = html.match(/<meta\s+(?:property|name)="og:description"\s+content="([^"]+)"/i);
+        const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
+        if (ogDesc) description = ogDesc[1];
+        else if (metaDesc) description = metaDesc[1];
+        const ogImage = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i);
+        extractedImage = ogImage ? ogImage[1] : null;
+
+        // Extract article content — try <article>, then role="main", then fallback to <main> or <body>
+        let contentHtml = '';
+        const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+        const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
+        const roleMainMatch = html.match(/<[^>]+role="main"[^>]*>([\s\S]*?)<\/[^>]+>/i);
+        const contentDivMatch = html.match(/<div[^>]+class="[^"]*(?:post-content|article-content|entry-content|post-body|article-body|story-body|content-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+
+        contentHtml = contentDivMatch?.[1] || articleMatch?.[1] || roleMainMatch?.[1] || mainMatch?.[1] || '';
+
+        if (contentHtml) {
+          // Convert HTML to markdown
+          body = contentHtml
+            // Headings
+            .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n# $1\n')
+            .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n## $1\n')
+            .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n### $1\n')
+            .replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '\n#### $1\n')
+            .replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, '\n##### $1\n')
+            .replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, '\n###### $1\n')
+            // Paragraphs & breaks
+            .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n$1\n')
+            .replace(/<br\s*\/?>/gi, '\n')
+            // Lists
+            .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
+            .replace(/<\/?[ou]l[^>]*>/gi, '\n')
+            // Links & images
+            .replace(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)')
+            .replace(/<img[^>]+src="([^"]*)"[^>]*alt="([^"]*)"[^>]*\/?>/gi, '![$2]($1)')
+            .replace(/<img[^>]+src="([^"]*)"[^>]*\/?>/gi, '![]($1)')
+            // Formatting
+            .replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
+            .replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
+            .replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*')
+            .replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, '*$1*')
+            .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n> $1\n')
+            .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '`$1`')
+            .replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n```\n$1\n```\n')
+            // Remove script, style, nav, footer, aside tags entirely
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+            .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
+            .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
+            .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
+            // Remove remaining HTML tags
+            .replace(/<[^>]+>/g, '')
+            // Decode entities
+            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+            .replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
+            .replace(/&rsquo;/g, "'").replace(/&lsquo;/g, "'")
+            .replace(/&rdquo;/g, '"').replace(/&ldquo;/g, '"')
+            .replace(/&mdash;/g, '—').replace(/&ndash;/g, '–')
+            .replace(/&hellip;/g, '…')
+            // Clean up whitespace
+            .replace(/\n{3,}/g, '\n\n')
+            .trim();
+        }
+      }
+    } catch (e) {
+      // Extraction failed — use feed item data as fallback
+    }
+
+    metadata.description = description;
+    metadata.image_url = extractedImage;
+
+    if (!body) {
+      body = description || feedItem.item_summary || `*View original article: ${feedItem.item_url}*`;
+    }
+
+    // Save to content table
+    const insertRes = await fetch(`${supabaseUrl}/rest/v1/content`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
       },
-    })
-    .select('id')
-    .single();
+      body: JSON.stringify({
+        type: 'article',
+        title: title,
+        body: body,
+        url: feedItem.item_url,
+        source: 'Readwise Reader',
+        tags: [],
+        status: 'new',
+        metadata: metadata,
+      }),
+    });
 
-  if (insertErr) {
-    return json({ error: 'Failed to create content: ' + insertErr.message }, 500);
+    if (!insertRes.ok) {
+      const errText = await insertRes.text();
+      return json({ error: 'Failed to create content', detail: errText }, 500);
+    }
+
+    const contentRows = await insertRes.json();
+    const contentId = contentRows?.[0]?.id;
+
+    // Mark feed item as captured
+    await supabasePatch(supabaseUrl, serviceKey,
+      `feed_items?id=eq.${feed_item_id}`, { captured: true });
+
+    return json({ captured: true, content_id: contentId });
+  } catch (err) {
+    return json({ error: 'Capture failed: ' + err.message }, 500);
   }
-
-  // Mark feed item as captured
-  await supabase.from('feed_items')
-    .update({ captured: true, content_id: contentRow.id })
-    .eq('id', feed_item_id);
-
-  return json({ captured: true, content_id: contentRow.id });
 }
 
 /**
@@ -1850,102 +1917,92 @@ Format your response as a structured markdown report with clear section headers.
 
 ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 strategic observations.' : ''}`;
 
-  // Use streaming to avoid Cloudflare Pages Function timeout (~30s).
-  // Web search responses can take 30-60s, but streaming keeps the connection alive.
-  try {
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2025-01-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 16000,
-        stream: true,
-        tools: [{ type: 'web_search_20250305' }],
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
+  // Architecture: Start an SSE stream to the client immediately (keeps CF connection alive),
+  // then make a NON-streaming Anthropic API call (avoids web_search+streaming issues).
+  // CF Workers can hold outgoing streams open while waiting on upstream fetches — the timeout
+  // applies to CPU time, not wall-clock time waiting on fetch().
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
 
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
-    }
+  const send = (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
 
-    // Pipe the Anthropic SSE stream through, extracting text deltas
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
-    const encoder = new TextEncoder();
+  // Process in background — the SSE response is returned immediately
+  (async () => {
+    try {
+      // Send initial status so client knows we're alive
+      await send({ type: 'status', text: 'Connecting to AI...' });
 
-    const send = (obj) => writer.write(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-beta': 'web-search-2025-03-05',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 16000,
+          tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 10 }],
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
 
-    // Process the stream in background
-    (async () => {
-      try {
-        const reader = claudeRes.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split('\n');
-          buffer = lines.pop(); // keep incomplete line
-
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue;
-            const data = line.slice(6).trim();
-            if (data === '[DONE]') continue;
-
-            try {
-              const event = JSON.parse(data);
-
-              // Forward text deltas to client
-              if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
-                await send({ type: 'delta', text: event.delta.text });
-              }
-
-              // Signal completion
-              if (event.type === 'message_stop') {
-                await send({ type: 'done' });
-              }
-
-              // Forward errors
-              if (event.type === 'error') {
-                await send({ type: 'error', message: event.error?.message || 'Unknown error' });
-              }
-            } catch (parseErr) {
-              // Skip unparseable lines (e.g. event: type lines)
-            }
-          }
-        }
-
-        // Ensure we send done even if message_stop wasn't received
-        await send({ type: 'done' });
-      } catch (streamErr) {
+      if (!claudeRes.ok) {
+        const errText = await claudeRes.text();
+        // Try to extract a meaningful error message from Anthropic's response
+        let errMsg = `Claude API returned ${claudeRes.status}`;
         try {
-          await send({ type: 'error', message: streamErr.message });
-        } catch (_) {}
-      } finally {
-        try { await writer.close(); } catch (_) {}
+          const errData = JSON.parse(errText);
+          if (errData.error?.message) errMsg = errData.error.message;
+          else if (errData.error?.type) errMsg = errData.error.type;
+        } catch (_) {
+          if (errText.length < 200) errMsg = errText;
+        }
+        await send({ type: 'error', message: errMsg });
+        return;
       }
-    })();
 
-    return new Response(readable, {
-      headers: {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
-      },
-    });
-  } catch (err) {
-    return json({ error: 'Research failed', detail: err.message }, 500);
-  }
+      await send({ type: 'status', text: 'Analyzing results...' });
+
+      const claudeData = await claudeRes.json();
+
+      // Extract text blocks (web search responses contain tool_use + tool_result + text blocks)
+      const report = (claudeData.content || [])
+        .filter(b => b.type === 'text')
+        .map(b => b.text)
+        .join('\n\n');
+
+      if (!report) {
+        await send({ type: 'error', message: 'No research results generated. Try a different focus area.' });
+        return;
+      }
+
+      // Stream the report to the client in chunks for progressive rendering
+      const chunkSize = 200;
+      for (let i = 0; i < report.length; i += chunkSize) {
+        await send({ type: 'delta', text: report.slice(i, i + chunkSize) });
+      }
+
+      await send({ type: 'done' });
+    } catch (err) {
+      try {
+        await send({ type: 'error', message: err.message || 'Research failed' });
+      } catch (_) {}
+    } finally {
+      try { await writer.close(); } catch (_) {}
+    }
+  })();
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    },
+  });
 }
 
 // ─── Supabase helpers ────────────────────────────────────────
