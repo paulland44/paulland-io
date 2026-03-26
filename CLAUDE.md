@@ -66,6 +66,8 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
 | `ask` | `handleAsk` | RAG: vector search + Claude answer |
 | `feed-items/capture` | `handleFeedItemCapture` | Promote feed item → content (extracts full article) |
 | `competitor-research` | `handleCompetitorResearch` | **Streaming** Claude + web_search SSE |
+| `extract-signals` | `handleExtractSignals` | AI signal extraction from articles (Claude) |
+| `signal-synthesis` | `handleSignalSynthesis` | **Streaming** multi-signal synthesis (Claude SSE) |
 
 **DELETE:**
 | Route | Handler | Purpose |
@@ -87,9 +89,9 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Reflections, Summaries), Sources (Feed Items, Feeds), Library (Assets, Tags), Knowledge (People, Companies, Products, Projects, Competition), Tools (Ask AI)
+**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Sources (Feed Items, Feeds), Library (Assets, Tags), Knowledge (People, Companies, Products, Projects, Competition), Tools (Ask AI)
 
-**Views**: Overview, Articles, Thoughts, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI
+**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI
 
 **Theme System**: Dark/light mode, accent colours (sage, amber, blue, rose, violet), font sizing. Stored in localStorage.
 
@@ -98,6 +100,8 @@ Single-page app, all inline (~8900 lines). No build step.
 - `navigateToView(view)` — update nav active state + load view
 - `openContentModal(item)` — article/thought/reflection detail editor
 - `openCompetitorDetail(id)` — full-page competitor management view
+- `loadSignals()` — dedicated signals view with card layout, filters, multi-select
+- `openSynthesisModal(signalIds)` — AI synthesis of selected signals (streaming)
 - `loadCompetition()` — competition dashboard with smart content surfacing
 - `captureFeedItem(btn, id)` — promote feed item to content
 - `refreshIcons()` — re-initialise Lucide icons after DOM updates
@@ -107,7 +111,7 @@ Single-page app, all inline (~8900 lines). No build step.
 
 - **API Supabase access**: Raw REST calls via `supabaseGet()`, `supabasePost()`, `supabasePatch()` helpers — NOT the Supabase JS client. These take `(url, key, path)` or `(url, key, table, data)`.
 - **Frontend Supabase access**: Supabase JS client (`db = supabase.createClient(...)`) for reads.
-- **Streaming**: `TransformStream` pipes Anthropic SSE → client. Used for competitor research and daily review.
+- **Streaming**: `TransformStream` pipes Anthropic SSE → client. Used for competitor research, signal synthesis, and daily review.
 - **HTML→Markdown**: Regex-based inline conversion for captured content (no external lib).
 - **Icons**: Lucide CDN, `lucide.createIcons()` init, `refreshIcons()` after DOM changes.
 - **CSS Variables**: `--void`, `--accent`, `--border`, `--text-body`, `--text-muted`, `--radius-sm/md/lg/pill`, `--shadow-sm/md/lg`, `--sans` (Inter), `--mono` (Inconsolata).
@@ -140,9 +144,9 @@ No build step required — static HTML files + Pages Functions are deployed dire
 
 ## Pending / Future Work
 
-- Full-page competitor view (expand beyond current layout for battlecards, signals)
-- URL field on products table
-- Link articles & assets to products (upload or search existing)
-- Collapsible sidebar categories
 - Vertex logo integration (homepage, admin, favicon)
-- Article status management (mark as read, archive)
+- PDF signal extraction (extract text from PDFs in asset library → extract signals)
+- Signal auto-clustering (AI-assisted grouping of related signals)
+- RAG chat history / multi-turn conversations
+- AI auto-tagging on content capture
+- Embedding versioning (track model versions, support re-embedding on model change)
