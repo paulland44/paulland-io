@@ -101,6 +101,10 @@ export async function onRequest(ctx) {
         return handleFeedItemCapture(request, env);
       case 'competitor-research':
         return handleCompetitorResearch(request, env);
+      case 'extract-signals':
+        return handleExtractSignals(request, env);
+      case 'signal-synthesis':
+        return handleSignalSynthesis(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -1695,13 +1699,14 @@ async function handleFeedItemCapture(request, env) {
  * POST /api/search — Vector similarity search.
  */
 async function handleSearch(request, env) {
-  const { query, limit = 10, tables } = await request.json();
+  const { query, limit = 10, tables, date_from, date_to, tags } = await request.json();
   if (!query || typeof query !== 'string') {
     return json({ error: 'Missing query string' }, 400);
   }
 
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const hasFilters = date_from || date_to || (tags && tags.length);
 
   // Embed the query
   let queryEmbedding;
@@ -1712,10 +1717,13 @@ async function handleSearch(request, env) {
     return json({ error: `Embedding failed: ${err.message}` }, 500);
   }
 
+  // Fetch more results if post-filtering, so we still return enough after filtering
+  const fetchCount = hasFilters ? Math.min(limit * 3, 60) : Math.min(limit, 20);
+
   // Call the search_embeddings RPC function
   const rpcBody = {
     query_embedding: JSON.stringify(queryEmbedding),
-    match_count: Math.min(limit, 20),
+    match_count: fetchCount,
     similarity_threshold: 0.3,
   };
   if (tables && Array.isArray(tables)) {
@@ -1737,8 +1745,40 @@ async function handleSearch(request, env) {
     return json({ error: 'Search failed', detail: err }, 500);
   }
 
-  const results = await rpcRes.json();
+  let results = await rpcRes.json();
+
+  // Post-filter by date and tags if provided
+  if (hasFilters) {
+    results = filterSearchResults(results, { date_from, date_to, tags });
+    results = results.slice(0, limit);
+  }
+
   return json({ ok: true, results });
+}
+
+/**
+ * Post-filter search results by metadata date and tags.
+ */
+function filterSearchResults(results, { date_from, date_to, tags }) {
+  return results.filter(r => {
+    const meta = r.metadata || {};
+    // Date filter — check metadata.date field
+    if (date_from || date_to) {
+      const itemDate = meta.date;
+      if (itemDate) {
+        if (date_from && itemDate < date_from) return false;
+        if (date_to && itemDate > date_to) return false;
+      }
+    }
+    // Tag filter — check if content_text or metadata contains any of the filter tags
+    if (tags && tags.length) {
+      const text = (r.content_text || '').toLowerCase();
+      const metaStr = JSON.stringify(meta).toLowerCase();
+      const hasTag = tags.some(t => text.includes(t.toLowerCase()) || metaStr.includes(t.toLowerCase()));
+      if (!hasTag) return false;
+    }
+    return true;
+  });
 }
 
 /**
@@ -1750,13 +1790,14 @@ async function handleAsk(request, env) {
     return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
   }
 
-  const { question, tables } = await request.json();
+  const { question, tables, date_from, date_to, tags } = await request.json();
   if (!question || typeof question !== 'string') {
     return json({ error: 'Missing question string' }, 400);
   }
 
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const hasFilters = date_from || date_to || (tags && tags.length);
 
   // 1. Embed the question
   let queryEmbedding;
@@ -1767,10 +1808,11 @@ async function handleAsk(request, env) {
     return json({ error: `Embedding failed: ${err.message}` }, 500);
   }
 
-  // 2. Vector search for relevant context
+  // 2. Vector search for relevant context (fetch more if post-filtering)
+  const fetchCount = hasFilters ? 24 : 8;
   const rpcBody = {
     query_embedding: JSON.stringify(queryEmbedding),
-    match_count: 8,
+    match_count: fetchCount,
     similarity_threshold: 0.3,
   };
   if (tables && Array.isArray(tables)) {
@@ -1792,7 +1834,12 @@ async function handleAsk(request, env) {
     return json({ error: 'Search failed', detail: err }, 500);
   }
 
-  const searchResults = await rpcRes.json();
+  let searchResults = await rpcRes.json();
+
+  // Post-filter by date/tags if provided, then take top 8
+  if (hasFilters) {
+    searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
+  }
 
   if (!searchResults.length) {
     return json({
@@ -1868,6 +1915,241 @@ ${question}`;
   }));
 
   return json({ ok: true, answer, sources });
+}
+
+// ─── Extract Signals from Content ─────────────────────────────
+
+async function handleExtractSignals(request, env) {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const { content_id } = await request.json();
+  if (!content_id) {
+    return json({ error: 'Missing content_id' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Fetch the content item
+  const itemRes = await supabaseGet(supabaseUrl, serviceKey, `content?id=eq.${content_id}&select=id,title,body,tags,source,url,type`);
+  if (!itemRes.ok) {
+    return json({ error: 'Failed to fetch content' }, 500);
+  }
+  const items = await itemRes.json();
+  if (!items.length) {
+    return json({ error: 'Content not found' }, 404);
+  }
+  const item = items[0];
+
+  const systemPrompt = `You are a strategic intelligence analyst. Your task is to extract strategic signals from the provided content.
+
+A "signal" is an observation about:
+- Market shifts or emerging trends
+- Competitive moves or positioning changes
+- Technology developments or disruptions
+- Customer behaviour changes or new needs
+- Industry regulatory or structural changes
+- Partnership or acquisition activity
+- Talent or organisational shifts
+
+For each signal, provide:
+- A concise title (5-12 words)
+- An observation paragraph explaining what the signal means and why it matters strategically
+- 2-4 suggested tags for categorisation
+
+Return ONLY a JSON array. No markdown, no explanation. Example:
+[{"title": "...", "observation": "...", "suggested_tags": ["tag1", "tag2"]}]
+
+Extract 1-5 signals. If no meaningful signals exist, return an empty array [].`;
+
+  const userMessage = `## ${item.title}
+
+${item.source ? `Source: ${item.source}` : ''}
+${item.url ? `URL: ${item.url}` : ''}
+${item.tags?.length ? `Tags: ${item.tags.join(', ')}` : ''}
+
+${item.body || '(No body content)'}`;
+
+  try {
+    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+
+    if (!claudeRes.ok) {
+      const errText = await claudeRes.text();
+      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
+    }
+
+    const claudeData = await claudeRes.json();
+    const text = claudeData.content?.[0]?.text || '[]';
+
+    // Parse JSON from response (handle potential markdown wrapping)
+    let signals;
+    try {
+      const jsonStr = text.replace(/^```json?\n?/, '').replace(/\n?```$/, '').trim();
+      signals = JSON.parse(jsonStr);
+    } catch {
+      return json({ error: 'Failed to parse AI response', raw: text }, 500);
+    }
+
+    return json({ ok: true, signals });
+  } catch (err) {
+    return json({ error: 'AI processing failed', detail: err.message }, 500);
+  }
+}
+
+// ─── Signal Synthesis (streaming) ─────────────────────────────
+
+async function handleSignalSynthesis(request, env) {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const { signal_ids, format = 'narrative', focus = 'strategic-implications', context } = await request.json();
+  if (!signal_ids?.length || signal_ids.length < 2) {
+    return json({ error: 'At least 2 signal IDs required' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Fetch signals
+  const signalsRes = await fetch(`${supabaseUrl}/rest/v1/content?id=in.(${signal_ids.map(id => `"${id}"`).join(',')})&select=id,title,body,tags,captured_at,source`, {
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+    },
+  });
+  if (!signalsRes.ok) {
+    return json({ error: 'Failed to fetch signals' }, 500);
+  }
+  const signals = await signalsRes.json();
+  if (!signals.length) {
+    return json({ error: 'No signals found' }, 404);
+  }
+
+  const focusLabels = {
+    'strategic-implications': 'Strategic Implications',
+    'trend-analysis': 'Trend Analysis',
+    'competitive-positioning': 'Competitive Positioning',
+    'risk-assessment': 'Risk Assessment',
+    'opportunity-identification': 'Opportunity Identification',
+  };
+
+  const formatInstructions = format === 'structured'
+    ? `Structure your analysis with these sections:
+## Key Themes
+## Strategic Implications
+## Risks
+## Opportunities
+## Recommended Actions
+
+Use bullet points within each section. Be specific and actionable.`
+    : `Write a flowing narrative analysis that connects the signals, identifies patterns, and draws out strategic meaning. Use paragraphs, not bullet lists. Be insightful and forward-looking.`;
+
+  const systemPrompt = `You are a strategic intelligence analyst working with Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager at Esko.
+
+Your task is to synthesise multiple strategic signals into a coherent analysis focused on: ${focusLabels[focus] || focus}.
+
+${formatInstructions}
+
+Ground your analysis in the specific signals provided. Reference them by their titles when relevant. Draw connections between signals that the reader might miss. End with a clear "so what" — what should the reader do or think differently based on this synthesis.`;
+
+  const signalsContext = signals.map((s, i) =>
+    `### Signal ${i + 1}: ${s.title}
+${s.body || '(No detail)'}
+Tags: ${(s.tags || []).join(', ')}
+Date: ${s.captured_at || 'Unknown'}`
+  ).join('\n\n---\n\n');
+
+  const userMessage = `## Signals to Synthesise
+
+${signalsContext}
+
+${context ? `\n## Additional Context\n\n${context}` : ''}
+
+Please synthesise these ${signals.length} signals with a focus on ${focusLabels[focus] || focus}.`;
+
+  // Stream Claude response via TransformStream (same pattern as competitor research)
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const streamPromise = (async () => {
+    try {
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          stream: true,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        }),
+      });
+
+      if (!claudeRes.ok) {
+        const errText = await claudeRes.text();
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errText })}\n\n`));
+        await writer.close();
+        return;
+      }
+
+      const reader = claudeRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            await writer.write(encoder.encode(line + '\n\n'));
+          }
+        }
+      }
+
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
+    } catch (err) {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
+    } finally {
+      await writer.close();
+    }
+  })();
+
+  // Don't await — let it stream
+  streamPromise.catch(() => {});
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
 
 // ─── Competitor Research (web search) ─────────────────────────

@@ -490,6 +490,58 @@
         .type-reflection { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
         .type-note { background: var(--tint-subtle); color: var(--text-muted); }
 
+        /* Signal cards */
+        .signal-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 1rem; }
+        .signal-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.25rem;
+            cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s;
+            position: relative;
+        }
+        .signal-card:hover { border-color: var(--yellow); box-shadow: var(--shadow-sm); }
+        .signal-card-header { display: flex; align-items: flex-start; gap: 0.5rem; }
+        .signal-card-check { flex-shrink: 0; margin-top: 0.15rem; accent-color: var(--yellow); }
+        .signal-card-title { font-weight: 600; font-size: 0.9rem; color: var(--text-body); line-height: 1.4; }
+        .signal-card-body { font-size: 0.8rem; color: var(--text-muted); margin-top: 0.5rem; line-height: 1.5; }
+        .signal-card-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.65rem; }
+        .signal-card-source { font-size: 0.7rem; color: var(--yellow); opacity: 0.8; cursor: pointer; }
+        .signal-card-source:hover { text-decoration: underline; }
+        .signal-action-bar {
+            position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+            background: var(--surface); border: 1px solid var(--yellow); border-radius: var(--radius-pill);
+            padding: 0.6rem 1.25rem; display: flex; align-items: center; gap: 1rem;
+            box-shadow: var(--shadow-lg); z-index: 100; font-size: 0.85rem;
+            transition: opacity 0.2s;
+        }
+        .signal-action-bar .count-label { color: var(--yellow); font-weight: 600; }
+        .new-signal-form {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-md);
+            padding: 1.25rem; margin-bottom: 1.5rem; display: none;
+        }
+        .new-signal-form.open { display: block; }
+        .new-signal-form textarea { width: 100%; min-height: 80px; resize: vertical; margin-top: 0.5rem; }
+        .new-signal-form input[type="text"] { width: 100%; margin-top: 0.5rem; }
+        .new-signal-form .form-actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; justify-content: flex-end; }
+        .synthesis-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .synthesis-modal {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+            width: 90%; max-width: 800px; max-height: 85vh; overflow-y: auto;
+            padding: 1.75rem; box-shadow: var(--shadow-lg);
+        }
+        .synthesis-modal h3 { margin-bottom: 1rem; }
+        .synthesis-signals-list { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem; max-height: 120px; overflow-y: auto; }
+        .synthesis-signals-list li { padding: 0.15rem 0; }
+        .synthesis-options { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .synthesis-options label { font-size: 0.85rem; cursor: pointer; }
+        .synthesis-result { margin-top: 1.25rem; }
+        .synthesis-result .ask-answer { max-height: 50vh; overflow-y: auto; }
+
         /* Status badges */
         .status-active { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
         .status-on_hold { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
@@ -2845,7 +2897,10 @@
                         <i class="icon" data-lucide="newspaper"></i> Articles <span class="count" id="countArticles">-</span>
                     </button>
                     <button class="nav-item" data-view="thoughts">
-                        <i class="icon" data-lucide="lightbulb"></i> Thoughts & Signals <span class="count" id="countThoughts">-</span>
+                        <i class="icon" data-lucide="lightbulb"></i> Thoughts <span class="count" id="countThoughts">-</span>
+                    </button>
+                    <button class="nav-item" data-view="signals">
+                        <i class="icon" data-lucide="radar"></i> Signals <span class="count" id="countSignals">-</span>
                     </button>
                     <button class="nav-item" data-view="reflections">
                         <i class="icon" data-lucide="brain"></i> Reflections <span class="count" id="countReflections">-</span>
@@ -3069,7 +3124,8 @@
         ]);
 
         document.getElementById('countArticles').textContent = articles.count || 0;
-        document.getElementById('countThoughts').textContent = (thoughts.count || 0) + (signals.count || 0);
+        document.getElementById('countThoughts').textContent = thoughts.count || 0;
+        document.getElementById('countSignals').textContent = signals.count || 0;
         document.getElementById('countReflections').textContent = reflections.count || 0;
         document.getElementById('countSummaries').textContent = summaries.count || 0;
         document.getElementById('countFeedItems').textContent = feedItems.count || 0;
@@ -3105,6 +3161,7 @@
             case 'daily-note': await loadDailyNote(); break;
             case 'articles': await loadArticles(); break;
             case 'thoughts': await loadThoughts(); break;
+            case 'signals': await loadSignals(); break;
             case 'reflections': await loadReflections(); break;
             case 'summaries': await loadSummaries(); break;
             case 'feed-items': await loadFeedItems(); break;
@@ -4815,7 +4872,7 @@
         });
     }
 
-    // ─── Thoughts & Signals ───────────────────────────────────
+    // ─── Thoughts ──────────────────────────────────────────────
     async function loadThoughts() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading</div>';
@@ -4823,16 +4880,16 @@
         const { data, error } = await db
             .from('content')
             .select('id, title, type, tags, status, captured_at, body')
-            .in('type', ['thought', 'signal'])
+            .eq('type', 'thought')
             .order('captured_at', { ascending: false })
             .limit(100);
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No thoughts or signals yet.</div>'; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No thoughts yet.</div>'; return; }
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">Thoughts & Signals</h2>
+                <h2 class="page-title">Thoughts</h2>
             </div>
             <div class="table-wrap">
                 <table>
@@ -4859,6 +4916,425 @@
                 const item = data.find(t => t.id === row.dataset.id);
                 if (item) openContentModal(item);
             });
+        });
+    }
+
+    // ─── Signals ─────────────────────────────────────────────
+    let signalFilters = { tag: null, dateRange: null };
+    let signalSelectedIds = new Set();
+
+    async function loadSignals() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading signals</div>';
+        signalSelectedIds.clear();
+
+        // Fetch signals + unique tags for filter
+        const [{ data, error }, { data: tagRows }] = await Promise.all([
+            db.from('content')
+                .select('id, title, tags, status, captured_at, body, metadata')
+                .eq('type', 'signal')
+                .order('captured_at', { ascending: false })
+                .limit(200),
+            db.from('content')
+                .select('tags')
+                .eq('type', 'signal'),
+        ]);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        // Collect unique tags
+        const tagSet = new Set();
+        (tagRows || []).forEach(r => (r.tags || []).forEach(t => tagSet.add(t)));
+        const allTags = [...tagSet].sort();
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Signals</h2>
+                <span style="flex:1"></span>
+                <button class="btn" id="toggleNewSignal"><i class="icon" data-lucide="plus"></i> New Signal</button>
+            </div>
+            <div class="new-signal-form" id="newSignalForm">
+                <input type="text" id="newSignalTitle" placeholder="Signal title..." class="input">
+                <textarea id="newSignalBody" placeholder="Describe the signal — what did you observe?" class="input"></textarea>
+                <div style="margin-top:0.5rem">${buildTagEditor([])}</div>
+                <div class="form-actions">
+                    <button class="btn" id="cancelNewSignal">Cancel</button>
+                    <button class="btn btn-primary" id="saveNewSignal">Save Signal</button>
+                </div>
+            </div>
+            <div class="filters">
+                <select class="filter-select" id="signalTagFilter">
+                    <option value="">All tags</option>
+                    ${allTags.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+                </select>
+                <div class="filter-group">
+                    <button class="filter-btn signal-date-btn${!signalFilters.dateRange ? ' active' : ''}" data-days="">All time</button>
+                    <button class="filter-btn signal-date-btn${signalFilters.dateRange === 7 ? ' active' : ''}" data-days="7">7d</button>
+                    <button class="filter-btn signal-date-btn${signalFilters.dateRange === 30 ? ' active' : ''}" data-days="30">30d</button>
+                    <button class="filter-btn signal-date-btn${signalFilters.dateRange === 90 ? ' active' : ''}" data-days="90">90d</button>
+                </div>
+                <input type="text" class="search-input" placeholder="Search signals..." id="searchSignals">
+            </div>
+            <div class="signal-cards" id="signalCards"></div>
+            <div class="signal-action-bar" id="signalActionBar" style="display:none">
+                <span class="count-label" id="signalSelCount">0 selected</span>
+                <button class="btn btn-primary" id="synthesiseBtn">Synthesise</button>
+            </div>
+        `;
+
+        const allSignals = data || [];
+        renderSignalCards(allSignals);
+
+        // Wire new signal form
+        document.getElementById('toggleNewSignal').addEventListener('click', () => {
+            document.getElementById('newSignalForm').classList.toggle('open');
+        });
+        document.getElementById('cancelNewSignal').addEventListener('click', () => {
+            document.getElementById('newSignalForm').classList.remove('open');
+        });
+        wireTagEditor();
+
+        document.getElementById('saveNewSignal').addEventListener('click', async () => {
+            const title = document.getElementById('newSignalTitle').value.trim();
+            const body = document.getElementById('newSignalBody').value.trim();
+            if (!title) return;
+            const tags = currentTags || [];
+            const btn = document.getElementById('saveNewSignal');
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', data: { type: 'signal', title, body, tags, status: 'new' } }),
+                });
+                if (res.ok) {
+                    loadSignals();
+                    loadCounts();
+                } else {
+                    btn.textContent = 'Save Signal'; btn.disabled = false;
+                }
+            } catch { btn.textContent = 'Save Signal'; btn.disabled = false; }
+        });
+
+        // Wire tag filter
+        document.getElementById('signalTagFilter').addEventListener('change', (e) => {
+            signalFilters.tag = e.target.value || null;
+            renderSignalCards(allSignals);
+        });
+
+        // Wire date filter
+        document.querySelectorAll('.signal-date-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.signal-date-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                signalFilters.dateRange = btn.dataset.days ? parseInt(btn.dataset.days) : null;
+                renderSignalCards(allSignals);
+            });
+        });
+
+        // Wire search
+        document.getElementById('searchSignals').addEventListener('input', () => {
+            renderSignalCards(allSignals);
+        });
+
+        // Wire synthesise button
+        document.getElementById('synthesiseBtn').addEventListener('click', () => {
+            if (signalSelectedIds.size >= 2) openSynthesisModal(signalSelectedIds);
+        });
+
+        refreshIcons();
+    }
+
+    function filterSignals(signals) {
+        let filtered = signals;
+        if (signalFilters.tag) {
+            filtered = filtered.filter(s => (s.tags || []).includes(signalFilters.tag));
+        }
+        if (signalFilters.dateRange) {
+            const cutoff = new Date();
+            cutoff.setDate(cutoff.getDate() - signalFilters.dateRange);
+            filtered = filtered.filter(s => new Date(s.captured_at) >= cutoff);
+        }
+        const q = (document.getElementById('searchSignals')?.value || '').toLowerCase();
+        if (q) {
+            filtered = filtered.filter(s =>
+                (s.title || '').toLowerCase().includes(q) ||
+                (s.body || '').toLowerCase().includes(q) ||
+                (s.tags || []).some(t => t.toLowerCase().includes(q))
+            );
+        }
+        return filtered;
+    }
+
+    function renderSignalCards(allSignals) {
+        const container = document.getElementById('signalCards');
+        if (!container) return;
+        const filtered = filterSignals(allSignals);
+
+        if (!filtered.length) {
+            container.innerHTML = '<div class="empty">No signals match your filters.</div>';
+            return;
+        }
+
+        container.innerHTML = filtered.map(s => {
+            const excerpt = (s.body || '').substring(0, 150) + ((s.body || '').length > 150 ? '...' : '');
+            const sources = s.metadata?.source_ids || [];
+            const checked = signalSelectedIds.has(s.id) ? 'checked' : '';
+            return `
+                <div class="signal-card" data-id="${s.id}">
+                    <div class="signal-card-header">
+                        <input type="checkbox" class="signal-card-check" data-id="${s.id}" ${checked} onclick="event.stopPropagation()">
+                        <div class="signal-card-title">${esc(s.title)}</div>
+                    </div>
+                    <div class="signal-card-body">${esc(excerpt)}</div>
+                    <div class="signal-card-meta">
+                        ${(s.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+                        <span style="flex:1"></span>
+                        <span style="font-size:0.7rem;color:var(--text-muted)">${formatDate(s.captured_at)}</span>
+                    </div>
+                    <div class="signal-card-meta">
+                        ${sources.map(src =>
+                            `<span class="signal-card-source" data-source-type="${src.type}" data-source-id="${src.id}">
+                                <i class="icon" data-lucide="link" style="width:10px;height:10px"></i> Source
+                            </span>`
+                        ).join('')}
+                        <button class="btn-sm signal-find-related" data-id="${s.id}" onclick="event.stopPropagation()" style="font-size:0.7rem;padding:0.15rem 0.5rem">
+                            <i class="icon" data-lucide="search" style="width:10px;height:10px"></i> Find Related
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Wire card clicks to open modal
+        container.querySelectorAll('.signal-card').forEach(card => {
+            card.addEventListener('click', (e) => {
+                if (e.target.classList.contains('signal-card-check')) return;
+                const item = allSignals.find(s => s.id === card.dataset.id);
+                if (item) openContentModal(item);
+            });
+        });
+
+        // Wire checkboxes for multi-select
+        container.querySelectorAll('.signal-card-check').forEach(cb => {
+            cb.addEventListener('change', () => {
+                if (cb.checked) signalSelectedIds.add(cb.dataset.id);
+                else signalSelectedIds.delete(cb.dataset.id);
+                updateSignalActionBar();
+            });
+        });
+
+        // Wire Find Related buttons
+        container.querySelectorAll('.signal-find-related').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const signal = allSignals.find(s => s.id === btn.dataset.id);
+                if (!signal) return;
+                btn.textContent = 'Searching...'; btn.disabled = true;
+                try {
+                    const res = await fetch('/api/search', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ query: signal.body || signal.title, limit: 10, tables: ['content'] }),
+                    });
+                    const data = await res.json();
+                    if (!data.ok) throw new Error(data.error);
+                    const related = (data.results || []).filter(r => r.source_id !== signal.id);
+                    const card = btn.closest('.signal-card');
+                    let panel = card.querySelector('.related-panel');
+                    if (panel) panel.remove();
+                    if (!related.length) {
+                        card.insertAdjacentHTML('beforeend', '<div class="related-panel" style="margin-top:0.75rem;padding:0.5rem;font-size:0.8rem;color:var(--text-muted);border-top:1px solid var(--border)">No related content found.</div>');
+                    } else {
+                        card.insertAdjacentHTML('beforeend', `
+                            <div class="related-panel" style="margin-top:0.75rem;padding-top:0.5rem;border-top:1px solid var(--border)">
+                                <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.35rem">Related content:</div>
+                                ${related.slice(0, 5).map(r => `
+                                    <div style="font-size:0.8rem;padding:0.25rem 0;display:flex;gap:0.5rem;align-items:center">
+                                        <span class="type-badge type-${(r.metadata?.type || r.source_table)}" style="font-size:0.65rem;padding:0.1rem 0.4rem">${r.metadata?.type || r.source_table}</span>
+                                        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(r.metadata?.title || r.content_text?.substring(0, 60) || '')}</span>
+                                        <span style="font-size:0.7rem;color:var(--text-muted)">${Math.round(r.similarity * 100)}%</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        `);
+                    }
+                } catch (err) {
+                    console.error('Find related failed:', err);
+                } finally {
+                    btn.innerHTML = '<i class="icon" data-lucide="search" style="width:10px;height:10px"></i> Find Related';
+                    btn.disabled = false;
+                    refreshIcons();
+                }
+            });
+        });
+
+        // Wire source links
+        container.querySelectorAll('.signal-card-source').forEach(link => {
+            link.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                const sourceId = link.dataset.sourceId;
+                const sourceType = link.dataset.sourceType;
+                if (sourceType === 'content') {
+                    const { data } = await db.from('content').select('*').eq('id', sourceId).single();
+                    if (data) openContentModal(data);
+                }
+            });
+        });
+
+        refreshIcons();
+    }
+
+    function updateSignalActionBar() {
+        const bar = document.getElementById('signalActionBar');
+        const count = signalSelectedIds.size;
+        if (bar) {
+            bar.style.display = count >= 2 ? 'flex' : 'none';
+            const label = document.getElementById('signalSelCount');
+            if (label) label.textContent = `${count} selected`;
+        }
+    }
+
+    async function openSynthesisModal(signalIds) {
+        // Fetch selected signals
+        const { data: signals } = await db.from('content')
+            .select('id, title, body, tags')
+            .in('id', [...signalIds]);
+        if (!signals?.length) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'synthesis-overlay';
+        overlay.innerHTML = `
+            <div class="synthesis-modal">
+                <h3><i class="icon" data-lucide="sparkles" style="width:18px;height:18px"></i> Signal Synthesis</h3>
+                <div class="synthesis-signals-list">
+                    <ul>${signals.map(s => `<li>${esc(s.title)}</li>`).join('')}</ul>
+                </div>
+                <div class="synthesis-options">
+                    <div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.05em">Format</div>
+                        <label><input type="radio" name="synthFormat" value="narrative" checked> Narrative</label>
+                        <label><input type="radio" name="synthFormat" value="structured"> Structured</label>
+                    </div>
+                    <div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.05em">Focus</div>
+                        <select id="synthFocus" class="filter-select">
+                            <option value="strategic-implications">Strategic implications</option>
+                            <option value="trend-analysis">Trend analysis</option>
+                            <option value="competitive-positioning">Competitive positioning</option>
+                            <option value="risk-assessment">Risk assessment</option>
+                            <option value="opportunity-identification">Opportunity identification</option>
+                        </select>
+                    </div>
+                </div>
+                <textarea id="synthContext" class="input" rows="2" placeholder="Optional: Add context or guidance for the synthesis..." style="width:100%;margin-bottom:0.75rem"></textarea>
+                <div style="display:flex;gap:0.5rem">
+                    <button class="btn btn-primary" id="generateSynthesis"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Generate</button>
+                    <button class="btn" id="closeSynthesis">Cancel</button>
+                    <span style="flex:1"></span>
+                    <button class="btn" id="saveSynthesis" style="display:none"><i class="icon" data-lucide="save" style="width:14px;height:14px"></i> Save as Summary</button>
+                </div>
+                <div class="synthesis-result" id="synthesisResult"></div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        refreshIcons();
+
+        // Close
+        document.getElementById('closeSynthesis').addEventListener('click', () => overlay.remove());
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+
+        let synthesisText = '';
+
+        // Generate
+        document.getElementById('generateSynthesis').addEventListener('click', async () => {
+            const format = document.querySelector('input[name="synthFormat"]:checked').value;
+            const focus = document.getElementById('synthFocus').value;
+            const context = document.getElementById('synthContext').value.trim();
+            const resultDiv = document.getElementById('synthesisResult');
+            resultDiv.innerHTML = '<div class="ask-loading"><span class="spinner"></span> Synthesising signals...</div>';
+            synthesisText = '';
+
+            try {
+                const res = await fetch('/api/signal-synthesis', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        signal_ids: [...signalIds],
+                        format, focus, context: context || undefined,
+                    }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.error || 'Synthesis failed');
+                }
+
+                // Handle streaming SSE response
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                resultDiv.innerHTML = '<div class="ask-answer" id="synthesisOutput"></div>';
+                const output = document.getElementById('synthesisOutput');
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') break;
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                                    synthesisText += parsed.delta.text;
+                                    output.innerHTML = marked.parse(synthesisText);
+                                }
+                            } catch { /* skip non-JSON lines */ }
+                        }
+                    }
+                }
+
+                // Show save button
+                if (synthesisText) {
+                    document.getElementById('saveSynthesis').style.display = '';
+                }
+            } catch (err) {
+                resultDiv.innerHTML = `<div style="color:var(--red);font-size:0.85rem">Error: ${esc(err.message)}</div>`;
+            }
+        });
+
+        // Save synthesis
+        document.getElementById('saveSynthesis').addEventListener('click', async () => {
+            const btn = document.getElementById('saveSynthesis');
+            const format = document.querySelector('input[name="synthFormat"]:checked').value;
+            const focus = document.getElementById('synthFocus').value;
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        table: 'summaries',
+                        data: {
+                            type: 'signal-synthesis',
+                            content: synthesisText,
+                            metadata: { source_signal_ids: [...signalIds], focus, format },
+                            period_start: new Date().toISOString().split('T')[0],
+                            period_end: new Date().toISOString().split('T')[0],
+                        },
+                    }),
+                });
+                if (res.ok) {
+                    btn.textContent = 'Saved ✓';
+                } else {
+                    btn.textContent = 'Save as Summary'; btn.disabled = false;
+                }
+            } catch {
+                btn.textContent = 'Save as Summary'; btn.disabled = false;
+            }
         });
     }
 
@@ -8059,11 +8535,28 @@
                     <button id="askBtn" class="btn btn-primary">Ask</button>
                     <button id="searchBtn" class="btn">Search Only</button>
                 </div>
-                <div class="ask-filter-toggle" id="askFilterToggle">▸ Filter by source type</div>
+                <div class="ask-filter-toggle" id="askFilterToggle">▸ Filters</div>
                 <div class="ask-filters" id="askFilters">
-                    ${Object.entries(sourceTableLabels).map(([key, label]) => `
-                        <label><input type="checkbox" value="${key}" checked> ${label}</label>
-                    `).join('')}
+                    <div style="margin-bottom:0.75rem">
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.05em">Source types</div>
+                        ${Object.entries(sourceTableLabels).map(([key, label]) => `
+                            <label><input type="checkbox" value="${key}" checked> ${label}</label>
+                        `).join('')}
+                    </div>
+                    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;border-top:1px solid var(--border);padding-top:0.75rem">
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;text-transform:uppercase;letter-spacing:0.05em">Date range</div>
+                            <div style="display:flex;gap:0.4rem;align-items:center">
+                                <input type="date" id="askDateFrom" class="input" style="font-size:0.8rem;padding:0.3rem 0.5rem">
+                                <span style="color:var(--text-muted);font-size:0.8rem">to</span>
+                                <input type="date" id="askDateTo" class="input" style="font-size:0.8rem;padding:0.3rem 0.5rem">
+                            </div>
+                        </div>
+                        <div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.25rem;text-transform:uppercase;letter-spacing:0.05em">Tags</div>
+                            <input type="text" id="askTagFilter" class="input" placeholder="filter by tag..." style="font-size:0.8rem;padding:0.3rem 0.5rem;width:180px">
+                        </div>
+                    </div>
                 </div>
                 <div id="askResult"></div>
             </div>
@@ -8117,6 +8610,12 @@
                 const body = { question };
                 const tables = getSelectedTables();
                 if (tables) body.tables = tables;
+                const dateFrom = document.getElementById('askDateFrom')?.value;
+                const dateTo = document.getElementById('askDateTo')?.value;
+                const tagFilter = document.getElementById('askTagFilter')?.value?.trim();
+                if (dateFrom) body.date_from = dateFrom;
+                if (dateTo) body.date_to = dateTo;
+                if (tagFilter) body.tags = tagFilter.split(',').map(t => t.trim()).filter(Boolean);
 
                 const res = await fetch('/api/ask', {
                     method: 'POST',
@@ -8146,6 +8645,12 @@
                 const body = { query, limit: 15 };
                 const tables = getSelectedTables();
                 if (tables) body.tables = tables;
+                const dateFrom = document.getElementById('askDateFrom')?.value;
+                const dateTo = document.getElementById('askDateTo')?.value;
+                const tagFilter = document.getElementById('askTagFilter')?.value?.trim();
+                if (dateFrom) body.date_from = dateFrom;
+                if (dateTo) body.date_to = dateTo;
+                if (tagFilter) body.tags = tagFilter.split(',').map(t => t.trim()).filter(Boolean);
 
                 const res = await fetch('/api/search', {
                     method: 'POST',
@@ -8438,15 +8943,37 @@
                 <button class="btn-sm ${item.status === 'new' ? 'active-status' : ''}" data-set-status="new">New</button>
                 <button class="btn-sm ${item.status === 'read' ? 'active-status' : ''}" data-set-status="read">Read</button>
                 <button class="btn-sm ${item.status === 'archived' ? 'active-status' : ''}" data-set-status="archived">Archived</button>
+                ${item.type === 'article' ? '<button class="btn-sm" id="extractSignalsBtn" style="background:rgba(196,168,80,0.15);color:var(--yellow);margin-left:0.5rem"><i class="icon" data-lucide="radar" style="width:12px;height:12px"></i> Extract Signals</button>' : ''}
                 <span style="flex:1"></span>
                 <button class="btn-sm btn-danger" id="deleteArticleBtn" title="Delete article">Delete</button>
             </div>
         ` : '';
 
+        // Source backlinks for signals
+        const sourceIds = item.metadata?.source_ids || [];
+        let sourceBar = '';
+        if (sourceIds.length) {
+            const contentSourceIds = sourceIds.filter(s => s.type === 'content').map(s => s.id);
+            if (contentSourceIds.length) {
+                const { data: sourceItems } = await db.from('content').select('id, title, type').in('id', contentSourceIds);
+                if (sourceItems?.length) {
+                    sourceBar = `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.75rem;padding:0.5rem 0.75rem;background:rgba(196,168,80,0.08);border-radius:var(--radius-sm);border-left:3px solid var(--yellow)">
+                        <i class="icon" data-lucide="link" style="width:12px;height:12px"></i> Sources: ${sourceItems.map(s =>
+                            `<a href="#" class="source-backlink" data-id="${s.id}" style="color:var(--yellow)">${esc(s.title)}</a>`
+                        ).join(', ')}
+                    </div>`;
+                }
+            }
+        }
+
         const heroImg = item.metadata?.image_url
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
-        document.getElementById('contentModalBody').innerHTML = linkedBar + statusBar + heroImg + renderBody(item.body);
+        document.getElementById('contentModalBody').innerHTML = linkedBar + statusBar + sourceBar + heroImg + renderBody(item.body);
+        // Signal extraction results container
+        if (item.type === 'article') {
+            document.getElementById('contentModalBody').insertAdjacentHTML('beforeend', '<div id="extractedSignalsContainer"></div>');
+        }
         document.querySelector('.content-modal-scroll').scrollTop = 0;
         document.body.classList.add('content-open');
 
@@ -8479,6 +9006,85 @@
                 document.body.classList.remove('content-open');
                 loadArticles();
             }
+        });
+
+        // Wire Extract Signals button
+        document.getElementById('extractSignalsBtn')?.addEventListener('click', async () => {
+            const container = document.getElementById('extractedSignalsContainer');
+            if (!container) return;
+            container.innerHTML = '<div class="ask-loading"><span class="spinner"></span> Analysing article for signals...</div>';
+            try {
+                const res = await fetch('/api/extract-signals', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content_id: item.id }),
+                });
+                const data = await res.json();
+                if (!data.ok) throw new Error(data.error || 'Extraction failed');
+                const signals = data.signals || [];
+                if (!signals.length) {
+                    container.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.85rem">No signals identified in this article.</div>';
+                    return;
+                }
+                container.innerHTML = `
+                    <div style="margin-top:1.5rem;border-top:1px solid var(--border);padding-top:1rem">
+                        <h4 style="color:var(--yellow);margin-bottom:0.75rem"><i class="icon" data-lucide="radar" style="width:14px;height:14px"></i> Suggested Signals (${signals.length})</h4>
+                        ${signals.map((s, i) => `
+                            <div class="extracted-signal" data-idx="${i}" style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);padding:1rem;margin-bottom:0.75rem">
+                                <input type="text" class="input es-title" value="${esc(s.title)}" style="width:100%;font-weight:600;margin-bottom:0.4rem">
+                                <textarea class="input es-body" rows="3" style="width:100%;resize:vertical">${esc(s.observation)}</textarea>
+                                <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.35rem">Tags: ${(s.suggested_tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' ')}</div>
+                                <div style="display:flex;gap:0.5rem;margin-top:0.5rem;justify-content:flex-end">
+                                    <button class="btn-sm" onclick="this.closest('.extracted-signal').remove()">Dismiss</button>
+                                    <button class="btn-sm es-save" data-idx="${i}" style="background:rgba(196,168,80,0.15);color:var(--yellow)">Save Signal</button>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                // Wire save buttons
+                container.querySelectorAll('.es-save').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const card = btn.closest('.extracted-signal');
+                        const idx = parseInt(btn.dataset.idx);
+                        const title = card.querySelector('.es-title').value.trim();
+                        const body = card.querySelector('.es-body').value.trim();
+                        const tags = signals[idx]?.suggested_tags || [];
+                        if (!title) return;
+                        btn.textContent = 'Saving...'; btn.disabled = true;
+                        const saveRes = await fetch('/api/entity-log', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                table: 'content',
+                                data: {
+                                    type: 'signal', title, body, tags, status: 'new',
+                                    metadata: { source_ids: [{ type: 'content', id: item.id }] },
+                                },
+                            }),
+                        });
+                        if (saveRes.ok) {
+                            card.style.opacity = '0.4';
+                            card.style.pointerEvents = 'none';
+                            btn.textContent = 'Saved ✓';
+                        } else {
+                            btn.textContent = 'Save Signal'; btn.disabled = false;
+                        }
+                    });
+                });
+                refreshIcons();
+            } catch (err) {
+                container.innerHTML = `<div style="padding:1rem;color:var(--red);font-size:0.85rem">Error: ${esc(err.message)}</div>`;
+            }
+        });
+
+        // Wire source backlinks
+        document.querySelectorAll('.source-backlink').forEach(link => {
+            link.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const { data } = await db.from('content').select('*').eq('id', link.dataset.id).single();
+                if (data) openContentModal(data);
+            });
         });
 
         // Wire unlink pills (both products and competitors)
