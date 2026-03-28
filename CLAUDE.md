@@ -12,10 +12,12 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
                 │       ├── Supabase (PostgreSQL + pgvector)
                 │       ├── Cloudflare R2 (asset storage, bucket: knowledge-capture)
                 │       ├── Claude API (summaries, reviews, research, RAG)
-                │       └── Cloudflare AI (embeddings)
+                │       ├── Cloudflare AI (embeddings)
+                │       └── WebCenter Pack / Automation Engine APIs (MIS proxy)
                 │
                 ├── index.html          (public homepage)
-                └── admin/index.html    (admin dashboard SPA, ~8900 lines)
+                ├── admin/index.html    (admin dashboard SPA, ~8900 lines)
+                └── mis/index.html      (MIS simulator SPA, ~2500 lines)
 ```
 
 - **Hosting**: Cloudflare Pages — deploy with `npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true`
@@ -40,6 +42,8 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
 | `company_content` | Junction: companies ↔ content | company_id, content_id |
 | `product_assets` | Junction: products ↔ assets | product_id, asset_id |
 | `product_content` | Junction: products ↔ content | product_id, content_id |
+| `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active |
+| `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
 
 ## API Routes (`functions/api/[[path]].js`)
 
@@ -75,6 +79,38 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
 | `product-link` / `entity-link` | `handleProductUnlink` | Remove junction table entries |
 | `assets/:id` | `handleAssetDelete` | Delete from R2 + Supabase |
 
+**MIS Routes (`/api/mis/*`):**
+
+Connection Management:
+| Method | Route | Handler | Purpose |
+|--------|-------|---------|---------|
+| GET | `mis/connections` | `handleMisConnections` | List all connections (tokens excluded) |
+| GET | `mis/connections/:id` | `handleMisConnections` | Get single connection |
+| POST | `mis/connections` | `handleMisConnections` | Create connection (encrypts token) |
+| PATCH | `mis/connections/:id` | `handleMisConnections` | Update connection |
+| DELETE | `mis/connections/:id` | `handleMisConnections` | Delete connection |
+
+Job Management:
+| Method | Route | Handler | Purpose |
+|--------|-------|---------|---------|
+| GET | `mis/jobs` | `handleMisJobs` | List all jobs |
+| GET | `mis/jobs/:id` | `handleMisJobs` | Get single job |
+| POST | `mis/jobs` | `handleMisJobs` | Create job record |
+| PATCH | `mis/jobs/:id` | `handleMisJobs` | Update job (status, phase, etc.) |
+| DELETE | `mis/jobs/:id` | `handleMisJobs` | Delete job from monitor |
+
+WCP Proxy Routes (proxied to Esko APIs with server-side token):
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET | `mis/customers` | Fetch partners from IAM API |
+| GET | `mis/task-templates` | Fetch task templates from W2P API |
+| GET | `mis/product-templates` | Fetch product templates from W2P API |
+| GET | `mis/preflight-profiles` | Fetch preflight profiles from W2P API |
+| GET | `mis/job-details/:jobId` | Fetch job details from W2P API |
+| PUT | `mis/create-job` | Create job in WCP via W2P API |
+| POST | `mis/edit-job` | Update job status/phase in WCP |
+| GET | `mis/debug` | Debug endpoint for WCP connectivity |
+
 ## Frontend
 
 ### Homepage (`index.html`)
@@ -107,6 +143,46 @@ Single-page app, all inline (~8900 lines). No build step.
 - `refreshIcons()` — re-initialise Lucide icons after DOM updates
 - `renderBody(md)` — render markdown via Marked
 
+### MIS Simulator (`mis/index.html`)
+Single-page app for simulating a Management Information System. Creates jobs in Esko WebCenter Pack or Automation Engine. No build step.
+
+**Libraries** (CDN): Lucide icons
+
+**Views**: Overview, Create Job, Job Monitor, JSON Builder, Settings
+
+**Key Features**:
+- **Multi-connection support**: Configure multiple WCP and AE connections, switch between them
+- **Searchable dropdowns**: Customer and task template selects with type-to-search
+- **Job creation**: Build WCP job payloads with customer, tasks, templates, products
+- **Job monitoring**: Track jobs with status/phase sync from WCP API
+- **JSON builder**: Manual payload editor for advanced use
+- **Secure token storage**: Equipment Tokens encrypted at rest (AES-GCM) in Supabase
+
+**Connection Types**:
+- **WebCenter Pack (WCP)**: Cluster (eu/us/dev), ECAN, Repo ID, Equipment Token
+- **Automation Engine (AE)**: Server URL, Token (API integration planned)
+
+**Cluster Support**: Production clusters (`eu`/`us` → `w2p.{region}.esko.cloud`), dev/test clusters (e.g. `future.dev.cloudi.city`, `qa-eu-1.test.cloudi.city`)
+
+**Key JS Functions**:
+- `loadOverview()` — dashboard with job stats and connection status
+- `loadCreateJob()` — job creation form with searchable dropdowns
+- `loadJobMonitor()` — job list with refresh/delete/status update
+- `loadSettings()` — connection profile management (CRUD)
+- `createSearchableSelect()` — reusable searchable dropdown component
+- `misGet()` / `misPut()` / `misPost()` — API helpers with connection headers
+- `getStoredJobs()` — fetch jobs from Supabase (cached)
+- `storeJob()` / `updateStoredJob()` / `deleteStoredJob()` — Supabase job CRUD
+
+**Security Architecture**:
+- Tokens stored encrypted in Supabase (`encrypted_token` + `token_iv`, AES-GCM)
+- Encryption key (`MIS_ENCRYPTION_KEY`) only in Cloudflare env vars
+- Browser sends `X-MIS-Connection-Id` header → proxy decrypts token server-side → forwards to Esko API
+- Tokens never persist in the browser, never committed to git
+- Cloudflare Access JWT required for all MIS API routes
+
+**Known Limitation**: Esko APIs block requests from Cloudflare Worker IPs directly. The proxy works because tokens are decrypted and forwarded server-side, but Esko's gateway blocks some requests. Job creation works; job details retrieval may fail with `session.invalid` errors depending on the token/system.
+
 ## Key Patterns & Conventions
 
 - **API Supabase access**: Raw REST calls via `supabaseGet()`, `supabasePost()`, `supabasePatch()` helpers — NOT the Supabase JS client. These take `(url, key, path)` or `(url, key, table, data)`.
@@ -126,12 +202,20 @@ Single-page app, all inline (~8900 lines). No build step.
 - `OUTLOOK_ICS_URL` — Outlook calendar ICS feed URL
 - `ASSETS_BUCKET` — R2 binding (configured in wrangler.toml)
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
+- `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
+
+**Legacy MIS env vars (optional fallback, superseded by Supabase-backed connections):**
+- `WCP_REGION` — WCP cluster region
+- `WCP_ECAN` — Esko Cloud Account Number
+- `WCP_REPOID` — Repository ID
+- `WCP_EQUIPMENT_TOKEN` — Equipment Token
 
 ## Security
 
 - **RLS**: Enabled on all Supabase tables with no public policies. Only the service key has access.
 - **Auth**: Cloudflare Access JWT validated on every API request.
 - **No secrets in code**: All API keys in environment variables.
+- **MIS Token Encryption**: Equipment Tokens encrypted at rest using AES-GCM. Encryption key stored only in Cloudflare env vars (`MIS_ENCRYPTION_KEY`). Tokens decrypted on-demand server-side when proxying API calls. Browser never sees stored tokens.
 
 ## Deployment
 
@@ -150,3 +234,7 @@ No build step required — static HTML files + Pages Functions are deployed dire
 - RAG chat history / multi-turn conversations
 - AI auto-tagging on content capture
 - Embedding versioning (track model versions, support re-embedding on model change)
+- **MIS: Automation Engine API integration** — AE connection config exists but job creation/monitoring not yet implemented (awaiting API docs)
+- **MIS: WCP job refresh** — `getJobDetails` endpoint returns 404/session errors; may need alternative identifier or updated token handling
+- **MIS: Unified settings** — Consider merging admin and MIS settings into single page with shared appearance settings
+- **MIS: Admin navigation link** — Add MIS under Tools menu in admin sidebar for seamless navigation

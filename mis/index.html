@@ -1,0 +1,2468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MIS Simulator — Paul Land</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@300;400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Apply theme immediately to prevent flash -->
+    <script>
+        (function() {
+            try {
+                const s = JSON.parse(localStorage.getItem('paulland_admin_settings') || '{}');
+                const t = s.theme || 'dark';
+                const a = s.accentColor || 'sage';
+                document.documentElement.setAttribute('data-theme', t);
+                document.documentElement.setAttribute('data-accent', a);
+            } catch {}
+        })();
+    </script>
+    <style>
+        /* ─── Dark Theme (default) ─── */
+        :root, [data-theme="dark"] {
+            --void: #131318;
+            --void-light: #1a1a22;
+            --void-lighter: #22222c;
+            --star: #c8bfa8;
+            --star-dim: rgba(200, 191, 168, 0.3);
+            --text-muted: rgba(200, 191, 168, 0.4);
+            --text-body: rgba(200, 191, 168, 0.7);
+            --border: rgba(200, 191, 168, 0.08);
+            --border-hover: rgba(200, 191, 168, 0.15);
+            --sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            --mono: 'Inconsolata', monospace;
+            --radius-sm: 6px;
+            --radius-md: 8px;
+            --radius-lg: 12px;
+            --radius-pill: 20px;
+            --red: #c45050;
+            --yellow: #c4a850;
+            --blue: #5080c4;
+            --green: #3d8b6e;
+            --shadow: rgba(0, 0, 0, 0.3);
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.03);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.03);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+            --hover-bg: rgba(200, 191, 168, 0.03);
+            --hover-subtle: rgba(200, 191, 168, 0.02);
+            --tint-subtle: rgba(200, 191, 168, 0.08);
+            --tint-medium: rgba(200, 191, 168, 0.1);
+        }
+
+        /* ─── Light Theme ─── */
+        [data-theme="light"] {
+            --void: #f8f7f4;
+            --void-light: #f2f0ec;
+            --void-lighter: #eae8e3;
+            --star: #1a1a2e;
+            --star-dim: rgba(26, 26, 46, 0.2);
+            --text-muted: rgba(26, 26, 46, 0.4);
+            --text-body: rgba(26, 26, 46, 0.7);
+            --border: rgba(26, 26, 46, 0.10);
+            --border-hover: rgba(26, 26, 46, 0.18);
+            --red: #b03030;
+            --yellow: #9a7a10;
+            --blue: #3060a0;
+            --green: #2d7058;
+            --shadow: rgba(0, 0, 0, 0.08);
+            --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
+            --shadow-md: 0 4px 12px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.04);
+            --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+            --hover-bg: rgba(26, 26, 46, 0.03);
+            --hover-subtle: rgba(26, 26, 46, 0.02);
+            --tint-subtle: rgba(26, 26, 46, 0.08);
+            --tint-medium: rgba(26, 26, 46, 0.1);
+        }
+
+        /* ─── Accent Colours ─── */
+        :root, [data-accent="sage"] {
+            --accent: #3d8b6e;
+            --accent-dim: rgba(61, 139, 110, 0.18);
+            --accent-glow: rgba(61, 139, 110, 0.4);
+        }
+        [data-accent="gold"] {
+            --accent: #b89a30;
+            --accent-dim: rgba(184, 154, 48, 0.18);
+            --accent-glow: rgba(184, 154, 48, 0.4);
+        }
+        [data-accent="ocean"] {
+            --accent: #4078b8;
+            --accent-dim: rgba(64, 120, 184, 0.18);
+            --accent-glow: rgba(64, 120, 184, 0.4);
+        }
+        [data-accent="ember"] {
+            --accent: #c45050;
+            --accent-dim: rgba(196, 80, 80, 0.18);
+            --accent-glow: rgba(196, 80, 80, 0.4);
+        }
+        [data-accent="violet"] {
+            --accent: #8860c4;
+            --accent-dim: rgba(136, 96, 196, 0.18);
+            --accent-glow: rgba(136, 96, 196, 0.4);
+        }
+
+        [data-theme="light"][data-accent="sage"] { --accent: #2d7058; --accent-dim: rgba(45, 112, 88, 0.15); --accent-glow: rgba(45, 112, 88, 0.3); }
+        [data-theme="light"][data-accent="gold"] { --accent: #8a7020; --accent-dim: rgba(138, 112, 32, 0.15); --accent-glow: rgba(138, 112, 32, 0.3); }
+        [data-theme="light"][data-accent="ocean"] { --accent: #2d5f9e; --accent-dim: rgba(45, 95, 158, 0.15); --accent-glow: rgba(45, 95, 158, 0.3); }
+        [data-theme="light"][data-accent="ember"] { --accent: #a83030; --accent-dim: rgba(168, 48, 48, 0.15); --accent-glow: rgba(168, 48, 48, 0.3); }
+        [data-theme="light"][data-accent="violet"] { --accent: #6a40a8; --accent-dim: rgba(106, 64, 168, 0.15); --accent-glow: rgba(106, 64, 168, 0.3); }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: var(--void);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 1rem;
+            font-weight: 400;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ─── Layout ─── */
+        .layout { display: flex; min-height: 100vh; }
+
+        .sidebar {
+            width: 240px;
+            min-height: 100vh;
+            background: var(--void-light);
+            box-shadow: var(--shadow-sm);
+            padding: 1.5rem 0;
+            position: fixed;
+            top: 0;
+            left: 0;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+
+        .sidebar-brand {
+            padding: 0 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 0.75rem;
+        }
+
+        .sidebar-brand a {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            text-decoration: none;
+            transition: color 0.2s;
+        }
+        .sidebar-brand a:hover { color: var(--accent); }
+        .sidebar-brand h1 {
+            font-size: 1rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            margin-top: 0.3rem;
+        }
+
+        /* Nav Items */
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            width: 100%;
+            padding: 0.45rem 1.25rem;
+            background: none;
+            border: none;
+            color: var(--text-body);
+            font-family: var(--sans);
+            font-size: 0.82rem;
+            font-weight: 400;
+            cursor: pointer;
+            text-align: left;
+            transition: all 0.15s;
+        }
+        .nav-item:hover { color: var(--star); background: var(--hover-bg); }
+        .nav-item.active {
+            color: var(--accent);
+            background: var(--accent-dim);
+            font-weight: 500;
+        }
+        .nav-item .icon svg { width: 16px; height: 16px; stroke-width: 1.75; opacity: 0.7; }
+        .nav-item.active .icon svg { opacity: 1; }
+
+        .nav-group-label {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.4rem 1.25rem;
+            font-size: 0.65rem;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            cursor: pointer;
+            margin-top: 0.75rem;
+            user-select: none;
+        }
+        .nav-group-chevron { font-size: 0.55rem; opacity: 0.5; transition: transform 0.2s; }
+        .nav-group-label.collapsed .nav-group-chevron { transform: rotate(-90deg); }
+        .nav-group-items { overflow: hidden; max-height: 500px; opacity: 1; transition: max-height 0.3s, opacity 0.2s; }
+        .nav-group-items.collapsed { max-height: 0; opacity: 0; }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding: 1rem 1.25rem;
+            border-top: 1px solid var(--border);
+            display: flex;
+            gap: 0.5rem;
+        }
+        .sidebar-footer button {
+            background: none;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            padding: 0.4rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .sidebar-footer button:hover { color: var(--star); border-color: var(--border-hover); }
+        .sidebar-footer button svg { width: 16px; height: 16px; }
+
+        /* ─── Main Content ─── */
+        .main { flex: 1; margin-left: 240px; padding: 2rem; min-height: 100vh; }
+
+        .view-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1.5rem;
+            gap: 1rem;
+        }
+        .view-title { font-size: 1.4rem; font-weight: 600; letter-spacing: -0.01em; }
+
+        /* ─── Solution Tabs ─── */
+        .solution-tabs {
+            display: flex;
+            gap: 0;
+            background: var(--void-lighter);
+            border-radius: var(--radius-md);
+            padding: 3px;
+            margin-bottom: 1.5rem;
+        }
+        .solution-tab {
+            padding: 0.5rem 1.25rem;
+            border: none;
+            background: none;
+            color: var(--text-muted);
+            font-family: var(--sans);
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: all 0.15s;
+            position: relative;
+        }
+        .solution-tab:hover { color: var(--text-body); }
+        .solution-tab.active {
+            background: var(--accent);
+            color: #fff;
+            box-shadow: var(--shadow-sm);
+        }
+        .solution-tab.disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .solution-tab .coming-soon {
+            font-size: 0.6rem;
+            background: var(--tint-subtle);
+            padding: 1px 5px;
+            border-radius: var(--radius-pill);
+            margin-left: 0.4rem;
+            vertical-align: middle;
+        }
+
+        /* ─── Connection Indicator ─── */
+        .connection-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .active-profile {
+            background: color-mix(in srgb, var(--accent) 8%, transparent) !important;
+        }
+        .active-profile td { border-color: color-mix(in srgb, var(--accent) 20%, var(--border)) !important; }
+        .token-prompt {
+            border: 1px solid var(--yellow) !important;
+            margin-bottom: 1.5rem;
+        }
+
+        /* ─── Cards ─── */
+        .card {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            padding: 1.5rem;
+            box-shadow: var(--shadow-sm);
+        }
+        .card + .card { margin-top: 1rem; }
+        .stat-grid > .card + .card { margin-top: 0; }
+        .card-title {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .card-title svg { width: 18px; height: 18px; opacity: 0.6; }
+
+        /* ─── Forms ─── */
+        .form-group { margin-bottom: 1rem; }
+        .form-label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 0.55rem 0.75rem;
+            background: var(--void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 0.85rem;
+            transition: border-color 0.15s;
+        }
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-dim);
+        }
+        .form-textarea { min-height: 80px; resize: vertical; }
+        .form-select { cursor: pointer; }
+        .form-select option { background: var(--void); color: var(--star); }
+        .form-hint { font-size: 0.72rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+        /* ─── Searchable Dropdown ─── */
+        .searchable-select {
+            position: relative;
+        }
+        .searchable-select .ss-display {
+            width: 100%;
+            padding: 0.55rem 0.75rem;
+            padding-right: 2rem;
+            background: var(--void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: border-color 0.15s;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .searchable-select .ss-display:hover { border-color: var(--border-hover); }
+        .searchable-select.open .ss-display {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-dim);
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+        .searchable-select .ss-display::after {
+            content: '▾';
+            position: absolute;
+            right: 0.75rem;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7rem;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+        .searchable-select .ss-display.placeholder { color: var(--text-muted); }
+        .searchable-select .ss-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--void);
+            border: 1px solid var(--accent);
+            border-top: none;
+            border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+            box-shadow: var(--shadow-lg);
+            z-index: 1000;
+            max-height: 280px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        .searchable-select.open .ss-dropdown { display: flex; }
+        .searchable-select:not(.open) .ss-dropdown { display: none; }
+        .searchable-select .ss-search {
+            padding: 0.5rem 0.75rem;
+            border: none;
+            border-bottom: 1px solid var(--border);
+            background: var(--void-lighter);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 0.82rem;
+            outline: none;
+            flex-shrink: 0;
+        }
+        .searchable-select .ss-search::placeholder { color: var(--text-muted); }
+        .searchable-select .ss-options {
+            overflow-y: auto;
+            flex: 1;
+        }
+        .searchable-select .ss-option {
+            padding: 0.45rem 0.75rem;
+            cursor: pointer;
+            font-size: 0.82rem;
+            color: var(--text-body);
+            transition: background 0.1s;
+        }
+        .searchable-select .ss-option:hover,
+        .searchable-select .ss-option.highlighted {
+            background: var(--accent-dim);
+            color: var(--star);
+        }
+        .searchable-select .ss-option.selected {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .searchable-select .ss-empty {
+            padding: 0.75rem;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            text-align: center;
+        }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+
+        /* ─── Buttons ─── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--void-lighter);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn:hover { border-color: var(--border-hover); background: var(--hover-bg); }
+        .btn svg { width: 16px; height: 16px; }
+        .btn-primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+        .btn-primary:hover { opacity: 0.9; background: var(--accent); border-color: var(--accent); }
+        .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+        .btn-danger { color: var(--red); border-color: var(--red); }
+        .btn-danger:hover { background: rgba(196, 80, 80, 0.1); }
+
+        /* ─── Status Badges ─── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.15rem 0.55rem;
+            border-radius: var(--radius-pill);
+            font-size: 0.7rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+        }
+        .badge-active { background: rgba(61, 139, 110, 0.15); color: var(--green); }
+        .badge-created { background: var(--accent-dim); color: var(--accent); }
+        .badge-completed { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .badge-hold { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .badge-cancelled, .badge-failed { background: rgba(196, 80, 80, 0.15); color: var(--red); }
+        .badge-phase {
+            background: var(--tint-subtle);
+            color: var(--text-body);
+        }
+
+        /* ─── Task Cards ─── */
+        .task-card {
+            background: var(--void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            position: relative;
+        }
+        .task-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+        }
+        .task-card-number {
+            font-size: 0.7rem;
+            font-weight: 600;
+            color: var(--accent);
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+        .task-remove {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.2rem;
+            transition: color 0.15s;
+        }
+        .task-remove:hover { color: var(--red); }
+
+        /* ─── JSON Preview ─── */
+        .json-preview {
+            background: var(--void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            font-family: var(--mono);
+            font-size: 0.78rem;
+            line-height: 1.6;
+            color: var(--text-body);
+            overflow-x: auto;
+            max-height: 500px;
+            overflow-y: auto;
+            white-space: pre;
+        }
+        .json-key { color: var(--accent); }
+        .json-string { color: var(--yellow); }
+        .json-number { color: var(--blue); }
+        .json-boolean { color: var(--red); }
+
+        /* ─── Table ─── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .data-table th {
+            font-size: 0.7rem;
+            font-weight: 600;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            padding: 0.6rem 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        .data-table td {
+            padding: 0.65rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+            color: var(--text-body);
+        }
+        .data-table tr:hover td { background: var(--hover-subtle); }
+
+        /* ─── Connection Status ─── */
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-dot.connected { background: var(--green); box-shadow: 0 0 6px var(--green); }
+        .status-dot.disconnected { background: var(--red); box-shadow: 0 0 6px var(--red); }
+        .status-dot.checking { background: var(--yellow); animation: pulse 1s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+        /* ─── Toast ─── */
+        .toast-container {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .toast {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 0.75rem 1rem;
+            box-shadow: var(--shadow-lg);
+            font-size: 0.82rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            animation: slideIn 0.2s ease-out;
+            min-width: 280px;
+        }
+        .toast.success { border-left: 3px solid var(--green); }
+        .toast.error { border-left: 3px solid var(--red); }
+        .toast.info { border-left: 3px solid var(--blue); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        /* ─── Collapsible ─── */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            user-select: none;
+        }
+        .collapsible-header .chevron {
+            transition: transform 0.2s;
+            font-size: 0.7rem;
+            opacity: 0.5;
+        }
+        .collapsible-header.collapsed .chevron { transform: rotate(-90deg); }
+        .collapsible-body { overflow: hidden; transition: max-height 0.3s ease; }
+        .collapsible-body.collapsed { max-height: 0 !important; }
+
+        /* ─── Spinner ─── */
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ─── Empty State ─── */
+        .empty-state {
+            text-align: center;
+            padding: 3rem 2rem;
+            color: var(--text-muted);
+        }
+        .empty-state svg { width: 40px; height: 40px; margin-bottom: 0.75rem; opacity: 0.3; }
+        .empty-state p { font-size: 0.85rem; }
+
+        /* ─── Config Display ─── */
+        .config-grid {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 0.5rem 1rem;
+            font-size: 0.82rem;
+        }
+        .config-label { color: var(--text-muted); font-weight: 500; }
+        .config-value { font-family: var(--mono); font-size: 0.78rem; }
+
+        /* ─── Responsive ─── */
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; padding: 1rem 0; }
+            .sidebar-brand h1, .nav-item span, .nav-group-label { display: none; }
+            .nav-item { justify-content: center; padding: 0.6rem; }
+            .main { margin-left: 60px; padding: 1rem; }
+            .form-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-brand">
+                <a href="/">
+                    <i data-lucide="arrow-left"></i>
+                    paulland.io
+                </a>
+                <h1>MIS Simulator</h1>
+            </div>
+            <nav>
+                <button class="nav-item active" data-view="overview">
+                    <span class="icon"><i data-lucide="layout-dashboard"></i></span>
+                    <span>Overview</span>
+                </button>
+                <button class="nav-item" data-view="create-job">
+                    <span class="icon"><i data-lucide="plus-circle"></i></span>
+                    <span>Create Job</span>
+                </button>
+                <button class="nav-item" data-view="job-monitor">
+                    <span class="icon"><i data-lucide="activity"></i></span>
+                    <span>Job Monitor</span>
+                </button>
+                <div class="nav-group-label" data-group="tools">Tools <span class="nav-group-chevron">&#9660;</span></div>
+                <div class="nav-group-items" data-group="tools">
+                    <button class="nav-item" data-view="json-builder">
+                        <span class="icon"><i data-lucide="braces"></i></span>
+                        <span>JSON Builder</span>
+                    </button>
+                </div>
+                <button class="nav-item" data-view="settings">
+                    <span class="icon"><i data-lucide="settings"></i></span>
+                    <span>Settings</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <button onclick="toggleTheme()" title="Toggle theme">
+                    <i data-lucide="moon"></i>
+                </button>
+                <button onclick="window.location.href='/admin/'" title="Admin Dashboard">
+                    <i data-lucide="layout-grid"></i>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main" id="mainContent">
+            <!-- Populated by JS -->
+        </main>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+    // ─── State ──────────────────────────────────────────────────
+    let currentView = 'overview';
+
+    // Cached reference data
+    let cachedCustomers = null;
+    let cachedTaskTemplates = null;
+    let cachedProductTemplates = null;
+    let cachedPreflightProfiles = null;
+    let cachedConfig = null;
+
+    // Job creation state
+    let jobTasks = [];
+    let taskCounter = 0;
+
+    // ─── Settings ───────────────────────────────────────────────
+    function getSettings() {
+        try { return JSON.parse(localStorage.getItem('paulland_mis_settings') || '{}'); }
+        catch { return {}; }
+    }
+    function saveSettings(s) {
+        localStorage.setItem('paulland_mis_settings', JSON.stringify(s));
+    }
+
+    // ─── Connection Profiles (localStorage + sessionStorage tokens) ──
+    // ─── Connection Store (Supabase-backed with local cache) ────
+    let _profilesCache = null; // In-memory cache of profiles (no tokens)
+
+    function getConnectionStore() {
+        // Legacy compat — return shape expected by existing code
+        const profiles = _profilesCache || [];
+        const activeP = profiles.find(p => p.is_active);
+        return { profiles, activeProfileId: activeP?.id || null };
+    }
+
+    function getProfiles() { return _profilesCache || []; }
+
+    function getActiveProfile() {
+        const profiles = getProfiles();
+        return profiles.find(p => p.is_active) || null;
+    }
+
+    async function fetchProfiles() {
+        try {
+            const res = await fetch('/api/mis/connections');
+            if (!res.ok) throw new Error('Failed to fetch connections');
+            const rows = await res.json();
+            // Map Supabase column names to frontend field names
+            _profilesCache = rows.map(r => ({
+                id: r.id,
+                name: r.name,
+                type: r.type,
+                is_active: r.is_active,
+                cluster: r.cluster,
+                ecan: r.ecan,
+                repoId: r.repo_id,
+                serverUrl: r.server_url,
+                hasToken: true, // If it exists in DB, it has an encrypted token
+                created_at: r.created_at,
+                updated_at: r.updated_at,
+            }));
+            return _profilesCache;
+        } catch (e) {
+            console.error('fetchProfiles error:', e);
+            _profilesCache = _profilesCache || [];
+            return _profilesCache;
+        }
+    }
+
+    async function setActiveProfile(profileId) {
+        await fetch(`/api/mis/connections/${profileId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: true }),
+        });
+        await fetchProfiles();
+        clearCachedRefData();
+    }
+
+    async function addProfile(profile) {
+        const body = {
+            name: profile.name,
+            type: profile.type || 'wcp',
+            cluster: profile.type === 'wcp' ? profile.cluster : null,
+            ecan: profile.type === 'wcp' ? profile.ecan : null,
+            repo_id: profile.type === 'wcp' ? profile.repoId : null,
+            server_url: profile.type === 'ae' ? (profile.server_url || profile.serverUrl) : null,
+            token: profile.token,
+            is_active: getProfiles().length === 0, // Auto-activate if first
+        };
+        const res = await fetch('/api/mis/connections', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const created = await res.json();
+        await fetchProfiles();
+        return created.id;
+    }
+
+    async function updateProfile(id, updates) {
+        const body = {};
+        if (updates.name !== undefined) body.name = updates.name;
+        if (updates.type !== undefined) body.type = updates.type;
+        if (updates.cluster !== undefined) body.cluster = updates.cluster;
+        if (updates.ecan !== undefined) body.ecan = updates.ecan;
+        if (updates.repoId !== undefined) body.repo_id = updates.repoId;
+        if (updates.serverUrl !== undefined) body.server_url = updates.serverUrl;
+        if (updates.server_url !== undefined) body.server_url = updates.server_url;
+        if (updates.token) body.token = updates.token;
+        await fetch(`/api/mis/connections/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await fetchProfiles();
+        clearCachedRefData();
+    }
+
+    async function deleteProfile(id) {
+        await fetch(`/api/mis/connections/${id}`, { method: 'DELETE' });
+        await fetchProfiles();
+        clearCachedRefData();
+    }
+
+    // Token is server-side only — these helpers indicate presence
+    function getProfileToken(profileId) {
+        // Token is always server-side; check if profile exists (it always has a token if it's in DB)
+        const p = getProfiles().find(pr => pr.id === profileId);
+        return p ? '••••••' : null; // Return truthy but masked
+    }
+    function setProfileToken(profileId, token) {
+        // No-op: tokens are set via addProfile/updateProfile
+    }
+
+    function clearCachedRefData() {
+        cachedCustomers = null;
+        cachedTaskTemplates = null;
+        cachedProductTemplates = null;
+        cachedPreflightProfiles = null;
+        cachedConfig = null;
+    }
+
+    // Active connection helpers
+    function getActiveConnectionId() {
+        const p = getActiveProfile();
+        return p?.id || null;
+    }
+    function hasActiveConnection() {
+        const p = getActiveProfile();
+        if (!p) return false;
+        return !!(p.ecan && p.repoId);
+    }
+    function getActiveConnectionCreds() {
+        const p = getActiveProfile();
+        if (!p) return {};
+        return {
+            cluster: p.cluster || 'eu',
+            ecan: p.ecan || '',
+            repoId: p.repoId || '',
+            connectionId: p.id, // Used to fetch token server-side
+            type: p.type || 'wcp',
+            name: p.name || '',
+        };
+    }
+    function getBaseUrls() {
+        const c = getActiveConnectionCreds();
+        const cluster = c.cluster || 'eu';
+        const isProd = /^(eu|us)$/i.test(cluster);
+        if (isProd) {
+            return { w2p: `https://w2p.${cluster}.esko.cloud`, iam: `https://iam.${cluster}.esko.cloud` };
+        }
+        return { w2p: `https://w2p.${cluster}`, iam: `https://iam.${cluster}` };
+    }
+
+    // One-time migration from old wcp_creds sessionStorage
+    (function migrateOldCreds() {
+        if (localStorage.getItem('paulland_mis_connections')) return;
+        try {
+            const old = JSON.parse(sessionStorage.getItem('wcp_creds') || '{}');
+            if (old.token && old.ecan) {
+                const id = Date.now().toString(36);
+                const store = {
+                    profiles: [{ id, name: 'Default', type: 'wcp', cluster: old.region || 'eu', ecan: old.ecan, repoId: old.repoId || '' }],
+                    activeProfileId: id
+                };
+                localStorage.setItem('paulland_mis_connections', JSON.stringify(store));
+                sessionStorage.setItem('mis_token_' + id, old.token);
+                sessionStorage.removeItem('wcp_creds');
+            }
+        } catch {}
+    })();
+
+    // ─── Jobs Storage (Supabase-backed) ─────────────────────────
+    let _cachedJobs = null;
+    let _jobsCacheTime = 0;
+
+    async function getStoredJobs(forceRefresh = false) {
+        // Cache for 5 seconds to avoid excessive API calls
+        if (!forceRefresh && _cachedJobs && Date.now() - _jobsCacheTime < 5000) return _cachedJobs;
+        try {
+            const resp = await fetch(`${API_BASE}/jobs`, { headers: { 'Accept': 'application/json' } });
+            if (!resp.ok) throw new Error('Failed to fetch jobs');
+            const jobs = await resp.json();
+            _cachedJobs = jobs;
+            _jobsCacheTime = Date.now();
+            return jobs;
+        } catch (e) {
+            console.error('Failed to load jobs:', e);
+            return _cachedJobs || [];
+        }
+    }
+    async function storeJob(job) {
+        try {
+            const resp = await fetch(`${API_BASE}/jobs`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(job),
+            });
+            if (!resp.ok) throw new Error('Failed to save job');
+            _cachedJobs = null; // Invalidate cache
+            return await resp.json();
+        } catch (e) {
+            console.error('Failed to store job:', e);
+            return null;
+        }
+    }
+    async function updateStoredJob(jobId, updates) {
+        // Find the Supabase row ID by job_id
+        const jobs = await getStoredJobs();
+        const job = jobs.find(j => j.job_id === jobId);
+        if (!job) return;
+        try {
+            await fetch(`${API_BASE}/jobs/${job.id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updates),
+            });
+            _cachedJobs = null; // Invalidate cache
+        } catch (e) {
+            console.error('Failed to update job:', e);
+        }
+    }
+    async function deleteStoredJob(jobId) {
+        const jobs = await getStoredJobs();
+        const job = jobs.find(j => j.job_id === jobId);
+        if (!job) return;
+        try {
+            await fetch(`${API_BASE}/jobs/${job.id}`, { method: 'DELETE' });
+            _cachedJobs = null; // Invalidate cache
+        } catch (e) {
+            console.error('Failed to delete job:', e);
+        }
+    }
+
+    // ─── API Helpers (proxy via /api/mis, token from sessionStorage) ───
+    const API_BASE = '/api/mis';
+
+    function misHeaders() {
+        const c = getActiveConnectionCreds();
+        const h = { 'Accept': 'application/json' };
+        // Prefer connection ID (server-side token resolution)
+        if (c.connectionId) {
+            h['X-MIS-Connection-Id'] = c.connectionId;
+        } else {
+            // Legacy fallback
+            if (c.token) h['X-WCP-Token'] = c.token;
+        }
+        if (c.cluster) {
+            h['X-WCP-Cluster'] = c.cluster;
+            h['X-WCP-Region'] = c.cluster;
+        }
+        if (c.ecan) h['X-WCP-Ecan'] = c.ecan;
+        if (c.repoId) h['X-WCP-RepoId'] = c.repoId;
+        return h;
+    }
+
+    async function misGet(path) {
+        if (!hasActiveConnection()) throw new Error('No active connection configured. Go to Settings.');
+        const resp = await fetch(`${API_BASE}/${path}`, { headers: misHeaders() });
+        if (!resp.ok) {
+            const body = await resp.text().catch(() => '');
+            throw new Error(`API ${resp.status}: ${body.slice(0, 200)}`);
+        }
+        return resp.json();
+    }
+
+    async function misPut(path, body) {
+        if (!hasActiveConnection()) throw new Error('No active connection configured. Go to Settings.');
+        const resp = await fetch(`${API_BASE}/${path}`, {
+            method: 'PUT',
+            headers: { ...misHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const text = await resp.text().catch(() => '');
+        let data;
+        try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+        if (!resp.ok) {
+            const detail = data.error || data.message || data.detail || data.rawResponse || `HTTP ${resp.status}`;
+            console.error('API Error:', resp.status, data);
+            throw new Error(`API ${resp.status}: ${typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)}`);
+        }
+        return data;
+    }
+
+    async function misPost(path, body) {
+        if (!hasActiveConnection()) throw new Error('No active connection configured. Go to Settings.');
+        const resp = await fetch(`${API_BASE}/${path}`, {
+            method: 'POST',
+            headers: { ...misHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) throw new Error(data.error || `API error: ${resp.status}`);
+        return data;
+    }
+
+    // ─── Searchable Select Component ─────────────────────────────
+    // Usage: createSearchableSelect(containerId, options, { placeholder, onchange })
+    //   options = [{ value: 'abc', label: 'Display Text', searchText: 'optional extra search terms' }]
+    function createSearchableSelect(containerId, options, config = {}) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.className = 'searchable-select';
+        container.dataset.ssValue = '';
+
+        const placeholder = config.placeholder || 'Select...';
+        const display = document.createElement('div');
+        display.className = 'ss-display placeholder';
+        display.textContent = placeholder;
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'ss-dropdown';
+
+        const search = document.createElement('input');
+        search.className = 'ss-search';
+        search.type = 'text';
+        search.placeholder = 'Type to search...';
+
+        const optionsDiv = document.createElement('div');
+        optionsDiv.className = 'ss-options';
+
+        dropdown.appendChild(search);
+        dropdown.appendChild(optionsDiv);
+        container.innerHTML = '';
+        container.appendChild(display);
+        container.appendChild(dropdown);
+
+        let highlightedIdx = -1;
+
+        function renderOptions(filter = '') {
+            const query = filter.toLowerCase();
+            const filtered = options.filter(o => {
+                const txt = (o.label + ' ' + (o.searchText || '') + ' ' + o.value).toLowerCase();
+                return txt.includes(query);
+            });
+            optionsDiv.innerHTML = '';
+            highlightedIdx = -1;
+            if (filtered.length === 0) {
+                optionsDiv.innerHTML = '<div class="ss-empty">No matches found</div>';
+                return;
+            }
+            filtered.forEach((opt, i) => {
+                const div = document.createElement('div');
+                div.className = 'ss-option' + (opt.value === container.dataset.ssValue ? ' selected' : '');
+                div.textContent = opt.label;
+                div.dataset.value = opt.value;
+                div.addEventListener('mousedown', e => {
+                    e.preventDefault();
+                    selectOption(opt);
+                });
+                div.addEventListener('mouseenter', () => {
+                    highlightedIdx = i;
+                    updateHighlight(optionsDiv);
+                });
+                optionsDiv.appendChild(div);
+            });
+        }
+
+        function updateHighlight(optDiv) {
+            const items = optDiv.querySelectorAll('.ss-option');
+            items.forEach((el, i) => el.classList.toggle('highlighted', i === highlightedIdx));
+            if (highlightedIdx >= 0 && items[highlightedIdx]) {
+                items[highlightedIdx].scrollIntoView({ block: 'nearest' });
+            }
+        }
+
+        function selectOption(opt) {
+            container.dataset.ssValue = opt.value;
+            display.textContent = opt.label;
+            display.classList.remove('placeholder');
+            close();
+            if (config.onchange) config.onchange(opt.value, opt);
+        }
+
+        function open() {
+            container.classList.add('open');
+            search.value = '';
+            renderOptions();
+            search.focus();
+        }
+
+        function close() {
+            container.classList.remove('open');
+        }
+
+        function isOpen() { return container.classList.contains('open'); }
+
+        display.addEventListener('click', e => {
+            e.stopPropagation();
+            if (isOpen()) close(); else open();
+        });
+
+        search.addEventListener('input', () => renderOptions(search.value));
+
+        search.addEventListener('keydown', e => {
+            const items = optionsDiv.querySelectorAll('.ss-option');
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                highlightedIdx = Math.min(highlightedIdx + 1, items.length - 1);
+                updateHighlight(optionsDiv);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                highlightedIdx = Math.max(highlightedIdx - 1, 0);
+                updateHighlight(optionsDiv);
+            } else if (e.key === 'Enter') {
+                e.preventDefault();
+                if (highlightedIdx >= 0 && items[highlightedIdx]) {
+                    const val = items[highlightedIdx].dataset.value;
+                    const opt = options.find(o => o.value === val);
+                    if (opt) selectOption(opt);
+                }
+            } else if (e.key === 'Escape') {
+                close();
+            }
+        });
+
+        search.addEventListener('blur', () => {
+            setTimeout(close, 150);
+        });
+
+        // Close on outside click
+        document.addEventListener('click', e => {
+            if (!container.contains(e.target)) close();
+        });
+
+        // Expose API
+        container._ss = {
+            getValue: () => container.dataset.ssValue,
+            setValue: (val) => {
+                const opt = options.find(o => o.value === val);
+                if (opt) {
+                    container.dataset.ssValue = val;
+                    display.textContent = opt.label;
+                    display.classList.remove('placeholder');
+                } else {
+                    container.dataset.ssValue = '';
+                    display.textContent = placeholder;
+                    display.classList.add('placeholder');
+                }
+            },
+            clear: () => {
+                container.dataset.ssValue = '';
+                display.textContent = placeholder;
+                display.classList.add('placeholder');
+            }
+        };
+
+        return container._ss;
+    }
+
+    // ─── Toast Notifications ────────────────────────────────────
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        const icons = { success: 'check-circle', error: 'alert-circle', info: 'info' };
+        toast.innerHTML = `<i data-lucide="${icons[type] || 'info'}"></i> ${message}`;
+        container.appendChild(toast);
+        refreshIcons();
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, 4000);
+    }
+
+    // ─── Refresh Icons ──────────────────────────────────────────
+    function refreshIcons() { lucide.createIcons(); }
+
+    // ─── Navigation ─────────────────────────────────────────────
+    function navigateToView(view) {
+        currentView = view;
+        document.querySelectorAll('.nav-item').forEach(n => {
+            n.classList.toggle('active', n.dataset.view === view);
+        });
+        loadView(view);
+    }
+
+    async function loadView(view) {
+        const main = document.getElementById('mainContent');
+        switch (view) {
+            case 'overview': await loadOverview(); break;
+            case 'create-job': await loadCreateJob(); break;
+            case 'job-monitor': await loadJobMonitor(); break;
+            case 'json-builder': await loadJsonBuilder(); break;
+            case 'settings': await loadSettings(); break;
+            default: main.innerHTML = '<div class="empty-state"><p>View not found</p></div>';
+        }
+        refreshIcons();
+    }
+
+    // ─── Load Reference Data (via proxy) ───────────────────────
+    async function loadRefData() {
+        if (!hasActiveConnection()) {
+            showToast('Configure a connection in Settings first.', 'error');
+            return;
+        }
+
+        const load = async (name, path) => {
+            try { return await misGet(path); }
+            catch (e) { console.error(`${name} failed:`, e.message); showToast(`${name}: ${e.message}`, 'error'); return null; }
+        };
+
+        const [customers, taskTemplates, productTemplates, preflightProfiles] = await Promise.all([
+            cachedCustomers || load('Customers', 'customers'),
+            cachedTaskTemplates || load('Task Templates', 'task-templates'),
+            cachedProductTemplates || load('Product Templates', 'product-templates'),
+            cachedPreflightProfiles || load('Preflight Profiles', 'preflight-profiles'),
+        ]);
+        if (customers) cachedCustomers = customers;
+        if (taskTemplates) cachedTaskTemplates = taskTemplates;
+        if (productTemplates) cachedProductTemplates = productTemplates;
+        if (preflightProfiles) cachedPreflightProfiles = preflightProfiles;
+        cachedConfig = { configured: true, cluster: getActiveConnectionCreds().cluster || 'eu' };
+    }
+
+    // ─── Extract Templates ──────────────────────────────────────
+    function extractTemplates(data, nameField) {
+        if (!data || !data.templates) return [];
+        const result = [];
+        const categories = ['system', 'custom'];
+        for (const cat of categories) {
+            const group = cat === 'custom' ? data.templates?.custom?.global : data.templates?.[cat];
+            if (group && typeof group === 'object') {
+                for (const [id, tmpl] of Object.entries(group)) {
+                    result.push({ id, name: tmpl[nameField] || tmpl.name || id, ...tmpl });
+                }
+            }
+        }
+        return result;
+    }
+
+    function getTaskTemplateList() {
+        return extractTemplates(cachedTaskTemplates, 'name');
+    }
+
+    function getProductTemplateList() {
+        return extractTemplates(cachedProductTemplates, 'productTypeDetails');
+    }
+
+    // ─── Overview View ──────────────────────────────────────────
+    async function loadOverview() {
+        const main = document.getElementById('mainContent');
+        const jobs = await getStoredJobs();
+        const today = new Date().toISOString().slice(0, 10);
+        const todayJobs = jobs.filter(j => j.created_at?.startsWith(today));
+        const ap = getActiveProfile();
+        const hasConn = hasActiveConnection();
+        const needsToken = false; // Tokens are now server-side
+
+        main.innerHTML = `
+            <div class="view-header">
+                <h2 class="view-title">Overview</h2>
+                <div style="display:flex;align-items:center;gap:0.75rem;">
+                    <span class="status-dot ${hasConn ? 'checking' : 'disconnected'}" id="statusDot"></span>
+                    <span style="font-size:0.82rem;color:var(--text-body)" id="statusText">${hasConn ? 'Checking...' : (ap ? 'Token required' : 'Not configured')}</span>
+                </div>
+            </div>
+
+            ${ap ? `
+            <div class="connection-indicator">
+                <span class="badge badge-active">${ap.name}</span>
+                <span class="badge">${(ap.type || 'wcp').toUpperCase()}</span>
+                <span style="font-size:0.78rem;color:var(--text-muted);font-family:var(--mono);">${ap.cluster || 'eu'}</span>
+            </div>` : ''}
+
+            ${needsToken ? `
+            <div class="card token-prompt">
+                <div class="card-title" style="color:var(--yellow);"><i data-lucide="key"></i> Token Required</div>
+                <p style="font-size:0.82rem;color:var(--text-body);margin-bottom:0.75rem;">Enter your Equipment Token to connect to <strong>${ap.name}</strong>. Tokens are stored in your browser session only.</p>
+                <div style="display:flex;gap:0.5rem;align-items:center;">
+                    <input type="password" class="form-input" id="overviewTokenInput" placeholder="Equipment Token" style="flex:1;max-width:400px;">
+                    <button class="btn" onclick="saveOverviewToken()"><i data-lucide="save"></i> Save</button>
+                </div>
+            </div>` : ''}
+
+            <div class="stat-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:1rem;margin-bottom:1.5rem;">
+                <div class="card" style="text-align:center;padding:1.2rem 1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div style="font-size:2rem;font-weight:600;color:var(--accent);line-height:1;">${todayJobs.length}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.35rem;">Jobs Today</div>
+                </div>
+                <div class="card" style="text-align:center;padding:1.2rem 1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div style="font-size:2rem;font-weight:600;color:var(--accent);line-height:1;">${jobs.filter(j => j.status === 'Active').length}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.35rem;">Active</div>
+                </div>
+                <div class="card" style="text-align:center;padding:1.2rem 1rem;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                    <div style="font-size:2rem;font-weight:600;color:var(--accent);line-height:1;">${jobs.length}</div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.35rem;">Total</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i data-lucide="clock"></i> Recent Jobs</div>
+                ${jobs.length === 0 ? '<div class="empty-state"><i data-lucide="inbox"></i><p>No jobs created yet. Go to Create Job to get started.</p></div>' :
+                `<table class="data-table">
+                    <thead><tr><th>Job ID</th><th>Name</th><th>Customer</th><th>App</th><th>Cluster</th><th>Status</th><th>Created</th></tr></thead>
+                    <tbody>${jobs.slice(0, 10).map(j => `
+                        <tr>
+                            <td style="font-family:var(--mono);font-size:0.78rem;">${j.job_id}</td>
+                            <td>${j.job_name || '-'}</td>
+                            <td>${j.customer_name || j.customer_code || '-'}</td>
+                            <td><span class="badge">${(j.solution || 'wcp').toUpperCase()}</span></td>
+                            <td style="font-family:var(--mono);font-size:0.78rem;">${formatCluster(j.cluster)}</td>
+                            <td>${statusBadge(j.status, j.phase)}</td>
+                            <td style="font-size:0.78rem;color:var(--text-muted);">${j.created_at ? new Date(j.created_at).toLocaleString() : '-'}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                </table>`}
+            </div>
+
+            ${!ap ? `
+            <div class="card" style="margin-top:1rem;border:1px solid var(--yellow);">
+                <div class="card-title" style="color:var(--yellow);"><i data-lucide="alert-triangle"></i> No Connection Configured</div>
+                <p style="font-size:0.82rem;color:var(--text-body);margin-bottom:1rem;">Go to <strong>Settings</strong> to add a WebCenter Pack or Automation Engine connection.</p>
+                <button class="btn" onclick="navigateToView('settings')"><i data-lucide="settings"></i> Go to Settings</button>
+            </div>` : (hasConn ? `
+            <div class="card" style="margin-top:1rem;">
+                <div class="card-title"><i data-lucide="server"></i> Connection</div>
+                <div class="config-grid" id="configGrid">
+                    <span class="config-label">Status</span><span id="connStatus">Checking...</span>
+                    <span class="config-label">Cluster</span><span class="config-value">${ap.cluster || 'eu'}</span>
+                    <span class="config-label">ECAN</span><span class="config-value">${ap.ecan?.slice(0, 12) + '...' || '-'}</span>
+                    <span class="config-label">Repo ID</span><span class="config-value">${ap.repoId || '-'}</span>
+                </div>
+                <div style="margin-top:1rem;">
+                    <button class="btn btn-sm" onclick="testConnection()"><i data-lucide="wifi"></i> Test Connection</button>
+                </div>
+            </div>` : '')}
+        `;
+
+        if (hasConn) testConnection();
+    }
+
+    // Token is now managed server-side via Supabase
+
+    async function testConnection() {
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        const connStatus = document.getElementById('connStatus');
+
+        if (dot) { dot.className = 'status-dot checking'; }
+        if (text) { text.textContent = 'Checking...'; }
+
+        if (!hasActiveConnection()) {
+            if (dot) { dot.className = 'status-dot disconnected'; }
+            if (text) { text.textContent = 'Not configured'; }
+            if (connStatus) { connStatus.innerHTML = '<span style="color:var(--red);">Configure in Settings</span>'; }
+            return;
+        }
+
+        try {
+            await misGet('task-templates');
+            const c = getActiveConnectionCreds();
+            cachedConfig = { configured: true, cluster: c.cluster || 'eu' };
+            if (dot) { dot.className = 'status-dot connected'; }
+            if (text) { text.textContent = 'Connected'; }
+            if (connStatus) { connStatus.innerHTML = '<span style="color:var(--green);">Connected</span>'; }
+            showToast('Connection successful!', 'success');
+        } catch (e) {
+            if (dot) { dot.className = 'status-dot disconnected'; }
+            if (text) { text.textContent = 'Error'; }
+            if (connStatus) { connStatus.innerHTML = `<span style="color:var(--red);">Error: ${e.message}</span>`; }
+            showToast(`Connection failed: ${e.message}`, 'error');
+        }
+    }
+
+    function statusBadge(status, phase) {
+        const s = (status || 'Unknown').toLowerCase();
+        let cls = 'badge-created';
+        if (s === 'active') cls = 'badge-active';
+        else if (s === 'completed') cls = 'badge-completed';
+        else if (s === 'on hold') cls = 'badge-hold';
+        else if (s === 'cancelled' || s === 'failed') cls = 'badge-cancelled';
+        let html = `<span class="badge ${cls}">${status || 'Unknown'}</span>`;
+        if (phase) html += ` <span class="badge badge-phase">${phase}</span>`;
+        return html;
+    }
+
+    function formatCluster(cluster) {
+        if (!cluster) return '-';
+        if (cluster === 'eu') return 'EU';
+        if (cluster === 'us') return 'US';
+        // Custom URLs: extract meaningful part (e.g. "future.dev.cloudi.city" → "future.dev")
+        if (cluster.includes('.')) {
+            const parts = cluster.split('.');
+            if (parts.length >= 3) return parts.slice(0, 2).join('.');
+            return parts[0];
+        }
+        return cluster.toUpperCase();
+    }
+
+    // ─── Create Job View ────────────────────────────────────────
+    async function loadCreateJob() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;"><div class="spinner"></div> Loading reference data...</div>';
+
+        await loadRefData();
+
+        const customers = cachedCustomers?.data || [];
+        const taskTemplates = getTaskTemplateList();
+        const productTemplates = getProductTemplateList();
+        const preflightProfiles = cachedPreflightProfiles || [];
+
+        // Reset tasks
+        jobTasks = [];
+        taskCounter = 0;
+
+        // Default due date: 7 days from now
+        const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
+
+        main.innerHTML = `
+            <div class="view-header">
+                <h2 class="view-title">Create Job</h2>
+                ${(() => { const ap = getActiveProfile(); return ap ? `<div class="connection-indicator"><span class="badge badge-active">${ap.name}</span><span class="badge">${(ap.type || 'wcp').toUpperCase()}</span></div>` : ''; })()}
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 400px;gap:1.5rem;align-items:start;">
+                <!-- Left: Form -->
+                <div>
+                    <div class="card">
+                        <div class="card-title"><i data-lucide="file-text"></i> Job Details</div>
+                        <div class="form-group">
+                            <label class="form-label">Customer *</label>
+                            <div id="jobCustomer"></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Job Name *</label>
+                                <input class="form-input" id="jobName" placeholder="e.g. Spring Product Label">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Job ID *</label>
+                                <input class="form-input" id="jobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;">
+                                <div class="form-hint">Auto-generated, editable</div>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Due Date *</label>
+                                <input class="form-input" type="datetime-local" id="jobDueDate" value="${defaultDue}">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Site</label>
+                                <input class="form-input" id="jobSite" value="Home" disabled>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Description</label>
+                            <textarea class="form-textarea" id="jobDescription" placeholder="Optional job description..."></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Tasks -->
+                    <div class="card">
+                        <div class="card-title"><i data-lucide="list-checks"></i> Tasks</div>
+                        <div id="tasksContainer">
+                            <div class="empty-state" style="padding:1rem;"><p>No tasks added. Click below to add one.</p></div>
+                        </div>
+                        <button class="btn" onclick="addTask()" style="margin-top:0.5rem;"><i data-lucide="plus"></i> Add Task</button>
+                    </div>
+
+                    <!-- Optional: Products & Preflight -->
+                    <div class="card">
+                        <div class="collapsible-header" onclick="toggleCollapsible(this)">
+                            <div class="card-title" style="margin-bottom:0;"><i data-lucide="package"></i> Optional: Products & Preflight</div>
+                            <span class="chevron">&#9660;</span>
+                        </div>
+                        <div class="collapsible-body collapsed" style="max-height:0;">
+                            <div style="padding-top:1rem;">
+                                <div class="form-group">
+                                    <label class="form-label">Product Templates</label>
+                                    <select class="form-select" id="jobProducts" multiple style="min-height:80px;">
+                                        ${productTemplates.map(p => `<option value="${p.id}">${p.name} (${p.id})</option>`).join('')}
+                                    </select>
+                                    <div class="form-hint">Hold Ctrl/Cmd to select multiple. Optional.</div>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Preflight Profile</label>
+                                    <select class="form-select" id="jobPreflight">
+                                        <option value="">Default (none)</option>
+                                        ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${p.name}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Submit -->
+                    <div style="margin-top:1rem;display:flex;gap:0.75rem;">
+                        <button class="btn btn-primary" onclick="submitJob()" id="submitBtn"><i data-lucide="send"></i> Create Job</button>
+                        <button class="btn" onclick="previewPayload()"><i data-lucide="eye"></i> Preview JSON</button>
+                    </div>
+                </div>
+
+                <!-- Right: JSON Preview -->
+                <div class="card" style="position:sticky;top:2rem;">
+                    <div class="card-title"><i data-lucide="braces"></i> Payload Preview</div>
+                    <pre class="json-preview" id="jsonPreview">{
+  "siteName": "Home",
+  "customerCode": "",
+  "jobName": "",
+  "jobId": "",
+  "dueDate": "",
+  "tasks": []
+}</pre>
+                    <div style="margin-top:0.75rem;display:flex;gap:0.5rem;">
+                        <button class="btn btn-sm" onclick="copyPayload()"><i data-lucide="copy"></i> Copy</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Store task template options for later use
+        window._taskTemplateOptions = taskTemplates;
+
+        // Init searchable customer dropdown
+        window._customerSS = createSearchableSelect('jobCustomer',
+            customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+            { placeholder: 'Search customers...', onchange: (val) => { updateJobId(); updateJsonPreview(); } }
+        );
+
+        // Set up live preview updates
+        ['jobName', 'jobId', 'jobDueDate', 'jobDescription'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('input', updateJsonPreview);
+            if (el) el.addEventListener('change', updateJsonPreview);
+        });
+
+        refreshIcons();
+    }
+
+    function updateJobId() {
+        const el = document.getElementById('jobCustomer');
+        const code = el?._ss ? el._ss.getValue() : (el?.value || '');
+        // Sanitize customer code for use in Job ID: remove dots, replace spaces with hyphens
+        const safeCode = code.replace(/\./g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        const jobs = _cachedJobs || [];
+        const seq = String(jobs.length + 1).padStart(4, '0');
+        document.getElementById('jobId').value = safeCode ? `MIS-${safeCode}-${seq}` : '';
+        updateJsonPreview();
+    }
+
+    function addTask() {
+        taskCounter++;
+        const idx = taskCounter;
+        const templates = window._taskTemplateOptions || [];
+        const defaultTaskDue = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 16);
+
+        const task = { idx, templateId: '', assignees: [''], dueDate: defaultTaskDue, subject: '', message: '', allowFiles: true, fileTypes: ['PDF'] };
+        jobTasks.push(task);
+
+        const container = document.getElementById('tasksContainer');
+        // Remove empty state
+        const empty = container.querySelector('.empty-state');
+        if (empty) empty.remove();
+
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.id = `task-${idx}`;
+        card.innerHTML = `
+            <div class="task-card-header">
+                <span class="task-card-number">Task ${idx}</span>
+                <button class="task-remove" onclick="removeTask(${idx})"><i data-lucide="x"></i></button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Task Template *</label>
+                <div id="taskTemplate-${idx}"></div>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label class="form-label">Assignee Email *</label>
+                    <input class="form-input" placeholder="user@company.com" onchange="updateTaskData(${idx}, 'assignees', [this.value])">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Task Due Date</label>
+                    <input class="form-input" type="datetime-local" value="${defaultTaskDue}" onchange="updateTaskData(${idx}, 'dueDate', this.value)">
+                </div>
+            </div>
+            <div class="collapsible-header" onclick="toggleCollapsible(this)" style="margin-bottom:0.5rem;">
+                <span style="font-size:0.75rem;color:var(--text-muted);">Advanced Options</span>
+                <span class="chevron" style="font-size:0.6rem;">&#9660;</span>
+            </div>
+            <div class="collapsible-body collapsed" style="max-height:0;">
+                <div class="form-group">
+                    <label class="form-label">Subject</label>
+                    <input class="form-input" placeholder="Task subject" onchange="updateTaskData(${idx}, 'subject', this.value)">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Message / Instructions</label>
+                    <textarea class="form-textarea" placeholder="Instructions for assignee..." onchange="updateTaskData(${idx}, 'message', this.value)"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Allow File Uploads</label>
+                        <select class="form-select" onchange="updateTaskData(${idx}, 'allowFiles', this.value === 'true')">
+                            <option value="true">Yes</option>
+                            <option value="false">No</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Allowed File Types</label>
+                        <input class="form-input" value="PDF" placeholder="PDF, JPG, AI..." onchange="updateTaskData(${idx}, 'fileTypes', this.value.split(',').map(s=>s.trim()))">
+                    </div>
+                </div>
+            </div>
+        `;
+        container.appendChild(card);
+
+        // Init searchable task template dropdown
+        createSearchableSelect(`taskTemplate-${idx}`,
+            templates.map(t => ({ value: t.id, label: t.name, searchText: t.name })),
+            { placeholder: 'Search templates...', onchange: (val) => { updateTaskData(idx, 'templateId', val); updateJsonPreview(); } }
+        );
+
+        refreshIcons();
+        updateJsonPreview();
+    }
+
+    function removeTask(idx) {
+        jobTasks = jobTasks.filter(t => t.idx !== idx);
+        const card = document.getElementById(`task-${idx}`);
+        if (card) card.remove();
+        if (jobTasks.length === 0) {
+            document.getElementById('tasksContainer').innerHTML = '<div class="empty-state" style="padding:1rem;"><p>No tasks added. Click below to add one.</p></div>';
+        }
+        updateJsonPreview();
+    }
+
+    function updateTaskData(idx, field, value) {
+        const task = jobTasks.find(t => t.idx === idx);
+        if (task) task[field] = value;
+        updateJsonPreview();
+    }
+
+    function buildPayload() {
+        const dueDate = document.getElementById('jobDueDate')?.value;
+        const products = document.getElementById('jobProducts');
+        const selectedProducts = products ? Array.from(products.selectedOptions).map(o => o.value) : [];
+
+        const payload = {
+            siteName: 'Home',
+            customerCode: (() => { const el = document.getElementById('jobCustomer'); return el?._ss ? el._ss.getValue() : (el?.value || ''); })(),
+            jobName: document.getElementById('jobName')?.value || '',
+            jobId: document.getElementById('jobId')?.value || '',
+            dueDate: dueDate ? new Date(dueDate).toISOString() : '',
+            description: document.getElementById('jobDescription')?.value || '',
+        };
+
+        if (selectedProducts.length > 0) payload.productTemplates = selectedProducts;
+
+        payload.tasks = jobTasks.map(t => {
+            const task = {
+                taskTemplateNodeId: t.templateId,
+                properties: {
+                    dueDate: t.dueDate ? new Date(t.dueDate).getTime() : Date.now(),
+                },
+                assignee: t.assignees.filter(Boolean).map(email => ({ id: email })),
+            };
+            if (t.subject) task.properties.subject = t.subject;
+            if (t.message) task.properties.message = t.message;
+            if (t.allowFiles !== undefined) task.properties.allowFiles = t.allowFiles;
+            if (t.fileTypes?.length) task.properties.fileType = t.fileTypes;
+            return task;
+        });
+
+        return payload;
+    }
+
+    function updateJsonPreview() {
+        const preview = document.getElementById('jsonPreview');
+        if (!preview) return;
+        const payload = buildPayload();
+        preview.textContent = JSON.stringify(payload, null, 2);
+    }
+
+    function previewPayload() {
+        updateJsonPreview();
+        showToast('Payload updated', 'info');
+    }
+
+    function copyPayload() {
+        const payload = buildPayload();
+        navigator.clipboard.writeText(JSON.stringify(payload, null, 2)).then(
+            () => showToast('Copied to clipboard', 'success'),
+            () => showToast('Failed to copy', 'error')
+        );
+    }
+
+    async function submitJob() {
+        const btn = document.getElementById('submitBtn');
+        const payload = buildPayload();
+
+        // Validation
+        if (!payload.customerCode) return showToast('Please select a customer', 'error');
+        if (!payload.jobName) return showToast('Please enter a job name', 'error');
+        if (!payload.jobId) return showToast('Please enter a job ID', 'error');
+        if (!payload.dueDate) return showToast('Please set a due date', 'error');
+        if (payload.tasks.length === 0) return showToast('Please add at least one task', 'error');
+        for (const t of payload.tasks) {
+            if (!t.taskTemplateNodeId) return showToast('All tasks must have a template selected', 'error');
+            if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks must have an assignee', 'error');
+        }
+
+        btn.disabled = true;
+        btn.innerHTML = '<div class="spinner"></div> Creating...';
+
+        try {
+            const result = await misPut('create-job', payload);
+
+            // Store job in Supabase
+            const customerEl = document.getElementById('jobCustomer');
+            const customerDisplay = customerEl?.querySelector?.('.ss-display')?.textContent || '';
+            const ap = getActiveProfile();
+            await storeJob({
+                job_id: payload.jobId,
+                job_name: payload.jobName,
+                customer_code: payload.customerCode,
+                customer_name: customerDisplay.replace(/\s*\(.*\)$/, ''),
+                status: 'Created',
+                phase: 'Draft',
+                due_date: payload.dueDate,
+                description: payload.description || '',
+                connection_id: ap?.id || null,
+                connection_name: ap?.name || '',
+                solution: ap?.type || 'wcp',
+                cluster: ap?.cluster || '',
+                payload: payload,
+                wcp_response: result,
+            });
+
+            showToast(`Job "${payload.jobId}" created successfully!`, 'success');
+            navigateToView('job-monitor');
+        } catch (e) {
+            showToast(`Failed to create job: ${e.message}`, 'error');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i data-lucide="send"></i> Create Job';
+            refreshIcons();
+        }
+    }
+
+    // ─── Job Monitor View ───────────────────────────────────────
+    async function loadJobMonitor() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;"><div class="spinner"></div> Loading jobs...</div>';
+
+        const jobs = await getStoredJobs(true);
+
+        main.innerHTML = `
+            <div class="view-header">
+                <h2 class="view-title">Job Monitor</h2>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn btn-sm" onclick="refreshAllJobs()"><i data-lucide="refresh-cw"></i> Refresh All</button>
+                </div>
+            </div>
+
+            ${jobs.length === 0 ?
+            '<div class="card"><div class="empty-state"><i data-lucide="inbox"></i><p>No jobs tracked. Create a job to see it here.</p></div></div>' :
+            `<div class="card">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Job ID</th>
+                            <th>Name</th>
+                            <th>Customer</th>
+                            <th>App</th>
+                            <th>Cluster</th>
+                            <th>Status</th>
+                            <th>Phase</th>
+                            <th>Due Date</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${jobs.map(j => `
+                        <tr id="job-row-${j.job_id}">
+                            <td style="font-family:var(--mono);font-size:0.78rem;">${j.job_id}</td>
+                            <td>${j.job_name || '-'}</td>
+                            <td>${j.customer_name || j.customer_code || '-'}</td>
+                            <td><span class="badge">${(j.solution || 'wcp').toUpperCase()}</span></td>
+                            <td style="font-family:var(--mono);font-size:0.78rem;">${formatCluster(j.cluster)}</td>
+                            <td>${statusBadge(j.status)}</td>
+                            <td>${j.phase ? `<span class="badge badge-phase">${j.phase}</span>` : '-'}</td>
+                            <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
+                            <td>
+                                <div style="display:flex;gap:0.3rem;">
+                                    <button class="btn btn-sm" onclick="refreshJob('${j.job_id}')" title="Refresh status from WCP"><i data-lucide="refresh-cw"></i></button>
+                                    <button class="btn btn-sm" onclick="showUpdateStatus('${j.job_id}')" title="Update status"><i data-lucide="edit-3"></i></button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteJob('${j.job_id}')" title="Delete from monitor"><i data-lucide="trash-2"></i></button>
+                                </div>
+                            </td>
+                        </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>`}
+        `;
+        refreshIcons();
+    }
+
+    // Build headers for a specific job using its stored connection_id
+    function jobHeaders(job) {
+        const h = { 'Accept': 'application/json' };
+        // Use the job's connection_id to route through the proxy with server-side token
+        if (job.connection_id) {
+            h['X-MIS-Connection-Id'] = job.connection_id;
+            return { headers: h, hasConnection: true, connectionName: job.connection_name || '' };
+        }
+        // Fallback: use active connection
+        const connId = getActiveConnectionId();
+        if (connId) {
+            h['X-MIS-Connection-Id'] = connId;
+            return { headers: h, hasConnection: true, connectionName: '' };
+        }
+        return { headers: h, hasConnection: false, connectionName: '' };
+    }
+
+    function formatRefreshError(status, body) {
+        if (status === 400 && body.includes('bad_token')) return 'Invalid token for this system';
+        if (status === 404) return 'Job not found on this system';
+        if (status === 403) return 'Access denied';
+        if (status === 401) return 'Authentication failed';
+        return `API error ${status}`;
+    }
+
+    async function refreshJob(jobId) {
+        const jobs = await getStoredJobs();
+        const job = jobs.find(j => j.job_id === jobId);
+        if (!job) { showToast(`Job ${jobId} not found`, 'error'); return; }
+
+        const { headers, hasConnection, connectionName } = jobHeaders(job);
+        console.log('refreshJob debug:', {
+            jobId,
+            job_connection_id: job.connection_id,
+            job_connection_name: job.connection_name,
+            headers_sent: headers,
+            hasConnection,
+            connectionName,
+        });
+        if (!hasConnection) {
+            showToast(`No connection available for "${connectionName || job.cluster || 'unknown'}"`, 'error');
+            return;
+        }
+
+        try {
+            // Use WCP nodeId from create response if available, fallback to jobId
+            const wcpNodeId = job.wcp_response?.job?.nodeId;
+            const lookupId = wcpNodeId || jobId;
+            const url = `${API_BASE}/job-details/${encodeURIComponent(lookupId)}`;
+            console.log('refreshJob fetching:', url, { wcpNodeId, jobId, lookupId });
+            const resp = await fetch(url, { headers });
+            if (!resp.ok) {
+                const body = await resp.text().catch(() => '');
+                throw new Error(formatRefreshError(resp.status, body));
+            }
+            const data = await resp.json();
+            await updateStoredJob(jobId, {
+                status: data.status || 'Unknown',
+                phase: data.phase || '',
+            });
+            showToast(`${jobId}: ${data.status}${data.phase ? ' — ' + data.phase : ''}`, 'success');
+            await loadJobMonitor();
+        } catch (e) {
+            showToast(`Failed to refresh ${jobId}: ${e.message}`, 'error');
+        }
+    }
+
+    async function refreshAllJobs() {
+        const jobs = await getStoredJobs(true);
+        if (!jobs.length) { showToast('No jobs to refresh', 'info'); return; }
+
+        let updated = 0, skipped = 0, failed = 0;
+
+        for (const job of jobs) {
+            const { headers, hasConnection } = jobHeaders(job);
+            if (!hasConnection) { skipped++; continue; }
+            try {
+                const wcpNodeId = job.wcp_response?.job?.nodeId;
+                const lookupId = wcpNodeId || job.job_id;
+                const resp = await fetch(`${API_BASE}/job-details/${encodeURIComponent(lookupId)}`, { headers });
+                if (!resp.ok) { failed++; continue; }
+                const data = await resp.json();
+                await updateStoredJob(job.job_id, { status: data.status || 'Unknown', phase: data.phase || '' });
+                updated++;
+            } catch { failed++; }
+        }
+        await loadJobMonitor();
+        const parts = [];
+        if (updated) parts.push(`${updated} updated`);
+        if (skipped) parts.push(`${skipped} skipped (no connection)`);
+        if (failed) parts.push(`${failed} failed`);
+        showToast(parts.join(', '), updated > 0 ? 'success' : (skipped > 0 ? 'info' : 'error'));
+    }
+
+    async function deleteJob(jobId) {
+        if (!confirm(`Delete job "${jobId}" from the monitor? This does NOT delete the job in WebCenter Pack.`)) return;
+        await deleteStoredJob(jobId);
+        showToast(`Job ${jobId} removed from monitor`, 'info');
+        await loadJobMonitor();
+    }
+
+    async function showUpdateStatus(jobId) {
+        const row = document.getElementById(`job-row-${jobId}`);
+        if (!row) return;
+
+        const jobs = await getStoredJobs();
+        const job = jobs.find(j => j.job_id === jobId);
+        const currentStatus = job?.status || '';
+        const currentPhase = job?.phase || '';
+
+        const statusOptions = ['Created', 'Active', 'On Hold', 'Completed', 'Cancelled', 'Failed'];
+        const phaseOptions = ['Draft', 'Waiting for Files', 'Files Arrived', 'Prepress', 'Production', 'Delivered'];
+
+        // Create inline form below the row
+        const existing = document.getElementById(`update-${jobId}`);
+        if (existing) { existing.remove(); return; }
+
+        const updateRow = document.createElement('tr');
+        updateRow.id = `update-${jobId}`;
+        updateRow.innerHTML = `
+            <td colspan="9" style="background:var(--void-lighter);padding:1rem;">
+                <div style="display:flex;gap:1rem;align-items:flex-end;flex-wrap:wrap;">
+                    <div class="form-group" style="margin:0;">
+                        <label class="form-label">Status</label>
+                        <select class="form-select" id="update-status-${jobId}" style="width:auto;">
+                            ${statusOptions.map(s => `<option value="${s}" ${s === currentStatus ? 'selected' : ''}>${s}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div class="form-group" style="margin:0;">
+                        <label class="form-label">Phase</label>
+                        <select class="form-select" id="update-phase-${jobId}" style="width:auto;">
+                            ${phaseOptions.map(p => `<option value="${p}" ${p === currentPhase ? 'selected' : ''}>${p}</option>`).join('')}
+                        </select>
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="submitStatusUpdate('${jobId}')"><i data-lucide="check"></i> Update in WCP</button>
+                    <button class="btn btn-sm" onclick="refreshJob('${jobId}')"><i data-lucide="refresh-cw"></i> Sync from WCP</button>
+                    <button class="btn btn-sm" onclick="document.getElementById('update-${jobId}').remove()"><i data-lucide="x"></i> Cancel</button>
+                </div>
+            </td>
+        `;
+        row.after(updateRow);
+        refreshIcons();
+    }
+
+    async function submitStatusUpdate(jobId) {
+        const status = document.getElementById(`update-status-${jobId}`)?.value;
+        const phase = document.getElementById(`update-phase-${jobId}`)?.value;
+        const jobs = await getStoredJobs();
+        const job = jobs.find(j => j.job_id === jobId);
+        const { headers } = job ? jobHeaders(job) : { headers: misHeaders() };
+        const hdrs = { ...headers, 'Content-Type': 'application/json' };
+
+        try {
+            const resp = await fetch(`${API_BASE}/edit-job`, {
+                method: 'POST',
+                headers: hdrs,
+                body: JSON.stringify({ jobId, status: { status, phase } }),
+            });
+            if (!resp.ok) {
+                const body = await resp.text().catch(() => '');
+                throw new Error(`API ${resp.status}: ${body.slice(0, 200)}`);
+            }
+            await updateStoredJob(jobId, { status, phase });
+            showToast(`Job ${jobId} updated to ${status} - ${phase}`, 'success');
+            await loadJobMonitor();
+        } catch (e) {
+            showToast(`Failed to update: ${e.message}`, 'error');
+        }
+    }
+
+    // ─── JSON Builder View ──────────────────────────────────────
+    async function loadJsonBuilder() {
+        const main = document.getElementById('mainContent');
+
+        main.innerHTML = `
+            <div class="view-header">
+                <h2 class="view-title">JSON Builder</h2>
+            </div>
+            <div class="card">
+                <div class="card-title"><i data-lucide="braces"></i> Raw Payload Editor</div>
+                <p style="font-size:0.82rem;color:var(--text-body);margin-bottom:1rem;">Edit the JSON payload directly and submit it to the WebCenter Pack API.</p>
+                <div class="form-group">
+                    <label class="form-label">JSON Payload</label>
+                    <textarea class="form-textarea" id="rawJson" style="font-family:var(--mono);font-size:0.78rem;min-height:400px;">${JSON.stringify({
+                        siteName: "Home",
+                        customerCode: "",
+                        jobName: "",
+                        jobId: "",
+                        dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+                        tasks: [{
+                            taskTemplateNodeId: "",
+                            properties: { dueDate: Date.now() + 5 * 86400000 },
+                            assignee: [{ id: "" }]
+                        }]
+                    }, null, 2)}</textarea>
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="btn btn-primary" onclick="submitRawJson()"><i data-lucide="send"></i> Submit to API</button>
+                    <button class="btn" onclick="formatJson()"><i data-lucide="align-left"></i> Format</button>
+                    <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('rawJson').value).then(()=>showToast('Copied','success'))"><i data-lucide="copy"></i> Copy</button>
+                </div>
+            </div>
+        `;
+        refreshIcons();
+    }
+
+    function formatJson() {
+        const el = document.getElementById('rawJson');
+        try {
+            el.value = JSON.stringify(JSON.parse(el.value), null, 2);
+            showToast('Formatted', 'success');
+        } catch (e) {
+            showToast('Invalid JSON: ' + e.message, 'error');
+        }
+    }
+
+    async function submitRawJson() {
+        const el = document.getElementById('rawJson');
+        let payload;
+        try { payload = JSON.parse(el.value); }
+        catch (e) { return showToast('Invalid JSON: ' + e.message, 'error'); }
+
+        try {
+            const result = await misPut('create-job', payload);
+            const ap2 = getActiveProfile();
+            storeJob({
+                jobId: payload.jobId,
+                jobName: payload.jobName,
+                customerCode: payload.customerCode,
+                status: 'Created',
+                phase: 'Draft',
+                dueDate: payload.dueDate,
+                createdAt: new Date().toISOString(),
+                solution: ap2?.type || 'wcp',
+                cluster: ap2?.cluster || '',
+                ecan: ap2?.ecan || '',
+                repoId: ap2?.repoId || '',
+                profileId: ap2?.id || '',
+            });
+            showToast(`Job "${payload.jobId}" created!`, 'success');
+        } catch (e) {
+            showToast(`API error: ${e.message}`, 'error');
+        }
+    }
+
+    // ─── Settings View ──────────────────────────────────────────
+    const CLUSTER_OPTIONS = [
+        { value: 'eu', label: 'Production EU', desc: 'w2p.eu.esko.cloud' },
+        { value: 'us', label: 'Production US', desc: 'w2p.us.esko.cloud' },
+        { value: 'future.dev.cloudi.city', label: 'Future Dev', desc: 'w2p.future.dev.cloudi.city' },
+        { value: 'next.dev.cloudi.city', label: 'Next Dev', desc: 'w2p.next.dev.cloudi.city' },
+        { value: 'qa-eu-1.test.cloudi.city', label: 'QA EU 1', desc: 'w2p.qa-eu-1.test.cloudi.city' },
+        { value: 'qa-eu-2.test.cloudi.city', label: 'QA EU 2', desc: 'w2p.qa-eu-2.test.cloudi.city' },
+        { value: 'custom', label: 'Custom...', desc: '' },
+    ];
+
+    let editingProfileId = null; // null = adding new, string = editing existing
+
+    async function loadSettings() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div style="display:flex;align-items:center;gap:0.5rem;"><div class="spinner"></div> Loading settings...</div>';
+
+        const settings = getAdminSettings();
+        await fetchProfiles();
+        const profiles = getProfiles();
+        const store = getConnectionStore();
+        const activeId = store.activeProfileId;
+
+        main.innerHTML = `
+            <div class="view-header">
+                <h2 class="view-title">Settings</h2>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i data-lucide="palette"></i> Appearance</div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label class="form-label">Theme</label>
+                        <select class="form-select" id="settingTheme" onchange="applyTheme(this.value)">
+                            <option value="dark" ${settings.theme === 'dark' || !settings.theme ? 'selected' : ''}>Dark</option>
+                            <option value="light" ${settings.theme === 'light' ? 'selected' : ''}>Light</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">Accent Color</label>
+                        <select class="form-select" id="settingAccent" onchange="applyAccent(this.value)">
+                            <option value="sage" ${settings.accentColor === 'sage' || !settings.accentColor ? 'selected' : ''}>Sage</option>
+                            <option value="gold" ${settings.accentColor === 'gold' ? 'selected' : ''}>Gold</option>
+                            <option value="ocean" ${settings.accentColor === 'ocean' ? 'selected' : ''}>Ocean</option>
+                            <option value="ember" ${settings.accentColor === 'ember' ? 'selected' : ''}>Ember</option>
+                            <option value="violet" ${settings.accentColor === 'violet' ? 'selected' : ''}>Violet</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i data-lucide="server"></i> Connections</div>
+                <p style="font-size:0.82rem;color:var(--text-body);margin-bottom:1rem;">Manage your WebCenter Pack and Automation Engine connections. Equipment Tokens are <strong>encrypted and stored server-side</strong> — they never persist in the browser.</p>
+
+                ${profiles.length > 0 ? `
+                <table class="data-table" style="margin-bottom:1rem;">
+                    <thead><tr><th>Name</th><th>Type</th><th>Details</th><th>Token</th><th>Status</th><th style="width:120px;"></th></tr></thead>
+                    <tbody>
+                        ${profiles.map(p => {
+                            const isActive = p.id === activeId;
+                            const hasToken = p.hasToken;
+                            const isAE = p.type === 'ae';
+                            const clusterLabel = CLUSTER_OPTIONS.find(c => c.value === p.cluster)?.label || p.cluster;
+                            const details = isAE
+                                ? `<span style="font-size:0.78rem;">${p.serverUrl || '-'}</span>`
+                                : `<span style="font-size:0.78rem;">${clusterLabel}</span> <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text-muted);">${p.ecan ? p.ecan.slice(0, 14) + '...' : ''}</span>`;
+                            return `
+                            <tr class="${isActive ? 'active-profile' : ''}">
+                                <td style="font-weight:${isActive ? '600' : '400'};">${p.name}</td>
+                                <td><span class="badge">${(p.type || 'wcp').toUpperCase()}</span></td>
+                                <td>${details}</td>
+                                <td>${hasToken ? '<span style="color:var(--green);">••••••</span>' : '<span style="color:var(--red);font-size:0.78rem;">No token</span>'}</td>
+                                <td>${isActive ? '<span class="badge badge-active">Active</span>' : ''}</td>
+                                <td style="text-align:right;">
+                                    ${!isActive ? `<button class="btn btn-sm" onclick="activateProfile('${p.id}')" title="Set as active connection"><i data-lucide="check-circle"></i></button>` : ''}
+                                    <button class="btn btn-sm" onclick="showProfileForm('${p.id}')" title="Edit"><i data-lucide="pencil"></i></button>
+                                    <button class="btn btn-sm btn-danger" onclick="deleteProfileConfirm('${p.id}')" title="Delete"><i data-lucide="trash-2"></i></button>
+                                </td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>` : `
+                <div class="empty-state" style="padding:1.5rem 0;">
+                    <i data-lucide="plus-circle"></i>
+                    <p>No connections configured yet. Add one to get started.</p>
+                </div>`}
+
+                <button class="btn" onclick="showProfileForm(null)" id="addConnBtn"><i data-lucide="plus"></i> Add Connection</button>
+
+                <div id="profileFormContainer" style="display:none;margin-top:1.25rem;padding-top:1.25rem;border-top:1px solid var(--border);">
+                    <h3 style="font-size:0.9rem;font-weight:600;margin-bottom:1rem;" id="profileFormTitle">Add Connection</h3>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label class="form-label">Connection Name *</label>
+                            <input type="text" class="form-input" id="pfName" placeholder="e.g. Production EU">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Type</label>
+                            <select class="form-select" id="pfType" onchange="toggleConnectionType()">
+                                <option value="wcp">WebCenter Pack</option>
+                                <option value="ae">Automation Engine</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- WCP-specific fields -->
+                    <div id="wcpFields">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Cluster *</label>
+                                <select class="form-select" id="pfCluster" onchange="toggleCustomCluster()">
+                                    ${CLUSTER_OPTIONS.map(c => `<option value="${c.value}">${c.label}${c.desc ? ' (' + c.desc + ')' : ''}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="form-group" id="customClusterGroup" style="display:none;">
+                                <label class="form-label">Custom Cluster URL</label>
+                                <input type="text" class="form-input" id="pfCustomCluster" placeholder="e.g. my-env.dev.cloudi.city">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">ECAN (S2 Account Number) *</label>
+                                <input type="text" class="form-input" id="pfEcan" placeholder="a-p-1710-XXXX-XXXX-XXXX">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Repository ID *</label>
+                                <input type="text" class="form-input" id="pfRepoId" placeholder="rU8qTgJTx2VV">
+                            </div>
+                        </div>
+                    </div>
+                    <!-- AE-specific fields -->
+                    <div id="aeFields" style="display:none;">
+                        <div class="form-group">
+                            <label class="form-label">Server URL *</label>
+                            <input type="text" class="form-input" id="pfServerUrl" placeholder="e.g. https://my-ae-server.example.com">
+                            <p class="form-hint">The base URL of the Automation Engine server.</p>
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label" id="pfTokenLabel">Equipment Token *</label>
+                        <input type="password" class="form-input" id="pfToken" placeholder="Your Equipment Token from Global Admin">
+                        <p class="form-hint" id="pfTokenHint" style="display:none;font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">Leave blank to keep existing token.</p>
+                    </div>
+                    <div style="display:flex;gap:0.75rem;margin-top:1rem;">
+                        <button class="btn" onclick="saveProfileForm()"><i data-lucide="save"></i> Save</button>
+                        <button class="btn" onclick="cancelProfileForm()">Cancel</button>
+                        <span id="connStatus" style="display:flex;align-items:center;font-size:0.82rem;color:var(--text-body);"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="card-title"><i data-lucide="database"></i> Data</div>
+                <p style="font-size:0.82rem;color:var(--text-body);margin-bottom:0.5rem;">Jobs and connections are stored in Supabase (server-side).</p>
+            </div>
+        `;
+
+        refreshIcons();
+    }
+
+    function toggleCustomCluster() {
+        const sel = document.getElementById('pfCluster');
+        const grp = document.getElementById('customClusterGroup');
+        if (grp) grp.style.display = sel?.value === 'custom' ? '' : 'none';
+    }
+
+    function toggleConnectionType() {
+        const type = document.getElementById('pfType')?.value || 'wcp';
+        const wcpFields = document.getElementById('wcpFields');
+        const aeFields = document.getElementById('aeFields');
+        const tokenLabel = document.getElementById('pfTokenLabel');
+        const tokenInput = document.getElementById('pfToken');
+
+        if (wcpFields) wcpFields.style.display = type === 'wcp' ? '' : 'none';
+        if (aeFields) aeFields.style.display = type === 'ae' ? '' : 'none';
+
+        if (type === 'ae') {
+            if (tokenLabel) tokenLabel.textContent = editingProfileId ? 'Token' : 'Token *';
+            if (tokenInput) tokenInput.placeholder = 'Your Automation Engine API Token';
+        } else {
+            if (tokenLabel) tokenLabel.textContent = editingProfileId ? 'Equipment Token' : 'Equipment Token *';
+            if (tokenInput) tokenInput.placeholder = 'Your Equipment Token from Global Admin';
+        }
+    }
+
+    function showProfileForm(profileId) {
+        editingProfileId = profileId || null;
+        const container = document.getElementById('profileFormContainer');
+        const title = document.getElementById('profileFormTitle');
+        const addBtn = document.getElementById('addConnBtn');
+        if (!container) return;
+
+        container.style.display = '';
+        if (addBtn) addBtn.style.display = 'none';
+
+        if (editingProfileId) {
+            // Editing existing
+            const p = getProfiles().find(pr => pr.id === editingProfileId);
+            if (!p) return;
+            title.textContent = `Edit: ${p.name}`;
+            document.getElementById('pfName').value = p.name || '';
+            document.getElementById('pfType').value = p.type || 'wcp';
+            // Set cluster
+            const clusterSel = document.getElementById('pfCluster');
+            const isKnown = CLUSTER_OPTIONS.some(c => c.value === p.cluster && c.value !== 'custom');
+            if (isKnown) {
+                clusterSel.value = p.cluster;
+            } else {
+                clusterSel.value = 'custom';
+                document.getElementById('pfCustomCluster').value = p.cluster || '';
+            }
+            toggleCustomCluster();
+            document.getElementById('pfEcan').value = p.ecan || '';
+            document.getElementById('pfRepoId').value = p.repoId || '';
+            document.getElementById('pfServerUrl').value = p.serverUrl || '';
+            toggleConnectionType();
+            // Token: don't show existing, only allow replacement
+            document.getElementById('pfToken').value = '';
+            document.getElementById('pfToken').placeholder = 'Enter new token to replace existing';
+            const tokenLabel = document.getElementById('pfTokenLabel');
+            tokenLabel.textContent = p.type === 'ae' ? 'Token' : 'Equipment Token';
+            document.getElementById('pfTokenHint').style.display = '';
+        } else {
+            // Adding new
+            title.textContent = 'Add Connection';
+            document.getElementById('pfName').value = '';
+            document.getElementById('pfType').value = 'wcp';
+            document.getElementById('pfCluster').value = 'eu';
+            toggleCustomCluster();
+            toggleConnectionType();
+            document.getElementById('pfEcan').value = '';
+            document.getElementById('pfRepoId').value = '';
+            document.getElementById('pfServerUrl').value = '';
+            document.getElementById('pfToken').value = '';
+            document.getElementById('pfToken').placeholder = 'Your Equipment Token from Global Admin';
+            document.getElementById('pfTokenLabel').textContent = 'Equipment Token *';
+            document.getElementById('pfTokenHint').style.display = 'none';
+        }
+
+        refreshIcons();
+    }
+
+    function cancelProfileForm() {
+        const container = document.getElementById('profileFormContainer');
+        const addBtn = document.getElementById('addConnBtn');
+        if (container) container.style.display = 'none';
+        if (addBtn) addBtn.style.display = '';
+        editingProfileId = null;
+    }
+
+    async function saveProfileForm() {
+        const name = document.getElementById('pfName')?.value?.trim();
+        const type = document.getElementById('pfType')?.value || 'wcp';
+        const clusterSel = document.getElementById('pfCluster')?.value;
+        const customCluster = document.getElementById('pfCustomCluster')?.value?.trim();
+        const cluster = clusterSel === 'custom' ? customCluster : clusterSel;
+        const ecan = document.getElementById('pfEcan')?.value?.trim();
+        const repoId = document.getElementById('pfRepoId')?.value?.trim();
+        const serverUrl = document.getElementById('pfServerUrl')?.value?.trim();
+        const token = document.getElementById('pfToken')?.value?.trim();
+
+        if (!name) { showToast('Connection name is required.', 'error'); return; }
+        if (type === 'wcp') {
+            if (!cluster) { showToast('Cluster is required.', 'error'); return; }
+            if (!ecan) { showToast('ECAN is required.', 'error'); return; }
+            if (!repoId) { showToast('Repository ID is required.', 'error'); return; }
+        }
+        if (type === 'ae') {
+            if (!serverUrl) { showToast('Server URL is required for Automation Engine.', 'error'); return; }
+        }
+
+        try {
+            if (editingProfileId) {
+                const updates = { name, type };
+                if (type === 'wcp') { updates.cluster = cluster; updates.ecan = ecan; updates.repo_id = repoId; }
+                if (type === 'ae') { updates.server_url = serverUrl; }
+                if (token) updates.token = token;
+                await updateProfile(editingProfileId, updates);
+                showToast(`Connection "${name}" updated.`, 'success');
+            } else {
+                if (!token) { showToast('Token is required for new connections.', 'error'); return; }
+                const profile = { name, type, token };
+                if (type === 'wcp') { profile.cluster = cluster; profile.ecan = ecan; profile.repoId = repoId; }
+                if (type === 'ae') { profile.server_url = serverUrl; }
+                await addProfile(profile);
+                showToast(`Connection "${name}" added.`, 'success');
+            }
+        } catch (e) {
+            showToast(`Error saving connection: ${e.message}`, 'error');
+            return;
+        }
+
+        editingProfileId = null;
+        loadSettings();
+    }
+
+    async function activateProfile(id) {
+        const p = getProfiles().find(pr => pr.id === id);
+        if (!p) return;
+        await setActiveProfile(id);
+        showToast(`Switched to "${p.name}".`, 'success');
+        loadSettings();
+    }
+
+    async function deleteProfileConfirm(id) {
+        const p = getProfiles().find(pr => pr.id === id);
+        if (!p) return;
+        if (confirm(`Delete connection "${p.name}"? This cannot be undone.`)) {
+            await deleteProfile(id);
+            showToast(`Connection "${p.name}" deleted.`, 'success');
+            loadSettings();
+        }
+    }
+
+    function getAdminSettings() {
+        try { return JSON.parse(localStorage.getItem('paulland_admin_settings') || '{}'); }
+        catch { return {}; }
+    }
+    function saveAdminSettings(s) {
+        localStorage.setItem('paulland_admin_settings', JSON.stringify(s));
+    }
+
+    function applyTheme(theme) {
+        document.documentElement.setAttribute('data-theme', theme);
+        const s = getAdminSettings();
+        s.theme = theme;
+        saveAdminSettings(s);
+    }
+
+    function applyAccent(accent) {
+        document.documentElement.setAttribute('data-accent', accent);
+        const s = getAdminSettings();
+        s.accentColor = accent;
+        saveAdminSettings(s);
+    }
+
+    function toggleTheme() {
+        const current = document.documentElement.getAttribute('data-theme') || 'dark';
+        applyTheme(current === 'dark' ? 'light' : 'dark');
+    }
+
+    // ─── Collapsible ────────────────────────────────────────────
+    function toggleCollapsible(header) {
+        header.classList.toggle('collapsed');
+        const body = header.nextElementSibling;
+        if (body.classList.contains('collapsed')) {
+            body.classList.remove('collapsed');
+            body.style.maxHeight = body.scrollHeight + 'px';
+        } else {
+            body.style.maxHeight = '0';
+            body.classList.add('collapsed');
+        }
+    }
+
+    // ─── Nav Group Toggle ───────────────────────────────────────
+    document.querySelectorAll('.nav-group-label').forEach(label => {
+        label.addEventListener('click', () => {
+            const group = label.dataset.group;
+            label.classList.toggle('collapsed');
+            const items = document.querySelector(`.nav-group-items[data-group="${group}"]`);
+            if (items) items.classList.toggle('collapsed');
+        });
+    });
+
+    // ─── Nav Click Handlers ─────────────────────────────────────
+    document.querySelectorAll('.nav-item[data-view]').forEach(item => {
+        item.addEventListener('click', () => navigateToView(item.dataset.view));
+    });
+
+    // ─── Init ───────────────────────────────────────────────────
+    refreshIcons();
+    // Fetch profiles from Supabase on startup, then load default view
+    fetchProfiles().then(() => loadView('overview')).catch(() => loadView('overview'));
+    </script>
+</body>
+</html>

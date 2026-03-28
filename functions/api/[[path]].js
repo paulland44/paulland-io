@@ -42,6 +42,11 @@ export async function onRequest(ctx) {
   const url = new URL(request.url);
   const path = url.pathname.replace('/api/', '');
 
+  // ─── MIS Proxy Routes ───────────────────────────────────────
+  if (path.startsWith('mis/')) {
+    return handleMisRoute(path, request, env);
+  }
+
   // List R2 bucket objects — GET /api/assets/r2-list
   if (request.method === 'GET' && path === 'assets/r2-list') {
     return handleR2List(env);
@@ -111,6 +116,563 @@ export async function onRequest(ctx) {
   }
 
   return json({ error: 'Method not allowed' }, 405);
+}
+
+// ─── MIS Token Encryption (AES-GCM) ──────────────────────────
+
+async function getEncryptionKey(env) {
+  const secret = env.MIS_ENCRYPTION_KEY || 'default-dev-key-change-in-production';
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret.padEnd(32, '0').slice(0, 32)),
+    'AES-GCM',
+    false,
+    ['encrypt', 'decrypt']
+  );
+  return keyMaterial;
+}
+
+async function encryptToken(plaintext, env) {
+  const key = await getEncryptionKey(env);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encoded = new TextEncoder().encode(plaintext);
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
+  return {
+    encrypted_token: btoa(String.fromCharCode(...new Uint8Array(ciphertext))),
+    token_iv: btoa(String.fromCharCode(...iv)),
+  };
+}
+
+async function decryptToken(encrypted_token, token_iv, env) {
+  const key = await getEncryptionKey(env);
+  const ciphertext = Uint8Array.from(atob(encrypted_token), c => c.charCodeAt(0));
+  const iv = Uint8Array.from(atob(token_iv), c => c.charCodeAt(0));
+  const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return new TextDecoder().decode(decrypted);
+}
+
+// ─── MIS Connection Management ───────────────────────────────
+
+async function handleMisConnections(path, request, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const subPath = path.replace('mis/connections', '').replace(/^\//, '');
+
+  // GET /api/mis/connections — list all (tokens excluded)
+  if (request.method === 'GET' && !subPath) {
+    const rows = await supabaseGet(supabaseUrl, serviceKey,
+      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,created_at,updated_at&order=created_at.desc'
+    );
+    return json(rows);
+  }
+
+  // GET /api/mis/connections/:id — get single (token excluded)
+  if (request.method === 'GET' && subPath) {
+    const id = subPath;
+    const rows = await supabaseGet(supabaseUrl, serviceKey,
+      `mis_connections?id=eq.${id}&select=id,name,type,is_active,cluster,ecan,repo_id,server_url,created_at,updated_at`
+    );
+    return json(rows[0] || null);
+  }
+
+  // POST /api/mis/connections — create new
+  if (request.method === 'POST' && !subPath) {
+    const body = await request.json();
+    const { name, type, cluster, ecan, repo_id, server_url, token, is_active } = body;
+
+    if (!name || !type) return json({ error: 'name and type are required' }, 400);
+    if (type === 'wcp' && (!cluster || !ecan || !repo_id)) {
+      return json({ error: 'WCP connections require cluster, ecan, and repo_id' }, 400);
+    }
+    if (type === 'ae' && !server_url) {
+      return json({ error: 'AE connections require server_url' }, 400);
+    }
+    if (!token) return json({ error: 'token is required' }, 400);
+
+    // Encrypt the token
+    const { encrypted_token, token_iv } = await encryptToken(token, env);
+
+    // If setting as active, deactivate all others first
+    if (is_active) {
+      await supabasePatch(supabaseUrl, serviceKey,
+        'mis_connections?is_active=eq.true',
+        { is_active: false }
+      );
+    }
+
+    const row = {
+      name, type, is_active: !!is_active,
+      cluster: type === 'wcp' ? cluster : null,
+      ecan: type === 'wcp' ? ecan : null,
+      repo_id: type === 'wcp' ? repo_id : null,
+      server_url: type === 'ae' ? server_url : null,
+      encrypted_token, token_iv,
+    };
+
+    const res = await fetch(`${supabaseUrl}/rest/v1/mis_connections`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(row),
+    });
+    const created = await res.json();
+    // Return without encrypted fields
+    if (Array.isArray(created) && created[0]) {
+      const { encrypted_token: _e, token_iv: _iv, ...safe } = created[0];
+      return json(safe, 201);
+    }
+    return json(created, res.status);
+  }
+
+  // PATCH /api/mis/connections/:id — update
+  if (request.method === 'PATCH' && subPath) {
+    const id = subPath;
+    const body = await request.json();
+    const updates = {};
+
+    // Copy non-token fields
+    for (const field of ['name', 'type', 'cluster', 'ecan', 'repo_id', 'server_url', 'is_active']) {
+      if (body[field] !== undefined) updates[field] = body[field];
+    }
+
+    // If updating token, encrypt it
+    if (body.token) {
+      const { encrypted_token, token_iv } = await encryptToken(body.token, env);
+      updates.encrypted_token = encrypted_token;
+      updates.token_iv = token_iv;
+    }
+
+    // If setting as active, deactivate all others first
+    if (updates.is_active) {
+      await supabasePatch(supabaseUrl, serviceKey,
+        `mis_connections?is_active=eq.true&id=neq.${id}`,
+        { is_active: false }
+      );
+    }
+
+    await supabasePatch(supabaseUrl, serviceKey,
+      `mis_connections?id=eq.${id}`,
+      updates
+    );
+
+    return json({ success: true });
+  }
+
+  // DELETE /api/mis/connections/:id
+  if (request.method === 'DELETE' && subPath) {
+    const id = subPath;
+    await fetch(`${supabaseUrl}/rest/v1/mis_connections?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+    });
+    return json({ success: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ─── MIS Jobs Management ──────────────────────────────────────
+
+async function handleMisJobs(path, request, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const subPath = path.replace('mis/jobs', '').replace(/^\//, '');
+
+  // GET /api/mis/jobs — list all jobs
+  if (request.method === 'GET' && !subPath) {
+    const rows = await supabaseGet(supabaseUrl, serviceKey,
+      'mis_jobs?order=created_at.desc&limit=200'
+    );
+    return json(rows);
+  }
+
+  // GET /api/mis/jobs/:id — get single job
+  if (request.method === 'GET' && subPath) {
+    const id = subPath;
+    const rows = await supabaseGet(supabaseUrl, serviceKey,
+      `mis_jobs?id=eq.${id}`
+    );
+    return json(rows[0] || null);
+  }
+
+  // POST /api/mis/jobs — create new job record
+  if (request.method === 'POST' && !subPath) {
+    const body = await request.json();
+    const row = {
+      job_id: body.job_id || '',
+      job_name: body.job_name || '',
+      customer_code: body.customer_code || '',
+      customer_name: body.customer_name || '',
+      status: body.status || 'Created',
+      phase: body.phase || 'Draft',
+      due_date: body.due_date || null,
+      description: body.description || '',
+      connection_id: body.connection_id || null,
+      connection_name: body.connection_name || '',
+      solution: body.solution || 'wcp',
+      cluster: body.cluster || '',
+      payload: body.payload || null,
+      wcp_response: body.wcp_response || null,
+    };
+
+    const res = await fetch(`${supabaseUrl}/rest/v1/mis_jobs`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(row),
+    });
+    const created = await res.json();
+    return json(Array.isArray(created) ? created[0] : created, res.status === 201 ? 201 : res.status);
+  }
+
+  // PATCH /api/mis/jobs/:id — update job
+  if (request.method === 'PATCH' && subPath) {
+    const id = subPath;
+    const body = await request.json();
+    const updates = { updated_at: new Date().toISOString() };
+
+    // Only copy allowed fields
+    for (const field of ['job_name', 'customer_code', 'customer_name', 'status', 'phase',
+                         'due_date', 'description', 'payload', 'wcp_response']) {
+      if (body[field] !== undefined) updates[field] = body[field];
+    }
+
+    await supabasePatch(supabaseUrl, serviceKey,
+      `mis_jobs?id=eq.${id}`,
+      updates
+    );
+    return json({ success: true });
+  }
+
+  // DELETE /api/mis/jobs/:id — delete job
+  if (request.method === 'DELETE' && subPath) {
+    const id = subPath;
+    await fetch(`${supabaseUrl}/rest/v1/mis_jobs?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+    });
+    return json({ success: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// Helper: Get decrypted token for a connection by ID
+async function getConnectionToken(connectionId, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const rows = await supabaseGet(supabaseUrl, serviceKey,
+    `mis_connections?id=eq.${connectionId}&select=encrypted_token,token_iv,type,cluster,ecan,repo_id,server_url`
+  );
+  if (!rows || !rows[0]) return null;
+  const conn = rows[0];
+  if (!conn.encrypted_token || !conn.token_iv) return null;
+  try {
+    conn.token = await decryptToken(conn.encrypted_token, conn.token_iv, env);
+  } catch {
+    return null;
+  }
+  return conn;
+}
+
+// Helper: Get active connection with decrypted token
+async function getActiveConnection(env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const rows = await supabaseGet(supabaseUrl, serviceKey,
+    `mis_connections?is_active=eq.true&select=id,name,type,encrypted_token,token_iv,cluster,ecan,repo_id,server_url`
+  );
+  if (!rows || !rows[0]) return null;
+  const conn = rows[0];
+  if (!conn.encrypted_token || !conn.token_iv) return null;
+  try {
+    conn.token = await decryptToken(conn.encrypted_token, conn.token_iv, env);
+  } catch {
+    return null;
+  }
+  return conn;
+}
+
+// ─── MIS Proxy Routes ────────────────────────────────────────
+
+async function handleMisRoute(path, request, env) {
+  // Route connection management requests
+  if (path.startsWith('mis/connections')) {
+    return handleMisConnections(path, request, env);
+  }
+
+  // Route job management requests (Supabase-backed)
+  if (path.startsWith('mis/jobs')) {
+    return handleMisJobs(path, request, env);
+  }
+
+  // Resolve connection credentials:
+  // 1. Connection ID header (Supabase-backed, token server-side) — preferred
+  // 2. Legacy: browser headers (X-WCP-Token etc.) — fallback
+  const connectionId = request.headers.get('X-MIS-Connection-Id');
+  let cluster, WCP_ECAN, WCP_REPOID, token;
+
+  if (connectionId) {
+    const conn = await getConnectionToken(connectionId, env);
+    if (!conn) return json({ error: 'Connection not found or token decryption failed' }, 403);
+    cluster = conn.cluster || 'eu';
+    WCP_ECAN = conn.ecan || '';
+    WCP_REPOID = conn.repo_id || '';
+    token = conn.token || '';
+  } else {
+    // Legacy: read from browser headers / env vars
+    cluster = request.headers.get('X-WCP-Cluster')
+      || request.headers.get('X-WCP-Region')
+      || env.WCP_REGION || 'eu';
+    WCP_ECAN = request.headers.get('X-WCP-Ecan') || env.WCP_ECAN || '';
+    WCP_REPOID = request.headers.get('X-WCP-RepoId') || env.WCP_REPOID || '';
+    token = request.headers.get('X-WCP-Token') || env.WCP_EQUIPMENT_TOKEN || '';
+  }
+
+  // Check if WCP is configured
+  if (!token || !WCP_ECAN || !WCP_REPOID) {
+    return json({ error: 'WebCenter Pack not configured. Set up a connection in MIS Settings.' }, 503);
+  }
+
+  // Build base URLs — production clusters (eu/us) use esko.cloud, dev/test use cloudi.city
+  function buildBaseUrls(c) {
+    const isProduction = /^(eu|us)$/i.test(c);
+    if (isProduction) {
+      return { w2p: `https://w2p.${c}.esko.cloud`, iam: `https://iam.${c}.esko.cloud` };
+    }
+    // Dev/test clusters: cluster value IS the hostname (e.g. "future.dev.cloudi.city")
+    return { w2p: `https://w2p.${c}`, iam: `https://iam.${c}` };
+  }
+  const { w2p: w2pBase, iam: iamBase } = buildBaseUrls(cluster);
+
+  // Handle token stored as JSON object (e.g. {"token":"abc...","name":"..."}) or plain string
+  try {
+    const parsed = JSON.parse(token);
+    if (parsed.token) token = parsed.token;
+  } catch {}
+  const wcpHeaders = {
+    'EskoCloud-Token': token,
+    'Accept': 'application/json',
+    'User-Agent': 'PaulLand-MIS/1.0',
+  };
+
+  const subPath = path.replace('mis/', '');
+
+  // GET routes
+  if (request.method === 'GET') {
+    if (subPath === 'customers') {
+      // Get partners — try without filter first to get all, then with Customers filter
+      // Some accounts categorize partners differently (Customers, Suppliers, Other Partners)
+      const filterValue = new URL(request.url).searchParams.get('filter') || '';
+      const filterParam = filterValue ? `&filterType=partnerType&filterValue=${filterValue}` : '';
+      let resp = await fetch(
+        `${iamBase}/iam/organizations/${WCP_ECAN}/partners?start=0&length=100&sortType=partnerName${filterParam}`,
+        { headers: wcpHeaders }
+      );
+      if (!resp.ok) {
+        resp = await fetch(
+          `${iamBase}/rest/iam/organizations/${WCP_ECAN}/partners?start=0&length=100&sortType=partnerName${filterParam}`,
+          { headers: wcpHeaders }
+        );
+      }
+      const body = await resp.text();
+      return new Response(body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (subPath === 'task-templates') {
+      const resp = await fetch(
+        `${w2pBase}/api/v1/${WCP_REPOID}/Home/tasktemplates`,
+        { headers: wcpHeaders }
+      );
+      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (subPath === 'product-templates') {
+      const resp = await fetch(
+        `${w2pBase}/PACKPRODUCTEMPLATE/v0/${WCP_REPOID}/Home/getallproducttemplates`,
+        { headers: wcpHeaders }
+      );
+      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (subPath === 'preflight-profiles') {
+      const resp = await fetch(
+        `${w2pBase}/api/v0/${WCP_ECAN}/preflightprofiles`,
+        { headers: wcpHeaders }
+      );
+      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (subPath.startsWith('job-details/')) {
+      const jobId = subPath.replace('job-details/', '');
+      const resp = await fetch(
+        `${w2pBase}/api/v0/${WCP_ECAN}/getJobDetails/${encodeURIComponent(jobId)}`,
+        { headers: wcpHeaders }
+      );
+      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+
+    if (subPath === 'config') {
+      // Return non-sensitive config info for the frontend
+      return json({ region, ecan: WCP_ECAN ? WCP_ECAN.slice(0, 6) + '...' : null, repoId: WCP_REPOID ? WCP_REPOID.slice(0, 6) + '...' : null, configured: !!WCP_EQUIPMENT_TOKEN });
+    }
+
+    if (subPath === 'debug') {
+      // Debug endpoint: test WCP connectivity with multiple token formats and endpoints
+      const rawToken = WCP_EQUIPMENT_TOKEN || '';
+      const rawPreview = rawToken ? rawToken.slice(0, 12) + '...' + rawToken.slice(-6) : 'NOT SET';
+
+      // Build list of token candidates to try
+      const candidates = [];
+      // 1. Raw value as-is
+      candidates.push({ label: 'raw', value: rawToken });
+      // 2. If JSON, extract known keys
+      try {
+        const parsed = JSON.parse(rawToken);
+        for (const key of ['token', 'jwt', 'accessToken', 'access_token', 'equipment_token']) {
+          if (parsed[key]) candidates.push({ label: `json.${key}`, value: parsed[key] });
+        }
+        // Also try the full JSON string as the token value
+        candidates.push({ label: 'json_string', value: rawToken });
+      } catch {}
+
+      // Dedupe
+      const seen = new Set();
+      const uniqueCandidates = candidates.filter(c => {
+        if (seen.has(c.value)) return false;
+        seen.add(c.value);
+        return true;
+      });
+
+      // Test endpoints
+      const testEndpoints = [
+        { label: 'task-templates (w2p)', url: `${w2pBase}/api/v1/${WCP_REPOID}/Home/tasktemplates` },
+        { label: 'customers (iam /iam/)', url: `${iamBase}/iam/organizations/${WCP_ECAN}/partners?start=0&length=10&sortType=partnerName&filterValue=Customers` },
+        { label: 'customers (iam /rest/iam/)', url: `${iamBase}/rest/iam/organizations/${WCP_ECAN}/partners?start=0&length=10&sortType=partnerName&filterValue=Customers` },
+        { label: 'preflight (w2p)', url: `${w2pBase}/api/v0/${WCP_ECAN}/preflightprofiles` },
+      ];
+
+      // Test each candidate against the first endpoint to find the right token
+      const tokenTests = [];
+      for (const cand of uniqueCandidates) {
+        try {
+          const resp = await fetch(testEndpoints[0].url, {
+            headers: { 'EskoCloud-Token': cand.value, 'Accept': 'application/json', 'User-Agent': 'PaulLand-MIS/1.0' }
+          });
+          const body = await resp.text();
+          tokenTests.push({
+            label: cand.label,
+            preview: cand.value.slice(0, 12) + '...' + cand.value.slice(-6),
+            length: cand.value.length,
+            status: resp.status,
+            statusText: resp.statusText,
+            bodyPreview: body.slice(0, 200),
+          });
+        } catch (e) {
+          tokenTests.push({ label: cand.label, error: e.message });
+        }
+      }
+
+      // Find best token (first non-403)
+      const bestToken = tokenTests.find(t => t.status && t.status !== 403);
+
+      // If we found a working token, test all endpoints with it
+      let endpointTests = [];
+      const testTokenValue = bestToken
+        ? uniqueCandidates.find(c => c.label === bestToken.label)?.value
+        : token;
+      for (const ep of testEndpoints) {
+        try {
+          const resp = await fetch(ep.url, {
+            headers: { 'EskoCloud-Token': testTokenValue, 'Accept': 'application/json', 'User-Agent': 'PaulLand-MIS/1.0' }
+          });
+          const body = await resp.text();
+          endpointTests.push({
+            label: ep.label,
+            url: ep.url,
+            status: resp.status,
+            bodyPreview: body.slice(0, 300),
+          });
+        } catch (e) {
+          endpointTests.push({ label: ep.label, url: ep.url, error: e.message });
+        }
+      }
+
+      // Show the exact headers that would be sent
+      const exactHeadersSent = {
+        'EskoCloud-Token': testTokenValue ? testTokenValue.slice(0, 20) + '...' + testTokenValue.slice(-10) : 'NOT SET',
+        'EskoCloud-Token-full-length': testTokenValue?.length,
+        'Accept': 'application/json',
+      };
+
+      return json({
+        config: { region, ecan: WCP_ECAN, repoId: WCP_REPOID, rawTokenPreview: rawPreview, rawTokenLength: rawToken.length },
+        exactHeadersSent,
+        tokenTests,
+        bestToken: bestToken ? bestToken.label : 'none (all 403)',
+        endpointTests,
+      });
+    }
+  }
+
+  // PUT routes
+  if (request.method === 'PUT') {
+    if (subPath === 'create-job') {
+      const body = await request.text();
+      const targetUrl = `${w2pBase}/api/v0/${WCP_ECAN}/createjob`;
+      const resp = await fetch(targetUrl, {
+        method: 'PUT',
+        headers: { ...wcpHeaders, 'Content-Type': 'application/json' },
+        body,
+      });
+      const respBody = await resp.text();
+      // Wrap response with debug info if error
+      if (!resp.ok) {
+        const debug = {
+          error: `Job-Node creation failed: ${respBody}`,
+          _debug: {
+            targetUrl,
+            cluster,
+            ecan: WCP_ECAN,
+            repoId: WCP_REPOID,
+            payloadPreview: body.slice(0, 500),
+            responseStatus: resp.status,
+          }
+        };
+        return json(debug, resp.status);
+      }
+      return new Response(respBody, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+  }
+
+  // POST routes
+  if (request.method === 'POST') {
+    if (subPath === 'edit-job') {
+      const { jobId, ...payload } = await request.json();
+      if (!jobId) return json({ error: 'jobId is required' }, 400);
+      const resp = await fetch(
+        `${w2pBase}/api/v0/${WCP_REPOID}/${encodeURIComponent(jobId)}/editjob`,
+        { method: 'POST', headers: { ...wcpHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify(payload) }
+      );
+      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    }
+  }
+
+  return json({ error: 'MIS route not found', subPath, method: request.method }, 404);
 }
 
 // ─── Handlers ────────────────────────────────────────────────
@@ -1920,6 +2482,7 @@ ${question}`;
 // ─── Extract Signals from Content ─────────────────────────────
 
 async function handleExtractSignals(request, env) {
+  try {
   const anthropicKey = env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
     return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
@@ -1934,12 +2497,8 @@ async function handleExtractSignals(request, env) {
   const serviceKey = env.SUPABASE_SERVICE_KEY;
 
   // Fetch the content item
-  const itemRes = await supabaseGet(supabaseUrl, serviceKey, `content?id=eq.${content_id}&select=id,title,body,tags,source,url,type`);
-  if (!itemRes.ok) {
-    return json({ error: 'Failed to fetch content' }, 500);
-  }
-  const items = await itemRes.json();
-  if (!items.length) {
+  const items = await supabaseGet(supabaseUrl, serviceKey, `content?id=eq.${content_id}&select=id,title,body,tags,source,url,type`);
+  if (!items || !items.length) {
     return json({ error: 'Content not found' }, 404);
   }
   const item = items[0];
@@ -1971,7 +2530,7 @@ ${item.source ? `Source: ${item.source}` : ''}
 ${item.url ? `URL: ${item.url}` : ''}
 ${item.tags?.length ? `Tags: ${item.tags.join(', ')}` : ''}
 
-${item.body || '(No body content)'}`;
+${(item.body || '(No body content)').slice(0, 15000)}`;
 
   try {
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -2009,6 +2568,9 @@ ${item.body || '(No body content)'}`;
     return json({ ok: true, signals });
   } catch (err) {
     return json({ error: 'AI processing failed', detail: err.message }, 500);
+  }
+  } catch (outerErr) {
+    return json({ error: 'Handler crashed', detail: outerErr.message, stack: outerErr.stack }, 500);
   }
 }
 
@@ -2669,7 +3231,7 @@ function json(data, status = 200) {
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, X-WCP-Token, X-WCP-Region, X-WCP-Cluster, X-WCP-Ecan, X-WCP-RepoId, X-MIS-Connection-Id',
   };
 }
