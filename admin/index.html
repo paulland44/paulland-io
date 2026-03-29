@@ -152,7 +152,7 @@
         }
 
         .sidebar {
-            width: 240px;
+            width: 200px;
             min-height: 100vh;
             background: var(--void-light);
             border-right: none;
@@ -235,41 +235,82 @@
             opacity: 0.5;
         }
 
-        .nav-group-label {
-            font-size: 0.65rem;
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-            color: var(--text-muted);
-            opacity: 0.5;
-            padding: 0.6rem 0.75rem 0.2rem 1.5rem;
-            margin-top: 0.5rem;
-            user-select: none;
-            font-family: var(--sans);
-            font-weight: 500;
-            cursor: pointer;
+        /* ─── Top bar ─── */
+        .top-bar {
+            position: fixed;
+            top: 0;
+            left: 200px;
+            right: 0;
+            height: 48px;
+            background: var(--void-light);
+            border-bottom: 1px solid var(--border);
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            transition: opacity 0.15s;
+            justify-content: flex-end;
+            padding: 0 1.5rem;
+            z-index: 9;
         }
-        .nav-group-label:hover { opacity: 0.8; }
-        .nav-group-label .nav-group-chevron {
-            font-size: 0.55rem;
-            transition: transform 0.2s;
-            margin-right: 0.5rem;
+
+        .today-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.35rem 0.85rem;
+            background: var(--accent-dim);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-sm);
+            color: var(--accent);
+            font-size: 0.82rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
         }
-        .nav-group-label.collapsed .nav-group-chevron {
-            transform: rotate(-90deg);
+        .today-btn:hover { background: var(--accent); color: var(--void); }
+        .today-btn .icon svg { width: 14px; height: 14px; }
+
+        /* ─── Sub-tabs (horizontal) ─── */
+        .sub-tabs {
+            position: fixed;
+            top: 48px;
+            left: 200px;
+            right: 0;
+            height: 40px;
+            background: var(--void);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 0;
+            padding: 0 1.5rem;
+            z-index: 8;
+            overflow-x: auto;
         }
-        .nav-group-items {
-            overflow: hidden;
-            transition: max-height 0.25s ease, opacity 0.2s ease;
-            max-height: 500px;
-            opacity: 1;
+        .sub-tabs:empty { display: none; }
+
+        .sub-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.45rem 0.85rem;
+            color: var(--text-muted);
+            font-size: 0.82rem;
+            font-weight: 400;
+            cursor: pointer;
+            border: none;
+            background: none;
+            border-bottom: 2px solid transparent;
+            transition: color 0.2s, border-color 0.2s;
+            white-space: nowrap;
         }
-        .nav-group-items.collapsed {
-            max-height: 0;
-            opacity: 0;
+        .sub-tab:hover { color: var(--star); }
+        .sub-tab.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+            font-weight: 500;
+        }
+        .sub-tab .count {
+            font-size: 0.72rem;
+            font-family: var(--mono);
+            opacity: 0.5;
         }
 
         .sidebar-footer {
@@ -281,8 +322,9 @@
 
         .main {
             flex: 1;
-            margin-left: 240px;
-            padding: 2rem;
+            margin-left: 200px;
+            margin-top: 88px;
+            padding: 1.5rem 2rem;
             min-width: 0;
             overflow-x: hidden;
         }
@@ -2373,19 +2415,26 @@
                 border-right: none;
                 box-shadow: none;
                 border-bottom: 1px solid var(--border);
+                padding: 0.75rem 0;
             }
+            .sidebar-brand { padding: 0 1rem 0.75rem; margin-bottom: 0.5rem; }
+            .sidebar-brand h1 { display: none; }
+            .sidebar-nav { display: flex; gap: 0.25rem; padding: 0 0.5rem; overflow-x: auto; }
+            .sidebar-footer { display: none; }
+            .nav-item { width: auto; font-size: 0.8rem; padding: 0.4rem 0.6rem; white-space: nowrap; }
 
-            .main { margin-left: 0; }
+            .top-bar { position: static; left: 0; height: auto; padding: 0.5rem 1rem; border-bottom: 1px solid var(--border); }
+            .sub-tabs { position: static; left: 0; overflow-x: auto; padding: 0 1rem; }
+
+            .main { margin-left: 0; margin-top: 0; padding: 1rem; }
             .layout { flex-direction: column; }
 
-            .page-header { flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .page-header { flex-direction: column; gap: 0.75rem; align-items: flex-start !important; }
             .search-input { margin-left: 0; width: 100%; }
 
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
             .overview-system-stats { grid-template-columns: repeat(2, 1fr); }
             .overview-greeting { flex-direction: column; align-items: flex-start; }
-            .nav-group-label { display: none; }
-            .nav-group-items.collapsed { max-height: 500px; opacity: 1; }
 
             .content-modal {
                 width: 100vw;
@@ -2410,7 +2459,6 @@
 
             .daily-nav { flex-wrap: wrap; gap: 0.3rem; }
             .daily-editor-wrap .ProseMirror { font-size: 16px; min-height: 80px; }
-            .page-header { flex-direction: column; gap: 0.75rem; align-items: flex-start !important; }
         }
         .article-thumb {
             width: 40px;
@@ -2884,84 +2932,39 @@
                 <h1>Admin</h1>
             </div>
             <div class="sidebar-nav">
-                <button class="nav-item active" data-view="overview">
-                    <i class="icon" data-lucide="layout-dashboard"></i> Overview
+                <button class="nav-item active" data-section="dashboard">
+                    <i class="icon" data-lucide="layout-dashboard"></i> Dashboard
                 </button>
-                <button class="nav-item" data-view="daily-note">
-                    <i class="icon" data-lucide="calendar-days"></i> Daily Note
+                <button class="nav-item" data-section="content">
+                    <i class="icon" data-lucide="book-open"></i> Content
                 </button>
-
-                <div class="nav-group-label" data-group="content">Content <span class="nav-group-chevron">▼</span></div>
-                <div class="nav-group-items" data-group="content">
-                    <button class="nav-item" data-view="articles">
-                        <i class="icon" data-lucide="newspaper"></i> Articles <span class="count" id="countArticles">-</span>
-                    </button>
-                    <button class="nav-item" data-view="thoughts">
-                        <i class="icon" data-lucide="lightbulb"></i> Thoughts <span class="count" id="countThoughts">-</span>
-                    </button>
-                    <button class="nav-item" data-view="signals">
-                        <i class="icon" data-lucide="radar"></i> Signals <span class="count" id="countSignals">-</span>
-                    </button>
-                    <button class="nav-item" data-view="reflections">
-                        <i class="icon" data-lucide="brain"></i> Reflections <span class="count" id="countReflections">-</span>
-                    </button>
-                    <button class="nav-item" data-view="summaries">
-                        <i class="icon" data-lucide="scroll-text"></i> Summaries <span class="count" id="countSummaries">-</span>
-                    </button>
-                </div>
-
-                <div class="nav-group-label" data-group="sources">Sources <span class="nav-group-chevron">▼</span></div>
-                <div class="nav-group-items" data-group="sources">
-                    <button class="nav-item" data-view="feed-items">
-                        <i class="icon" data-lucide="rss"></i> Feed Items <span class="count" id="countFeedItems">-</span>
-                    </button>
-                </div>
-
-                <div class="nav-group-label" data-group="library">Library <span class="nav-group-chevron">▼</span></div>
-                <div class="nav-group-items" data-group="library">
-                    <button class="nav-item" data-view="assets">
-                        <i class="icon" data-lucide="folder-open"></i> Assets <span class="count" id="countAssets">-</span>
-                    </button>
-                    <button class="nav-item" data-view="tags">
-                        <i class="icon" data-lucide="tags"></i> Tags
-                    </button>
-                </div>
-
-                <div class="nav-group-label" data-group="knowledge">Knowledge <span class="nav-group-chevron">▼</span></div>
-                <div class="nav-group-items" data-group="knowledge">
-                    <button class="nav-item" data-view="people">
-                        <i class="icon" data-lucide="users"></i> People <span class="count" id="countPeople">-</span>
-                    </button>
-                    <button class="nav-item" data-view="companies">
-                        <i class="icon" data-lucide="building-2"></i> Companies <span class="count" id="countCompanies">-</span>
-                    </button>
-                    <button class="nav-item" data-view="products">
-                        <i class="icon" data-lucide="box"></i> Products <span class="count" id="countProducts">-</span>
-                    </button>
-                    <button class="nav-item" data-view="projects">
-                        <i class="icon" data-lucide="kanban"></i> Projects <span class="count" id="countProjects">-</span>
-                    </button>
-                    <button class="nav-item" data-view="competition">
-                        <i class="icon" data-lucide="swords"></i> Competition
-                    </button>
-                </div>
-
-                <div class="nav-group-label" data-group="tools">Tools <span class="nav-group-chevron">▼</span></div>
-                <div class="nav-group-items" data-group="tools">
-                    <button class="nav-item" data-view="ask">
-                        <i class="icon" data-lucide="sparkles"></i> Ask AI
-                    </button>
-                </div>
+                <button class="nav-item" data-section="knowledge">
+                    <i class="icon" data-lucide="database"></i> Knowledge
+                </button>
+                <button class="nav-item" data-section="sources">
+                    <i class="icon" data-lucide="inbox"></i> Sources
+                </button>
+                <button class="nav-item" data-section="tools">
+                    <i class="icon" data-lucide="wrench"></i> Tools
+                </button>
             </div>
             <div class="sidebar-footer">
-                <button class="nav-item" data-view="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
+                <button class="nav-item" data-section="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
                     <i class="icon" data-lucide="settings"></i> Settings
                 </button>
-                <div style="padding: 0.3rem 1.5rem; font-size: 0.75rem;">
-                    Last refreshed: <span id="lastRefresh">-</span>
+                <div style="padding: 0.3rem 1rem; font-size: 0.7rem;">
+                    <span id="lastRefresh" style="opacity: 0.4;"></span>
                 </div>
             </div>
         </nav>
+
+        <div class="top-bar">
+            <span></span>
+            <button class="today-btn" id="todayBtn">
+                <i class="icon" data-lucide="calendar-days"></i> Today
+            </button>
+        </div>
+        <div class="sub-tabs" id="subTabs"></div>
 
         <main class="main" id="mainContent">
             <div class="loading">Loading</div>
@@ -3054,56 +3057,132 @@
         db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
         loadSettings();
 
-        // Wire up nav
-        document.querySelectorAll('.nav-item').forEach(btn => {
+        // Wire section-based nav
+        document.querySelectorAll('.nav-item[data-section]').forEach(btn => {
             btn.addEventListener('click', () => {
-                // Flush pending daily note save before navigating away
-                if (currentView === 'daily-note' && dailyIsDirty) {
-                    clearTimeout(dailySaveTimer);
-                    saveDailyNote();
+                flushDailyIfNeeded();
+                const section = btn.dataset.section;
+                if (section === 'settings') {
+                    setActiveSection(btn);
+                    document.getElementById('subTabs').innerHTML = '';
+                    currentView = 'settings';
+                    loadView('settings');
+                    return;
                 }
-                if (currentView === 'daily-note') destroyDailyEditors();
-                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                currentView = btn.dataset.view;
-                loadView(currentView);
+                navigateToSection(section);
             });
         });
 
-        // Wire collapsible nav groups
-        const savedGroups = JSON.parse(localStorage.getItem('paulland_collapsed_groups') || '[]');
-        document.querySelectorAll('.nav-group-label[data-group]').forEach(label => {
-            const group = label.dataset.group;
-            const items = document.querySelector(`.nav-group-items[data-group="${group}"]`);
-            if (!items) return;
-
-            // Restore collapsed state
-            if (savedGroups.includes(group)) {
-                label.classList.add('collapsed');
-                items.classList.add('collapsed');
-            }
-
-            label.addEventListener('click', () => {
-                const isCollapsed = label.classList.toggle('collapsed');
-                items.classList.toggle('collapsed', isCollapsed);
-
-                // Persist to localStorage
-                const current = JSON.parse(localStorage.getItem('paulland_collapsed_groups') || '[]');
-                if (isCollapsed) {
-                    if (!current.includes(group)) current.push(group);
-                } else {
-                    const idx = current.indexOf(group);
-                    if (idx >= 0) current.splice(idx, 1);
-                }
-                localStorage.setItem('paulland_collapsed_groups', JSON.stringify(current));
-            });
+        // Today button — always accessible
+        document.getElementById('todayBtn').addEventListener('click', () => {
+            flushDailyIfNeeded();
+            // Clear sidebar active state (Today is independent)
+            document.querySelectorAll('.nav-item[data-section]').forEach(b => b.classList.remove('active'));
+            document.getElementById('subTabs').innerHTML = '';
+            currentView = 'daily-note';
+            loadView('daily-note');
         });
 
         loadCounts();
-        loadView('overview');
+        navigateToSection('dashboard');
 
         // Initialize Lucide icons for sidebar
         refreshIcons();
+    }
+
+    // ─── Section definitions ─────────────────────────────────
+
+    const SECTIONS = {
+        dashboard: { tabs: [
+            { view: 'overview', label: 'Overview' },
+        ]},
+        content: { tabs: [
+            { view: 'articles', label: 'Articles', countKey: 'articles' },
+            { view: 'thoughts', label: 'Thoughts', countKey: 'thoughts' },
+            { view: 'signals', label: 'Signals', countKey: 'signals' },
+            { view: 'reflections', label: 'Reflections', countKey: 'reflections' },
+            { view: 'summaries', label: 'Summaries', countKey: 'summaries' },
+            { view: 'assets', label: 'Assets', countKey: 'assets' },
+        ]},
+        knowledge: { tabs: [
+            { view: 'people', label: 'People', countKey: 'people' },
+            { view: 'companies', label: 'Companies', countKey: 'companies' },
+            { view: 'products', label: 'Products', countKey: 'products' },
+            { view: 'projects', label: 'Projects', countKey: 'projects' },
+            { view: 'competition', label: 'Competition' },
+        ]},
+        sources: { tabs: [
+            { view: 'feed-items', label: 'Feed Items', countKey: 'feedItems' },
+            { view: 'feeds', label: 'Feeds', countKey: 'feeds' },
+            { view: 'tags', label: 'Tags' },
+        ]},
+        tools: { tabs: [
+            { view: 'ask', label: 'Ask AI' },
+            { view: 'mcp-overview', label: 'MCP' },
+            { view: 'prompts', label: 'Prompts' },
+            { view: 'mis', label: 'MIS Simulator', href: '/mis/' },
+        ]},
+    };
+
+    let currentSection = 'dashboard';
+    let countData = {};
+
+    function flushDailyIfNeeded() {
+        if (currentView === 'daily-note' && dailyIsDirty) {
+            clearTimeout(dailySaveTimer);
+            saveDailyNote();
+        }
+        if (currentView === 'daily-note') destroyDailyEditors();
+    }
+
+    function setActiveSection(btn) {
+        document.querySelectorAll('.nav-item[data-section]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+    }
+
+    function navigateToSection(sectionId) {
+        const section = SECTIONS[sectionId];
+        if (!section) return;
+
+        currentSection = sectionId;
+
+        // Update sidebar active state
+        const btn = document.querySelector(`.nav-item[data-section="${sectionId}"]`);
+        if (btn) setActiveSection(btn);
+
+        // Render sub-tabs
+        const subTabs = document.getElementById('subTabs');
+        if (section.tabs.length <= 1) {
+            subTabs.innerHTML = '';
+        } else {
+            subTabs.innerHTML = section.tabs.map((tab, i) => {
+                if (tab.href) {
+                    return `<a class="sub-tab" href="${tab.href}" style="text-decoration: none;">${tab.label}</a>`;
+                }
+                const count = tab.countKey && countData[tab.countKey] != null ? ` <span class="count">${countData[tab.countKey]}</span>` : '';
+                return `<button class="sub-tab${i === 0 ? ' active' : ''}" data-view="${tab.view}">${tab.label}${count}</button>`;
+            }).join('');
+
+            // Wire sub-tab clicks
+            subTabs.querySelectorAll('.sub-tab[data-view]').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    flushDailyIfNeeded();
+                    subTabs.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    currentView = tab.dataset.view;
+                    loadView(currentView);
+                });
+            });
+        }
+
+        refreshIcons();
+
+        // Load first tab's view
+        const firstTab = section.tabs.find(t => !t.href);
+        if (firstTab) {
+            currentView = firstTab.view;
+            loadView(currentView);
+        }
     }
 
     // ─── Counts ───────────────────────────────────────────────
@@ -3123,19 +3202,40 @@
             db.from('projects').select('id', { count: 'exact', head: true }),
         ]);
 
-        document.getElementById('countArticles').textContent = articles.count || 0;
-        document.getElementById('countThoughts').textContent = thoughts.count || 0;
-        document.getElementById('countSignals').textContent = signals.count || 0;
-        document.getElementById('countReflections').textContent = reflections.count || 0;
-        document.getElementById('countSummaries').textContent = summaries.count || 0;
-        document.getElementById('countFeedItems').textContent = feedItems.count || 0;
-        document.getElementById('countFeeds').textContent = feeds.count || 0;
-        document.getElementById('countAssets').textContent = assets.count || 0;
-        document.getElementById('countPeople').textContent = people.count || 0;
-        document.getElementById('countCompanies').textContent = companies.count || 0;
-        document.getElementById('countProducts').textContent = products.count || 0;
-        document.getElementById('countProjects').textContent = projects.count || 0;
+        // Store counts in data object (sub-tabs read from this)
+        countData = {
+            articles: articles.count || 0,
+            thoughts: thoughts.count || 0,
+            signals: signals.count || 0,
+            reflections: reflections.count || 0,
+            summaries: summaries.count || 0,
+            feedItems: feedItems.count || 0,
+            feeds: feeds.count || 0,
+            assets: assets.count || 0,
+            people: people.count || 0,
+            companies: companies.count || 0,
+            products: products.count || 0,
+            projects: projects.count || 0,
+        };
+
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
+
+        // Re-render current sub-tabs to update counts
+        if (SECTIONS[currentSection] && SECTIONS[currentSection].tabs.length > 1) {
+            const subTabs = document.getElementById('subTabs');
+            subTabs.querySelectorAll('.sub-tab[data-view]').forEach(tab => {
+                const tabDef = SECTIONS[currentSection].tabs.find(t => t.view === tab.dataset.view);
+                if (tabDef?.countKey && countData[tabDef.countKey] != null) {
+                    let countEl = tab.querySelector('.count');
+                    if (!countEl) {
+                        countEl = document.createElement('span');
+                        countEl.className = 'count';
+                        tab.appendChild(countEl);
+                    }
+                    countEl.textContent = countData[tabDef.countKey];
+                }
+            });
+        }
 
         // Load all unique tags for autocomplete (across content + assets)
         const [{ data: tagRows }, { data: assetTagRows }] = await Promise.all([
@@ -3180,6 +3280,8 @@
                 }
                 break;
             case 'ask': await loadAsk(); break;
+            case 'mcp-overview': await loadMcpOverview(); break;
+            case 'prompts': await loadPrompts(); break;
             case 'settings': await loadSettingsView(); break;
         }
         refreshIcons();
@@ -4616,7 +4718,7 @@
         const to = from + ARTICLES_PER_PAGE - 1;
 
         let query = db.from('content')
-            .select('id, title, url, source, author, tags, status, captured_at, body, metadata', { count: 'exact' })
+            .select('id, title, type, url, source, author, tags, status, captured_at, body, metadata', { count: 'exact' })
             .eq('type', 'article')
             .order('captured_at', { ascending: false })
             .range(from, to);
@@ -4931,7 +5033,7 @@
         // Fetch signals + unique tags for filter
         const [{ data, error }, { data: tagRows }] = await Promise.all([
             db.from('content')
-                .select('id, title, tags, status, captured_at, body, metadata')
+                .select('id, title, type, tags, status, captured_at, body, metadata')
                 .eq('type', 'signal')
                 .order('captured_at', { ascending: false })
                 .limit(200),
@@ -5346,7 +5448,7 @@
         // Fetch both content reflections AND reflections_log (from AI reviews)
         const [contentResult, logResult] = await Promise.all([
             db.from('content')
-                .select('id, title, tags, status, captured_at, body, metadata')
+                .select('id, title, type, tags, status, captured_at, body, metadata')
                 .eq('type', 'reflection')
                 .order('captured_at', { ascending: false })
                 .limit(50),
@@ -8507,6 +8609,393 @@
         });
     }
 
+    // ─── MCP Overview Dashboard ─────────────────────────────────
+
+    const MCP_TOOLS = [
+        { name: 'list_content', desc: 'List articles, thoughts, signals, reflections', group: 'Content', params: 5 },
+        { name: 'get_content', desc: 'Get full content item by ID', group: 'Content', params: 1 },
+        { name: 'list_daily_notes', desc: 'List daily notes for date range', group: 'Content', params: 3 },
+        { name: 'get_daily_note', desc: 'Get full daily note for a date', group: 'Content', params: 1 },
+        { name: 'list_entities', desc: 'List people, companies, products, projects', group: 'Content', params: 3 },
+        { name: 'get_entity', desc: 'Get entity with related content and assets', group: 'Content', params: 2 },
+        { name: 'list_feed_items', desc: 'List feed items awaiting triage', group: 'Content', params: 2 },
+        { name: 'search_knowledge_base', desc: 'Semantic vector search across KB', group: 'Search', params: 6 },
+        { name: 'create_content', desc: 'Create article, thought, signal, or reflection', group: 'Write', params: 7 },
+        { name: 'update_content', desc: 'Update an existing content item', group: 'Write', params: 2 },
+        { name: 'update_tags', desc: 'Update tags and trigger re-embedding', group: 'Write', params: 2 },
+        { name: 'upsert_daily_note', desc: 'Create or update daily note by date', group: 'Write', params: 4 },
+        { name: 'create_entity', desc: 'Create person, company, product, or project', group: 'Write', params: 2 },
+        { name: 'update_entity', desc: 'Update entity fields', group: 'Write', params: 3 },
+        { name: 'capture_feed_item', desc: 'Promote feed item to content article', group: 'Feed', params: 1 },
+        { name: 'dismiss_feed_item', desc: 'Dismiss feed item from triage', group: 'Feed', params: 1 },
+        { name: 'daily_review_extract', desc: 'Fetch daily note with entity context for review', group: 'AI Workflows', params: 1 },
+        { name: 'daily_review_write', desc: 'Write structured review results to database', group: 'AI Workflows', params: 2 },
+        { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2 },
+        { name: 'batch_embed', desc: 'Embed up to 6 unembedded items', group: 'Embeddings', params: 1 },
+        { name: 'get_system_status', desc: 'Overview of KB health and counts', group: 'Utility', params: 0 },
+        { name: 'list_prompts', desc: 'List all prompt templates with metadata', group: 'Prompts', params: 0 },
+        { name: 'get_prompt', desc: 'Get full prompt template by slug', group: 'Prompts', params: 1 },
+        { name: 'update_prompt', desc: 'Update prompt template, auto-version', group: 'Prompts', params: 2 },
+        { name: 'list_mis_connections', desc: 'List MIS simulator connections', group: 'MIS', params: 0 },
+        { name: 'list_mis_jobs', desc: 'List MIS simulator jobs', group: 'MIS', params: 2 },
+        { name: 'create_mis_job', desc: 'Create draft MIS job record', group: 'MIS', params: 7 },
+    ];
+
+    const MCP_SKILLS = [
+        {
+            name: 'End-of-Day Review',
+            slug: 'eod-review',
+            desc: 'Process a daily note, extract structured data (people, products, reflections, tasks), and write results to the knowledge base.',
+            tools: ['get_prompt', 'daily_review_extract', 'daily_review_write'],
+            prompt: 'daily-review',
+            steps: [
+                'Fetch daily-review prompt template',
+                'Load daily note + entity context',
+                'Extract structured data in-context',
+                'Write results to knowledge base',
+                'Report extraction summary',
+            ],
+        },
+        {
+            name: 'Extract Signals',
+            slug: 'extract-signals',
+            desc: 'Extract strategic signals from articles and save them as signal content items.',
+            tools: ['get_prompt', 'list_content', 'get_content', 'create_content', 'update_content'],
+            prompt: 'extract-signals',
+            steps: [
+                'Fetch extract-signals prompt template',
+                'Find unprocessed articles',
+                'Extract 1-5 signals per article',
+                'Save each signal as content item',
+                'Mark source article as processed',
+            ],
+        },
+    ];
+
+    const GROUP_ICONS = {
+        'Content': 'book-open', 'Search': 'search', 'Write': 'pencil', 'Feed': 'rss',
+        'AI Workflows': 'brain', 'Embeddings': 'layers', 'Utility': 'activity',
+        'Prompts': 'file-text', 'MIS': 'factory',
+    };
+
+    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
+
+    async function loadMcpOverview() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading MCP overview</div>';
+
+        // Fetch prompts from DB
+        const { data: prompts } = await db.from('prompts').select('*').order('slug');
+        const promptsList = prompts || [];
+
+        // Group tools
+        const groups = {};
+        for (const g of GROUP_ORDER) groups[g] = [];
+        for (const t of MCP_TOOLS) {
+            if (!groups[t.group]) groups[t.group] = [];
+            groups[t.group].push(t);
+        }
+
+        // Stats
+        const totalTools = MCP_TOOLS.length;
+        const totalSkills = MCP_SKILLS.length;
+        const totalPrompts = promptsList.length;
+
+        // Build tools HTML
+        let toolsHtml = '';
+        for (const g of GROUP_ORDER) {
+            const tools = groups[g];
+            if (!tools || !tools.length) continue;
+            const icon = GROUP_ICONS[g] || 'box';
+            toolsHtml += `
+                <div style="margin-bottom: 1rem;">
+                    <div style="display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.5rem; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 500;">
+                        <i class="icon" data-lucide="${icon}" style="width: 14px; height: 14px;"></i> ${g}
+                        <span style="opacity: 0.5;">(${tools.length})</span>
+                    </div>
+                    ${tools.map(t => `
+                        <div style="display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border-faint, rgba(255,255,255,0.04));">
+                            <code style="font-size: 0.78rem; color: var(--accent); white-space: nowrap;">${t.name}</code>
+                            <span style="font-size: 0.78rem; color: var(--text-muted); flex: 1;">${esc(t.desc)}</span>
+                            ${t.params ? `<span style="font-size: 0.7rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 9px; padding: 0.1rem 0.4rem; color: var(--text-muted); white-space: nowrap;">${t.params} params</span>` : ''}
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        // Build skills HTML
+        const skillsHtml = MCP_SKILLS.map(s => `
+            <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 1rem;">
+                <div style="font-weight: 600; color: var(--star); margin-bottom: 0.25rem;">${esc(s.name)}</div>
+                <div style="font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;">${esc(s.desc)}</div>
+                <div style="margin-bottom: 0.5rem;">
+                    <span style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">Uses tools</span>
+                    <div style="display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.25rem;">
+                        ${s.tools.map(t => `<span class="type-badge" style="font-size: 0.72rem;">${t}</span>`).join('')}
+                    </div>
+                </div>
+                <div style="margin-bottom: 0.75rem;">
+                    <span style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">Uses prompt</span>
+                    <div style="margin-top: 0.25rem;">
+                        <span class="type-badge" style="font-size: 0.72rem; cursor: pointer; border-color: var(--accent); color: var(--accent);" data-prompt-slug="${s.prompt}">${s.prompt}</span>
+                    </div>
+                </div>
+                <div>
+                    <span style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted); letter-spacing: 0.04em;">Workflow</span>
+                    <ol style="margin: 0.25rem 0 0 1.2rem; padding: 0; font-size: 0.8rem; color: var(--text-body); line-height: 1.6;">
+                        ${s.steps.map(st => `<li>${esc(st)}</li>`).join('')}
+                    </ol>
+                </div>
+            </div>
+        `).join('');
+
+        // Build prompts HTML
+        const promptsHtml = promptsList.map(p => `
+            <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; margin-bottom: 0.5rem; cursor: pointer;" data-prompt-id="${p.id}" class="mcp-prompt-card">
+                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.25rem;">
+                    <span style="font-weight: 500; color: var(--star); font-size: 0.9rem;">${esc(p.name)}</span>
+                    <span style="font-size: 0.7rem; color: var(--text-muted);">v${p.version || 1}</span>
+                </div>
+                <div style="font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.4rem;">${esc(p.description || '')}</div>
+                <div style="display: flex; gap: 0.3rem; flex-wrap: wrap;">
+                    <span class="type-badge" style="font-size: 0.7rem;">${esc(p.slug)}</span>
+                    <span class="type-badge" style="font-size: 0.7rem;">${esc((p.model || '').replace('claude-', '').replace('-20250514', ''))}</span>
+                    <span class="type-badge" style="font-size: 0.7rem;">${esc(p.output_format || '')}</span>
+                </div>
+            </div>
+        `).join('');
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">MCP Overview</h2>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                    Tools, skills, and prompts powering the knowledge base MCP server.
+                </p>
+            </div>
+            <div style="display: flex; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap;">
+                <div style="flex: 1; min-width: 120px; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--accent);">${totalTools}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Tools</div>
+                </div>
+                <div style="flex: 1; min-width: 120px; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--accent);">${totalSkills}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Skills</div>
+                </div>
+                <div style="flex: 1; min-width: 120px; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--accent);">${totalPrompts}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Prompts</div>
+                </div>
+                <div style="flex: 1; min-width: 120px; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 0.75rem; text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: 600; color: var(--accent);">4</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Resources</div>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.2fr 1fr 1fr; gap: 1.5rem; align-items: start;">
+                <div>
+                    <h3 style="font-size: 0.9rem; color: var(--star); margin-bottom: 0.75rem; font-weight: 600;">Tools</h3>
+                    ${toolsHtml}
+                </div>
+                <div>
+                    <h3 style="font-size: 0.9rem; color: var(--star); margin-bottom: 0.75rem; font-weight: 600;">Skills</h3>
+                    ${skillsHtml}
+                </div>
+                <div>
+                    <h3 style="font-size: 0.9rem; color: var(--star); margin-bottom: 0.75rem; font-weight: 600;">Prompts</h3>
+                    ${promptsHtml}
+                </div>
+            </div>
+        `;
+
+        // Wire prompt card clicks
+        main.querySelectorAll('.mcp-prompt-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const p = promptsList.find(pp => String(pp.id) === card.dataset.promptId);
+                if (p) openPromptModal(p);
+            });
+        });
+
+        // Wire prompt slug badges in skills
+        main.querySelectorAll('[data-prompt-slug]').forEach(badge => {
+            badge.addEventListener('click', () => {
+                const p = promptsList.find(pp => pp.slug === badge.dataset.promptSlug);
+                if (p) openPromptModal(p);
+            });
+        });
+
+        refreshIcons();
+    }
+
+    // ─── Prompts Management ─────────────────────────────────────
+
+    let promptsData = [];
+
+    async function loadPrompts() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading prompts</div>';
+
+        const { data, error } = await db
+            .from('prompts')
+            .select('*')
+            .order('slug');
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+        if (!data.length) { main.innerHTML = '<div class="empty">No prompts configured yet.</div>'; return; }
+
+        promptsData = data;
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Prompts</h2>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                    Prompt templates used by MCP skills and AI workflows. Click to edit.
+                </p>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Slug</th>
+                            <th>Model</th>
+                            <th>Format</th>
+                            <th>Version</th>
+                        </tr>
+                    </thead>
+                    <tbody id="promptsBody"></tbody>
+                </table>
+            </div>
+        `;
+
+        renderPromptRows(promptsData);
+        refreshIcons();
+    }
+
+    function renderPromptRows(data) {
+        const tbody = document.getElementById('promptsBody');
+        if (!tbody) return;
+        tbody.innerHTML = data.map(p => `
+            <tr class="expandable" data-id="${p.id}">
+                <td class="title-cell"><span class="title-text">${esc(p.name)}</span></td>
+                <td><span class="type-badge">${esc(p.slug)}</span></td>
+                <td style="font-size: 0.8rem; color: var(--text-muted);">${esc((p.model || '').replace('claude-', '').replace('-20250514', ''))}</td>
+                <td><span class="type-badge">${esc(p.output_format || '-')}</span></td>
+                <td style="font-size: 0.8rem; color: var(--text-muted);">v${p.version || 1}</td>
+            </tr>
+        `).join('');
+
+        tbody.querySelectorAll('tr.expandable').forEach(row => {
+            row.addEventListener('click', async () => {
+                const prompt = promptsData.find(p => String(p.id) === row.dataset.id);
+                if (!prompt) return;
+                openPromptModal(prompt);
+            });
+        });
+    }
+
+    function openPromptModal(prompt) {
+        document.getElementById('contentModalTitle').textContent = prompt.name;
+        const updated = prompt.updated_at ? new Date(prompt.updated_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+        document.getElementById('contentModalMeta').innerHTML = `
+            <span class="type-badge">${esc(prompt.slug)}</span>
+            <span class="type-badge">v${prompt.version || 1}</span>
+            <span style="color: var(--text-muted); font-size: 0.8rem;">${updated}</span>
+        `;
+
+        document.getElementById('contentModalBody').innerHTML = `
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Name</div>
+                <input class="modal-edit-input" id="editPromptName" value="${esc(prompt.name || '')}">
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">Description</div>
+                <input class="modal-edit-input" id="editPromptDesc" value="${esc(prompt.description || '')}">
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.75rem;">
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Model</div>
+                    <select class="modal-edit-select" id="editPromptModel">
+                        <option value="claude-sonnet-4-20250514" ${prompt.model === 'claude-sonnet-4-20250514' ? 'selected' : ''}>Sonnet 4</option>
+                        <option value="claude-opus-4-20250514" ${prompt.model === 'claude-opus-4-20250514' ? 'selected' : ''}>Opus 4</option>
+                        <option value="claude-haiku-35-20250514" ${prompt.model === 'claude-haiku-35-20250514' ? 'selected' : ''}>Haiku 3.5</option>
+                    </select>
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Max Tokens</div>
+                    <input class="modal-edit-input" type="number" id="editPromptMaxTokens" value="${prompt.max_tokens || 4000}">
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Output Format</div>
+                    <select class="modal-edit-select" id="editPromptFormat">
+                        <option value="json" ${prompt.output_format === 'json' ? 'selected' : ''}>JSON</option>
+                        <option value="markdown" ${prompt.output_format === 'markdown' ? 'selected' : ''}>Markdown</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">System Prompt</div>
+                <textarea class="modal-edit-textarea" id="editPromptSystem" style="min-height: 300px; font-size: 0.82rem; line-height: 1.5;">${esc(prompt.system_prompt || '')}</textarea>
+            </div>
+            <div class="modal-edit-field">
+                <div class="modal-edit-label">User Prompt Template</div>
+                <textarea class="modal-edit-textarea" id="editPromptUser" style="min-height: 200px; font-size: 0.82rem; line-height: 1.5;">${esc(prompt.user_prompt_template || '')}</textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="modal-save-btn" id="savePromptBtn">Save</button>
+                <span class="modal-save-status" id="promptSaveStatus"></span>
+            </div>
+        `;
+
+        document.querySelector('.content-modal-scroll').scrollTop = 0;
+        document.body.classList.add('content-open');
+
+        document.getElementById('savePromptBtn').addEventListener('click', async () => {
+            const status = document.getElementById('promptSaveStatus');
+            status.textContent = 'saving...';
+            status.className = 'modal-save-status saving';
+
+            try {
+                const newVersion = (prompt.version || 1) + 1;
+                const updates = {
+                    name: document.getElementById('editPromptName').value.trim(),
+                    description: document.getElementById('editPromptDesc').value.trim(),
+                    model: document.getElementById('editPromptModel').value,
+                    max_tokens: parseInt(document.getElementById('editPromptMaxTokens').value, 10) || 4000,
+                    output_format: document.getElementById('editPromptFormat').value,
+                    system_prompt: document.getElementById('editPromptSystem').value,
+                    user_prompt_template: document.getElementById('editPromptUser').value,
+                    version: newVersion,
+                    updated_at: new Date().toISOString(),
+                };
+
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'prompts', id: prompt.id, updates }),
+                });
+                if (!res.ok) throw new Error(await res.text());
+
+                Object.assign(prompt, updates);
+                renderPromptRows(promptsData);
+
+                // Update modal meta
+                document.getElementById('contentModalMeta').innerHTML = `
+                    <span class="type-badge">${esc(prompt.slug)}</span>
+                    <span class="type-badge">v${newVersion}</span>
+                    <span style="color: var(--text-muted); font-size: 0.8rem;">just now</span>
+                `;
+
+                status.textContent = 'saved';
+                status.className = 'modal-save-status saved';
+                setTimeout(() => { status.textContent = ''; }, 2000);
+            } catch (err) {
+                status.textContent = 'failed';
+                status.className = 'modal-save-status error';
+                console.error('Prompt save failed:', err);
+            }
+        });
+    }
+
     // ─── Ask AI (RAG) ──────────────────────────────────────────
 
     async function loadAsk() {
@@ -9020,7 +9509,7 @@
                     body: JSON.stringify({ content_id: item.id }),
                 });
                 const data = await res.json();
-                if (!data.ok) throw new Error(data.error || 'Extraction failed');
+                if (!data.ok) throw new Error(data.detail || data.error || 'Extraction failed');
                 const signals = data.signals || [];
                 if (!signals.length) {
                     container.innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.85rem">No signals identified in this article.</div>';

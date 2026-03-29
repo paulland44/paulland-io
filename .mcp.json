@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "paulland-kb": {
+      "command": "node",
+      "args": ["/Users/pala/Documents/Developer/Projects/paulland-io/mcp-server/launch.cjs"]
+    }
+  }
+}

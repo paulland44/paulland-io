@@ -1,0 +1,12 @@
+name = "paulland-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-03-17"
+compatibility_flags = ["nodejs_compat"]
+
+# Secrets (set via `wrangler secret put`):
+# SUPABASE_URL
+# SUPABASE_SERVICE_KEY
+# CF_ACCOUNT_ID
+# CF_API_TOKEN
+# CF_ACCESS_TEAM_DOMAIN
+# CF_ACCESS_AUD
