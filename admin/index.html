@@ -2913,6 +2913,62 @@
         .embed-progress { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); background: var(--void-light); }
         .embed-progress .count { font-family: var(--mono); color: var(--accent); }
 
+        /* ─── MIS-specific styles ─── */
+        .searchable-select { position: relative; cursor: pointer; }
+        .ss-display { padding: 0.5rem 0.75rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--star); font-size: 0.9rem; transition: border-color 0.2s; }
+        .ss-display.placeholder { color: var(--text-muted); }
+        .ss-display:hover { border-color: var(--accent); }
+        .searchable-select.open .ss-display { border-color: var(--accent); }
+        .ss-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 2px; box-shadow: var(--shadow-md); max-height: 280px; overflow: hidden; }
+        .searchable-select.open .ss-dropdown { display: block; }
+        .ss-search { width: 100%; padding: 0.5rem 0.75rem; background: var(--void-lighter); border: none; border-bottom: 1px solid var(--border); color: var(--star); font-size: 0.85rem; outline: none; }
+        .ss-options { max-height: 220px; overflow-y: auto; }
+        .ss-option { padding: 0.4rem 0.75rem; cursor: pointer; font-size: 0.85rem; color: var(--text-body); transition: background 0.1s; }
+        .ss-option:hover, .ss-option.highlighted { background: var(--hover-bg); color: var(--star); }
+        .ss-option.selected { color: var(--accent); font-weight: 500; }
+        .ss-empty { padding: 0.75rem; color: var(--text-muted); font-size: 0.82rem; text-align: center; }
+
+        .mis-form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+        .mis-form-group { margin-bottom: 0.75rem; }
+        .mis-form-label { font-size: 0.75rem; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.25rem; letter-spacing: 0.04em; font-weight: 500; }
+        .mis-form-textarea { width: 100%; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--star); font-size: 0.9rem; padding: 0.5rem 0.75rem; outline: none; min-height: 60px; resize: vertical; font-family: var(--sans); }
+        .mis-form-textarea:focus { border-color: var(--accent); }
+        .mis-card { background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1rem; }
+        .mis-card-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; font-weight: 600; margin-bottom: 0.75rem; color: var(--star); }
+        .mis-card-title .icon svg { width: 16px; height: 16px; opacity: 0.7; }
+
+        .task-card { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; margin-bottom: 0.75rem; }
+        .task-card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+        .task-card-number { font-weight: 600; font-size: 0.85rem; color: var(--accent); }
+        .task-remove { background: none; border: none; color: var(--text-muted); cursor: pointer; padding: 0.2rem; }
+        .task-remove:hover { color: var(--red, #ef4444); }
+
+        .json-preview { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 1rem; font-family: var(--mono); font-size: 0.78rem; overflow-x: auto; white-space: pre-wrap; color: var(--text-body); max-height: 400px; overflow-y: auto; }
+
+        .mis-btn { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.45rem 0.85rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text-body); cursor: pointer; font-size: 0.82rem; transition: all 0.2s; }
+        .mis-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .mis-btn-primary { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+        .mis-btn-primary:hover { background: var(--accent); color: var(--void); }
+        .mis-btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; }
+        .mis-btn-danger { color: var(--red, #ef4444); border-color: var(--red, #ef4444); }
+        .mis-btn .icon svg { width: 14px; height: 14px; }
+
+        .mis-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: var(--radius-pill); font-size: 0.72rem; font-weight: 500; background: var(--void-lighter); border: 1px solid var(--border); }
+        .mis-badge-active { border-color: var(--accent); color: var(--accent); }
+        .mis-badge-created { border-color: var(--accent); color: var(--accent); }
+        .mis-badge-failed { border-color: var(--red, #ef4444); color: var(--red, #ef4444); }
+
+        .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 100; display: flex; flex-direction: column; gap: 0.5rem; }
+        .toast { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; border-radius: var(--radius-sm); font-size: 0.82rem; background: var(--void-light); border: 1px solid var(--border); color: var(--text-body); box-shadow: var(--shadow-md); transition: opacity 0.2s; }
+        .toast.success { border-color: var(--accent); color: var(--accent); }
+        .toast.error { border-color: var(--red, #ef4444); color: var(--red, #ef4444); }
+        .toast .icon svg { width: 16px; height: 16px; }
+
+        .mis-collapsible-header { display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+        .mis-collapsible-body { overflow: hidden; transition: max-height 0.25s ease; }
+        .mis-collapsible-body.collapsed { max-height: 0 !important; }
+        .mis-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; }
+
         /* Lucide icon styling */
         .icon { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
         .icon svg { width: 1em; height: 1em; stroke-width: 1.75; }
@@ -2976,6 +3032,7 @@
 
     <!-- Content modal -->
     <div class="content-overlay" id="contentOverlay"></div>
+    <div class="toast-container" id="toastContainer"></div>
     <div class="content-modal" id="contentModal">
         <button class="content-close" id="contentClose" aria-label="Close"></button>
         <div class="content-modal-scroll">
@@ -9274,38 +9331,507 @@
         refreshIcons();
     }
 
+    // ─── MIS Shared Helpers ──────────────────────────────────
+
+    let cachedCustomers = null, cachedTaskTemplates = null, cachedProductTemplates = null, cachedPreflightProfiles = null;
+    let jobTasks = [], taskCounter = 0;
+    let _cachedMisJobs = null, _misJobsCacheTime = 0;
+
+    function misHasActiveConnection() {
+        const p = getMisActiveProfile();
+        return p && !!(p.ecan && p.repoId);
+    }
+
+    function misGetCreds() {
+        const p = getMisActiveProfile();
+        if (!p) return {};
+        return { cluster: p.cluster || 'eu', ecan: p.ecan || '', repoId: p.repoId || '', connectionId: p.id, type: p.type || 'wcp', name: p.name || '' };
+    }
+
+    function misHeaders() {
+        const c = misGetCreds();
+        const h = { 'Accept': 'application/json' };
+        if (c.connectionId) h['X-MIS-Connection-Id'] = c.connectionId;
+        if (c.cluster) { h['X-WCP-Cluster'] = c.cluster; h['X-WCP-Region'] = c.cluster; }
+        if (c.ecan) h['X-WCP-Ecan'] = c.ecan;
+        if (c.repoId) h['X-WCP-RepoId'] = c.repoId;
+        return h;
+    }
+
+    async function misGet(path) {
+        if (!misHasActiveConnection()) throw new Error('No active connection. Configure one in Settings → Connections.');
+        const resp = await fetch(`${MIS_API_BASE}/${path}`, { headers: misHeaders() });
+        if (!resp.ok) { const body = await resp.text().catch(() => ''); throw new Error(`API ${resp.status}: ${body.slice(0, 200)}`); }
+        return resp.json();
+    }
+
+    async function misPut(path, body) {
+        if (!misHasActiveConnection()) throw new Error('No active connection configured.');
+        const resp = await fetch(`${MIS_API_BASE}/${path}`, { method: 'PUT', headers: { ...misHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        const text = await resp.text().catch(() => '');
+        let data; try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+        if (!resp.ok) throw new Error(`API ${resp.status}: ${data.error || data.message || data.rawResponse || 'Unknown error'}`);
+        return data;
+    }
+
+    function showToast(message, type = 'info') {
+        const container = document.getElementById('toastContainer');
+        if (!container) return;
+        const toast = document.createElement('div');
+        toast.className = `toast ${type}`;
+        const icons = { success: 'check-circle', error: 'alert-circle', info: 'info' };
+        toast.innerHTML = `<i class="icon" data-lucide="${icons[type] || 'info'}"></i> ${esc(message)}`;
+        container.appendChild(toast);
+        refreshIcons();
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 200); }, 4000);
+    }
+
+    function clearCachedRefData() { cachedCustomers = cachedTaskTemplates = cachedProductTemplates = cachedPreflightProfiles = null; }
+
+    async function misLoadRefData() {
+        if (!misHasActiveConnection()) { showToast('Configure a connection in Settings first.', 'error'); return; }
+        const load = async (name, path) => { try { return await misGet(path); } catch (e) { showToast(`${name}: ${e.message}`, 'error'); return null; } };
+        const [cust, tasks, prods, preflights] = await Promise.all([
+            cachedCustomers || load('Customers', 'customers'),
+            cachedTaskTemplates || load('Task Templates', 'task-templates'),
+            cachedProductTemplates || load('Product Templates', 'product-templates'),
+            cachedPreflightProfiles || load('Preflight Profiles', 'preflight-profiles'),
+        ]);
+        if (cust) cachedCustomers = cust;
+        if (tasks) cachedTaskTemplates = tasks;
+        if (prods) cachedProductTemplates = prods;
+        if (preflights) cachedPreflightProfiles = preflights;
+    }
+
+    function getTaskTemplateList() {
+        if (!cachedTaskTemplates) return [{ id: 'Default', name: 'Default Upload Task' }];
+        if (Array.isArray(cachedTaskTemplates)) return cachedTaskTemplates;
+        if (cachedTaskTemplates.taskTemplates) return cachedTaskTemplates.taskTemplates.map(t => ({ id: t.nodeId, name: t.name }));
+        return [{ id: 'Default', name: 'Default Upload Task' }];
+    }
+
+    function getProductTemplateList() {
+        if (!cachedProductTemplates) return [];
+        if (Array.isArray(cachedProductTemplates)) return cachedProductTemplates;
+        if (cachedProductTemplates.productTemplates) return cachedProductTemplates.productTemplates.map(p => ({ id: p.nodeId, name: p.name }));
+        return [];
+    }
+
+    async function getMisStoredJobs(forceRefresh = false) {
+        if (!forceRefresh && _cachedMisJobs && Date.now() - _misJobsCacheTime < 5000) return _cachedMisJobs;
+        try {
+            const resp = await fetch(`${MIS_API_BASE}/jobs`, { headers: { 'Accept': 'application/json' } });
+            if (!resp.ok) throw new Error('Failed');
+            _cachedMisJobs = await resp.json();
+            _misJobsCacheTime = Date.now();
+            return _cachedMisJobs;
+        } catch (e) { return _cachedMisJobs || []; }
+    }
+
+    async function storeMisJob(job) {
+        try {
+            await fetch(`${MIS_API_BASE}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job) });
+            _cachedMisJobs = null;
+        } catch (e) { console.error('Failed to store job:', e); }
+    }
+
+    function createSearchableSelect(containerId, options, config = {}) {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.className = 'searchable-select';
+        container.dataset.ssValue = '';
+        const placeholder = config.placeholder || 'Select...';
+        const display = document.createElement('div');
+        display.className = 'ss-display placeholder';
+        display.textContent = placeholder;
+        const dropdown = document.createElement('div');
+        dropdown.className = 'ss-dropdown';
+        const search = document.createElement('input');
+        search.className = 'ss-search';
+        search.type = 'text';
+        search.placeholder = 'Type to search...';
+        const optionsDiv = document.createElement('div');
+        optionsDiv.className = 'ss-options';
+        dropdown.appendChild(search);
+        dropdown.appendChild(optionsDiv);
+        container.innerHTML = '';
+        container.appendChild(display);
+        container.appendChild(dropdown);
+        let highlightedIdx = -1;
+        function renderOpts(filter = '') {
+            const q = filter.toLowerCase();
+            const filtered = options.filter(o => (o.label + ' ' + (o.searchText || '') + ' ' + o.value).toLowerCase().includes(q));
+            optionsDiv.innerHTML = '';
+            highlightedIdx = -1;
+            if (!filtered.length) { optionsDiv.innerHTML = '<div class="ss-empty">No matches</div>'; return; }
+            filtered.forEach((opt, i) => {
+                const div = document.createElement('div');
+                div.className = 'ss-option' + (opt.value === container.dataset.ssValue ? ' selected' : '');
+                div.textContent = opt.label;
+                div.dataset.value = opt.value;
+                div.addEventListener('mousedown', e => { e.preventDefault(); selectOpt(opt); });
+                div.addEventListener('mouseenter', () => { highlightedIdx = i; updateHL(); });
+                optionsDiv.appendChild(div);
+            });
+        }
+        function updateHL() {
+            const items = optionsDiv.querySelectorAll('.ss-option');
+            items.forEach((el, i) => el.classList.toggle('highlighted', i === highlightedIdx));
+            if (highlightedIdx >= 0 && items[highlightedIdx]) items[highlightedIdx].scrollIntoView({ block: 'nearest' });
+        }
+        function selectOpt(opt) {
+            container.dataset.ssValue = opt.value;
+            display.textContent = opt.label;
+            display.classList.remove('placeholder');
+            close();
+            if (config.onchange) config.onchange(opt.value, opt);
+        }
+        function open() { container.classList.add('open'); search.value = ''; renderOpts(); search.focus(); }
+        function close() { container.classList.remove('open'); }
+        display.addEventListener('click', e => { e.stopPropagation(); container.classList.contains('open') ? close() : open(); });
+        search.addEventListener('input', () => renderOpts(search.value));
+        search.addEventListener('keydown', e => {
+            const items = optionsDiv.querySelectorAll('.ss-option');
+            if (e.key === 'ArrowDown') { e.preventDefault(); highlightedIdx = Math.min(highlightedIdx + 1, items.length - 1); updateHL(); }
+            else if (e.key === 'ArrowUp') { e.preventDefault(); highlightedIdx = Math.max(highlightedIdx - 1, 0); updateHL(); }
+            else if (e.key === 'Enter') { e.preventDefault(); if (highlightedIdx >= 0 && items[highlightedIdx]) { const opt = options.find(o => o.value === items[highlightedIdx].dataset.value); if (opt) selectOpt(opt); } }
+            else if (e.key === 'Escape') close();
+        });
+        search.addEventListener('blur', () => setTimeout(close, 150));
+        document.addEventListener('click', e => { if (!container.contains(e.target)) close(); });
+        container._ss = {
+            getValue: () => container.dataset.ssValue,
+            setValue: (val) => { const opt = options.find(o => o.value === val); if (opt) { container.dataset.ssValue = val; display.textContent = opt.label; display.classList.remove('placeholder'); } else { container.dataset.ssValue = ''; display.textContent = placeholder; display.classList.add('placeholder'); } },
+            clear: () => { container.dataset.ssValue = ''; display.textContent = placeholder; display.classList.add('placeholder'); }
+        };
+        return container._ss;
+    }
+
+    function misToggleCollapsible(header) {
+        const body = header.nextElementSibling;
+        if (body.classList.contains('collapsed')) { body.classList.remove('collapsed'); body.style.maxHeight = body.scrollHeight + 'px'; }
+        else { body.style.maxHeight = '0'; body.classList.add('collapsed'); }
+    }
+
+    // ─── MIS: Create Job ──────────────────────────────────────
+
     async function loadMisCreate() {
-        document.getElementById('mainContent').innerHTML = `
-            <div class="page-header"><h2 class="page-title">Create Job</h2></div>
-            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
-                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
-                <p style="margin-top:1rem;">Job creation form is being migrated from the standalone MIS Simulator.</p>
-                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly, or create jobs via the MCP tool <code>create_mis_job</code>.</p>
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading reference data...</div>';
+        await fetchMisProfiles();
+        await misLoadRefData();
+
+        const customers = cachedCustomers?.data || [];
+        const taskTemplates = getTaskTemplateList();
+        const productTemplates = getProductTemplateList();
+        const preflightProfiles = cachedPreflightProfiles || [];
+        jobTasks = []; taskCounter = 0;
+        const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
+        const ap = getMisActiveProfile();
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Create Job</h2>
+                ${ap ? `<div><span class="type-badge" style="border-color:var(--accent);color:var(--accent);">${esc(ap.name)}</span> <span class="type-badge">${esc((ap.type||'wcp').toUpperCase())}</span></div>` : ''}
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start;">
+                <div>
+                    <div class="mis-card">
+                        <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Customer *</div>
+                            <div id="misJobCustomer"></div>
+                        </div>
+                        <div class="mis-form-row">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Job Name *</div>
+                                <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label">
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Job ID *</div>
+                                <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;">
+                            </div>
+                        </div>
+                        <div class="mis-form-row">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Due Date *</div>
+                                <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${defaultDue}">
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Site</div>
+                                <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
+                            </div>
+                        </div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Description</div>
+                            <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..."></textarea>
+                        </div>
+                    </div>
+                    <div class="mis-card">
+                        <div class="mis-card-title"><i class="icon" data-lucide="list-checks"></i> Tasks</div>
+                        <div id="misTasksContainer"><div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;">No tasks added. Click below to add one.</div></div>
+                        <button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>
+                    </div>
+                    <div class="mis-card">
+                        <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                            <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Optional: Products & Preflight</div>
+                            <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                        </div>
+                        <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                            <div style="padding-top:1rem;">
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Product Templates</div>
+                                    <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;">
+                                        ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Preflight Profile</div>
+                                    <select class="modal-edit-select" id="misJobPreflight">
+                                        <option value="">Default (none)</option>
+                                        ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:1rem;display:flex;gap:0.75rem;">
+                        <button class="mis-btn mis-btn-primary" onclick="misSubmitJob()" id="misSubmitBtn"><i class="icon" data-lucide="send"></i> Create Job</button>
+                        <button class="mis-btn" onclick="misUpdatePreview()"><i class="icon" data-lucide="eye"></i> Preview JSON</button>
+                    </div>
+                </div>
+                <div class="mis-card" style="position:sticky;top:6rem;">
+                    <div class="mis-card-title"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
+                    <pre class="json-preview" id="misJsonPreview">{}</pre>
+                    <div style="margin-top:0.75rem;"><button class="mis-btn mis-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button></div>
+                </div>
             </div>`;
+
+        window._misTaskTemplateOpts = taskTemplates;
+        window._misCustomerSS = createSearchableSelect('misJobCustomer',
+            customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+            { placeholder: 'Search customers...', onchange: () => { misUpdateJobId(); misUpdatePreview(); } }
+        );
+        ['misJobName','misJobId','misJobDueDate','misJobDescription'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.addEventListener('input', misUpdatePreview); el.addEventListener('change', misUpdatePreview); }
+        });
         refreshIcons();
     }
+
+    function misUpdateJobId() {
+        const el = document.getElementById('misJobCustomer');
+        const code = el?._ss ? el._ss.getValue() : '';
+        const safe = code.replace(/\./g, '').replace(/\s+/g, '-');
+        const jobs = _cachedMisJobs || [];
+        const seq = String(jobs.length + 1).padStart(4, '0');
+        document.getElementById('misJobId').value = safe ? `MIS-${safe}-${seq}` : '';
+        misUpdatePreview();
+    }
+
+    function misBuildPayload() {
+        const dueDate = document.getElementById('misJobDueDate')?.value;
+        const prods = document.getElementById('misJobProducts');
+        const selProds = prods ? Array.from(prods.selectedOptions).map(o => o.value) : [];
+        const payload = {
+            siteName: 'Home',
+            customerCode: (() => { const el = document.getElementById('misJobCustomer'); return el?._ss ? el._ss.getValue() : ''; })(),
+            jobName: document.getElementById('misJobName')?.value || '',
+            jobId: document.getElementById('misJobId')?.value || '',
+            dueDate: dueDate ? new Date(dueDate).toISOString() : '',
+            description: document.getElementById('misJobDescription')?.value || '',
+        };
+        if (selProds.length) payload.productTemplates = selProds;
+        payload.tasks = jobTasks.map(t => {
+            const task = { taskTemplateNodeId: t.templateId, properties: { dueDate: t.dueDate ? new Date(t.dueDate).getTime() : Date.now() }, assignee: t.assignees.filter(Boolean).map(e => ({ id: e })) };
+            if (t.subject) task.properties.subject = t.subject;
+            if (t.message) task.properties.message = t.message;
+            if (t.allowFiles !== undefined) task.properties.allowFiles = t.allowFiles;
+            if (t.fileTypes?.length) task.properties.fileType = t.fileTypes;
+            return task;
+        });
+        return payload;
+    }
+
+    function misUpdatePreview() {
+        const el = document.getElementById('misJsonPreview');
+        if (el) el.textContent = JSON.stringify(misBuildPayload(), null, 2);
+    }
+
+    window.misAddTask = function() {
+        taskCounter++;
+        const idx = taskCounter;
+        const templates = window._misTaskTemplateOpts || [];
+        const defaultDue = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 16);
+        jobTasks.push({ idx, templateId: '', assignees: [''], dueDate: defaultDue, subject: '', message: '', allowFiles: true, fileTypes: ['PDF'] });
+        const container = document.getElementById('misTasksContainer');
+        const empty = container.querySelector('div:not(.task-card)');
+        if (empty && !container.querySelector('.task-card')) container.innerHTML = '';
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.id = `mis-task-${idx}`;
+        card.innerHTML = `
+            <div class="task-card-header"><span class="task-card-number">Task ${idx}</span><button class="task-remove" onclick="misRemoveTask(${idx})"><i class="icon" data-lucide="x"></i></button></div>
+            <div class="mis-form-group"><div class="mis-form-label">Task Template *</div><div id="misTaskTpl-${idx}"></div></div>
+            <div class="mis-form-row">
+                <div class="mis-form-group"><div class="mis-form-label">Assignee Email *</div><input class="modal-edit-input" placeholder="user@company.com" onchange="misUpdateTaskData(${idx},'assignees',[this.value])"></div>
+                <div class="mis-form-group"><div class="mis-form-label">Task Due Date</div><input class="modal-edit-input" type="datetime-local" value="${defaultDue}" onchange="misUpdateTaskData(${idx},'dueDate',this.value)"></div>
+            </div>`;
+        container.appendChild(card);
+        createSearchableSelect(`misTaskTpl-${idx}`, templates.map(t => ({ value: t.id, label: t.name, searchText: t.name })),
+            { placeholder: 'Search templates...', onchange: (val) => { misUpdateTaskData(idx, 'templateId', val); misUpdatePreview(); } });
+        refreshIcons();
+        misUpdatePreview();
+    };
+
+    window.misRemoveTask = function(idx) {
+        jobTasks = jobTasks.filter(t => t.idx !== idx);
+        const card = document.getElementById(`mis-task-${idx}`);
+        if (card) card.remove();
+        if (!jobTasks.length) document.getElementById('misTasksContainer').innerHTML = '<div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;">No tasks added.</div>';
+        misUpdatePreview();
+    };
+
+    window.misUpdateTaskData = function(idx, field, value) {
+        const task = jobTasks.find(t => t.idx === idx);
+        if (task) task[field] = value;
+        misUpdatePreview();
+    };
+
+    window.misSubmitJob = async function() {
+        const btn = document.getElementById('misSubmitBtn');
+        const payload = misBuildPayload();
+        if (!payload.customerCode) return showToast('Select a customer', 'error');
+        if (!payload.jobName) return showToast('Enter a job name', 'error');
+        if (!payload.jobId) return showToast('Enter a job ID', 'error');
+        if (!payload.tasks.length) return showToast('Add at least one task', 'error');
+        for (const t of payload.tasks) {
+            if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
+            if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+        }
+        btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Creating...';
+        try {
+            const result = await misPut('create-job', payload);
+            const ap = getMisActiveProfile();
+            const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent || '';
+            await storeMisJob({
+                job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
+                customer_name: custDisplay.replace(/\s*\(.*\)$/, ''), status: 'Created', phase: 'Draft',
+                due_date: payload.dueDate, description: payload.description || '',
+                connection_id: ap?.id || null, connection_name: ap?.name || '', solution: ap?.type || 'wcp',
+                cluster: ap?.cluster || '', payload, wcp_response: result,
+            });
+            showToast(`Job "${payload.jobId}" created!`, 'success');
+            // Navigate to monitor tab
+            const monTab = document.querySelector('.sub-tab[data-view="mis-monitor"]');
+            if (monTab) monTab.click();
+        } catch (e) { showToast(`Failed: ${e.message}`, 'error'); }
+        finally { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="send"></i> Create Job'; refreshIcons(); }
+    };
+
+    // ─── MIS: Job Monitor ─────────────────────────────────────
 
     async function loadMisMonitor() {
-        document.getElementById('mainContent').innerHTML = `
-            <div class="page-header"><h2 class="page-title">Job Monitor</h2></div>
-            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
-                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
-                <p style="margin-top:1rem;">Job monitoring is being migrated from the standalone MIS Simulator.</p>
-                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly.</p>
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading jobs...</div>';
+        const jobs = await getMisStoredJobs(true);
+
+        function statusBadge(s) {
+            const cls = s === 'Created' ? 'mis-badge-created' : s === 'Failed' ? 'mis-badge-failed' : '';
+            return `<span class="mis-badge ${cls}">${esc(s || '-')}</span>`;
+        }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Job Monitor</h2>
+                <button class="mis-btn mis-btn-sm" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> Refresh</button>
+            </div>
+            ${!jobs.length ? '<div style="padding:2rem;text-align:center;color:var(--text-muted);">No jobs tracked. Create a job to see it here.</div>' : `
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Job ID</th><th>Name</th><th>Customer</th><th>Type</th><th>Status</th><th>Phase</th><th>Due</th><th style="width:80px;"></th></tr></thead>
+                    <tbody>${jobs.map(j => `
+                        <tr>
+                            <td><code style="font-size:0.78rem;">${esc(j.job_id || '')}</code></td>
+                            <td class="title-text">${esc(j.job_name || '-')}</td>
+                            <td style="font-size:0.85rem;">${esc(j.customer_name || j.customer_code || '-')}</td>
+                            <td><span class="type-badge">${esc((j.solution || 'wcp').toUpperCase())}</span></td>
+                            <td>${statusBadge(j.status)}</td>
+                            <td style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</td>
+                            <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
+                            <td style="text-align:right;">
+                                <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
+                            </td>
+                        </tr>`).join('')}
+                    </tbody>
+                </table>
+            </div>`}`;
+        refreshIcons();
+    }
+
+    window.misRefreshMonitor = function() { _cachedMisJobs = null; loadMisMonitor(); };
+
+    window.misDeleteJob = async function(id) {
+        if (!confirm('Delete this job from the monitor?')) return;
+        try {
+            await fetch(`${MIS_API_BASE}/jobs/${id}`, { method: 'DELETE' });
+            _cachedMisJobs = null;
+            loadMisMonitor();
+            showToast('Job removed', 'success');
+        } catch (e) { showToast('Failed to delete: ' + e.message, 'error'); }
+    };
+
+    // ─── MIS: JSON Builder ────────────────────────────────────
+
+    async function loadMisJson() {
+        const main = document.getElementById('mainContent');
+        const defaultPayload = JSON.stringify({
+            siteName: "Home", customerCode: "", jobName: "", jobId: "",
+            dueDate: new Date(Date.now() + 7 * 86400000).toISOString(),
+            tasks: [{ taskTemplateNodeId: "", properties: { dueDate: Date.now() + 5 * 86400000 }, assignee: [{ id: "" }] }]
+        }, null, 2);
+
+        main.innerHTML = `
+            <div class="page-header"><h2 class="page-title">JSON Builder</h2></div>
+            <div class="mis-card">
+                <div class="mis-card-title"><i class="icon" data-lucide="braces"></i> Raw Payload Editor</div>
+                <p style="font-size:0.82rem;color:var(--text-muted);margin-bottom:1rem;">Edit the JSON payload directly and submit to the WebCenter Pack API.</p>
+                <div class="mis-form-group">
+                    <div class="mis-form-label">JSON Payload</div>
+                    <textarea class="mis-form-textarea" id="misRawJson" style="font-family:var(--mono);font-size:0.78rem;min-height:400px;">${defaultPayload}</textarea>
+                </div>
+                <div style="display:flex;gap:0.5rem;">
+                    <button class="mis-btn mis-btn-primary" onclick="misSubmitRawJson()"><i class="icon" data-lucide="send"></i> Submit to API</button>
+                    <button class="mis-btn" onclick="misFormatJson()"><i class="icon" data-lucide="align-left"></i> Format</button>
+                    <button class="mis-btn" onclick="navigator.clipboard.writeText(document.getElementById('misRawJson').value).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button>
+                </div>
             </div>`;
         refreshIcons();
     }
 
-    async function loadMisJson() {
-        document.getElementById('mainContent').innerHTML = `
-            <div class="page-header"><h2 class="page-title">JSON Builder</h2></div>
-            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
-                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
-                <p style="margin-top:1rem;">JSON Builder is being migrated from the standalone MIS Simulator.</p>
-                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly.</p>
-            </div>`;
-        refreshIcons();
-    }
+    window.misFormatJson = function() {
+        const el = document.getElementById('misRawJson');
+        try { el.value = JSON.stringify(JSON.parse(el.value), null, 2); showToast('Formatted', 'success'); }
+        catch (e) { showToast('Invalid JSON: ' + e.message, 'error'); }
+    };
+
+    window.misSubmitRawJson = async function() {
+        const el = document.getElementById('misRawJson');
+        let payload;
+        try { payload = JSON.parse(el.value); } catch (e) { return showToast('Invalid JSON: ' + e.message, 'error'); }
+        try {
+            await fetchMisProfiles();
+            const result = await misPut('create-job', payload);
+            const ap = getMisActiveProfile();
+            await storeMisJob({
+                job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
+                status: 'Created', phase: 'Draft', due_date: payload.dueDate,
+                connection_id: ap?.id || null, connection_name: ap?.name || '', solution: ap?.type || 'wcp',
+                cluster: ap?.cluster || '', payload, wcp_response: result,
+            });
+            showToast(`Job "${payload.jobId}" created!`, 'success');
+        } catch (e) { showToast(`API error: ${e.message}`, 'error'); }
+    };
 
     // ─── Settings: Connections ────────────────────────────────
 
