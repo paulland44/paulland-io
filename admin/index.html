@@ -3134,11 +3134,23 @@
             document.querySelectorAll('.nav-item[data-section]').forEach(b => b.classList.remove('active'));
             document.getElementById('subTabs').innerHTML = '';
             currentView = 'daily-note';
+            sessionStorage.setItem('paulland_section', '');
+            sessionStorage.setItem('paulland_view', 'daily-note');
             loadView('daily-note');
         });
 
         loadCounts();
-        navigateToSection('dashboard');
+        // Restore last section/view or default to dashboard
+        const savedSection = sessionStorage.getItem('paulland_section');
+        const savedView = sessionStorage.getItem('paulland_view');
+        if (!savedSection && savedView === 'daily-note') {
+            // Restore Today view
+            document.getElementById('subTabs').innerHTML = '';
+            currentView = 'daily-note';
+            loadView('daily-note');
+        } else {
+            navigateToSection(savedSection || 'dashboard', savedView || null);
+        }
 
         // Initialize Lucide icons for sidebar
         refreshIcons();
@@ -3204,27 +3216,34 @@
         btn.classList.add('active');
     }
 
-    function navigateToSection(sectionId) {
+    function navigateToSection(sectionId, restoreView) {
         const section = SECTIONS[sectionId];
         if (!section) return;
 
         currentSection = sectionId;
+        sessionStorage.setItem('paulland_section', sectionId);
 
         // Update sidebar active state
         const btn = document.querySelector(`.nav-item[data-section="${sectionId}"]`);
         if (btn) setActiveSection(btn);
+
+        // Determine which tab to activate
+        const targetView = restoreView && section.tabs.find(t => t.view === restoreView)
+            ? restoreView
+            : section.tabs.find(t => !t.href)?.view;
 
         // Render sub-tabs
         const subTabs = document.getElementById('subTabs');
         if (section.tabs.length <= 1) {
             subTabs.innerHTML = '';
         } else {
-            subTabs.innerHTML = section.tabs.map((tab, i) => {
+            subTabs.innerHTML = section.tabs.map((tab) => {
                 if (tab.href) {
                     return `<a class="sub-tab" href="${tab.href}" style="text-decoration: none;">${tab.label}</a>`;
                 }
                 const count = tab.countKey && countData[tab.countKey] != null ? ` <span class="count">${countData[tab.countKey]}</span>` : '';
-                return `<button class="sub-tab${i === 0 ? ' active' : ''}" data-view="${tab.view}">${tab.label}${count}</button>`;
+                const isActive = tab.view === targetView;
+                return `<button class="sub-tab${isActive ? ' active' : ''}" data-view="${tab.view}">${tab.label}${count}</button>`;
             }).join('');
 
             // Wire sub-tab clicks
@@ -3234,6 +3253,7 @@
                     subTabs.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
                     tab.classList.add('active');
                     currentView = tab.dataset.view;
+                    sessionStorage.setItem('paulland_view', currentView);
                     loadView(currentView);
                 });
             });
@@ -3241,10 +3261,10 @@
 
         refreshIcons();
 
-        // Load first tab's view
-        const firstTab = section.tabs.find(t => !t.href);
-        if (firstTab) {
-            currentView = firstTab.view;
+        // Load the target view
+        if (targetView) {
+            currentView = targetView;
+            sessionStorage.setItem('paulland_view', currentView);
             loadView(currentView);
         }
     }
