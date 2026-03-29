@@ -2947,6 +2947,9 @@
                 <button class="nav-item" data-section="tools">
                     <i class="icon" data-lucide="wrench"></i> Tools
                 </button>
+                <button class="nav-item" data-section="mis">
+                    <i class="icon" data-lucide="factory"></i> MIS
+                </button>
             </div>
             <div class="sidebar-footer">
                 <button class="nav-item" data-section="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
@@ -3062,13 +3065,7 @@
             btn.addEventListener('click', () => {
                 flushDailyIfNeeded();
                 const section = btn.dataset.section;
-                if (section === 'settings') {
-                    setActiveSection(btn);
-                    document.getElementById('subTabs').innerHTML = '';
-                    currentView = 'settings';
-                    loadView('settings');
-                    return;
-                }
+                // Settings now has sub-tabs like other sections
                 navigateToSection(section);
             });
         });
@@ -3120,7 +3117,17 @@
             { view: 'ask', label: 'Ask AI' },
             { view: 'mcp-overview', label: 'MCP' },
             { view: 'prompts', label: 'Prompts' },
-            { view: 'mis', label: 'MIS Simulator', href: '/mis/' },
+        ]},
+        mis: { tabs: [
+            { view: 'mis-overview', label: 'Overview' },
+            { view: 'mis-create', label: 'Create Job' },
+            { view: 'mis-monitor', label: 'Job Monitor' },
+            { view: 'mis-json', label: 'JSON Builder' },
+        ]},
+        settings: { tabs: [
+            { view: 'settings-appearance', label: 'Appearance' },
+            { view: 'settings-connections', label: 'Connections' },
+            { view: 'settings-system', label: 'System' },
         ]},
     };
 
@@ -3282,6 +3289,13 @@
             case 'ask': await loadAsk(); break;
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
+            case 'mis-overview': await loadMisOverview(); break;
+            case 'mis-create': await loadMisCreate(); break;
+            case 'mis-monitor': await loadMisMonitor(); break;
+            case 'mis-json': await loadMisJson(); break;
+            case 'settings-appearance': await loadSettingsView(); break;
+            case 'settings-connections': await loadSettingsConnections(); break;
+            case 'settings-system': await loadSettingsSystem(); break;
             case 'settings': await loadSettingsView(); break;
         }
         refreshIcons();
@@ -9187,7 +9201,378 @@
         });
     }
 
-    // ─── Settings ─────────────────────────────────────────────
+    // ─── MIS Placeholder Views ──────────────────────────────────
+
+    const MIS_API_BASE = '/api/mis';
+    let _misProfilesCache = null;
+
+    async function fetchMisProfiles() {
+        try {
+            const res = await fetch('/api/mis/connections');
+            if (!res.ok) throw new Error('Failed to fetch connections');
+            const rows = await res.json();
+            _misProfilesCache = rows.map(r => ({
+                id: r.id, name: r.name, type: r.type, is_active: r.is_active,
+                cluster: r.cluster, ecan: r.ecan, repoId: r.repo_id,
+                serverUrl: r.server_url, hasToken: true,
+            }));
+            return _misProfilesCache;
+        } catch (e) {
+            console.error('fetchMisProfiles error:', e);
+            _misProfilesCache = _misProfilesCache || [];
+            return _misProfilesCache;
+        }
+    }
+
+    function getMisActiveProfile() {
+        return (_misProfilesCache || []).find(p => p.is_active) || null;
+    }
+
+    async function loadMisOverview() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading MIS overview</div>';
+        const profiles = await fetchMisProfiles();
+        const active = getMisActiveProfile();
+        let jobsHtml = '';
+        try {
+            const resp = await fetch(`${MIS_API_BASE}/jobs`, { headers: { 'Accept': 'application/json' } });
+            const jobs = resp.ok ? await resp.json() : [];
+            jobsHtml = jobs.length ? `
+                <div class="table-wrap" style="margin-top:1rem;">
+                    <table>
+                        <thead><tr><th>Job ID</th><th>Name</th><th>Customer</th><th>Status</th><th>Connection</th><th>Created</th></tr></thead>
+                        <tbody>${jobs.slice(0, 20).map(j => `
+                            <tr>
+                                <td><code style="font-size:0.8rem;">${esc(j.job_id || '')}</code></td>
+                                <td class="title-text">${esc(j.job_name || '')}</td>
+                                <td style="font-size:0.85rem;">${esc(j.customer_name || j.customer_code || '-')}</td>
+                                <td><span class="type-badge">${esc(j.status || '-')}</span></td>
+                                <td style="font-size:0.82rem; color:var(--text-muted);">${esc(j.connection_name || '-')}</td>
+                                <td style="font-size:0.8rem; color:var(--text-muted);">${j.created_at ? new Date(j.created_at).toLocaleDateString() : '-'}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>` : '<p style="color:var(--text-muted); margin-top:1rem;">No jobs yet.</p>';
+        } catch (e) { jobsHtml = `<p style="color:var(--text-muted); margin-top:1rem;">Could not load jobs.</p>`; }
+
+        main.innerHTML = `
+            <div class="page-header"><h2 class="page-title">MIS Overview</h2></div>
+            <div style="display:flex; gap:1rem; margin-bottom:1.5rem; flex-wrap:wrap;">
+                <div style="flex:1; min-width:150px; background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md); padding:0.75rem;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Active Connection</div>
+                    <div style="font-size:1.1rem; font-weight:600; color:var(--star); margin-top:0.25rem;">${active ? esc(active.name) : 'None'}</div>
+                    ${active ? `<div style="font-size:0.78rem; color:var(--text-muted); margin-top:0.15rem;">${esc((active.type || 'wcp').toUpperCase())} &middot; ${esc(active.cluster || '')}</div>` : ''}
+                </div>
+                <div style="flex:1; min-width:150px; background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md); padding:0.75rem;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Connections</div>
+                    <div style="font-size:1.1rem; font-weight:600; color:var(--star); margin-top:0.25rem;">${profiles.length}</div>
+                </div>
+            </div>
+            <h3 style="font-size:0.95rem; font-weight:600; color:var(--star);">Recent Jobs</h3>
+            ${jobsHtml}
+        `;
+        refreshIcons();
+    }
+
+    async function loadMisCreate() {
+        document.getElementById('mainContent').innerHTML = `
+            <div class="page-header"><h2 class="page-title">Create Job</h2></div>
+            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
+                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
+                <p style="margin-top:1rem;">Job creation form is being migrated from the standalone MIS Simulator.</p>
+                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly, or create jobs via the MCP tool <code>create_mis_job</code>.</p>
+            </div>`;
+        refreshIcons();
+    }
+
+    async function loadMisMonitor() {
+        document.getElementById('mainContent').innerHTML = `
+            <div class="page-header"><h2 class="page-title">Job Monitor</h2></div>
+            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
+                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
+                <p style="margin-top:1rem;">Job monitoring is being migrated from the standalone MIS Simulator.</p>
+                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly.</p>
+            </div>`;
+        refreshIcons();
+    }
+
+    async function loadMisJson() {
+        document.getElementById('mainContent').innerHTML = `
+            <div class="page-header"><h2 class="page-title">JSON Builder</h2></div>
+            <div style="padding:2rem; text-align:center; color:var(--text-muted);">
+                <i class="icon" data-lucide="construction" style="width:48px; height:48px; opacity:0.3;"></i>
+                <p style="margin-top:1rem;">JSON Builder is being migrated from the standalone MIS Simulator.</p>
+                <p>In the meantime, use the <a href="/mis/" style="color:var(--accent);">MIS Simulator</a> directly.</p>
+            </div>`;
+        refreshIcons();
+    }
+
+    // ─── Settings: Connections ────────────────────────────────
+
+    const CLUSTER_OPTIONS = [
+        { value: 'eu', label: 'EU Production', desc: 'w2p.eu.esko.cloud' },
+        { value: 'us', label: 'US Production', desc: 'w2p.us.esko.cloud' },
+        { value: 'future.dev.cloudi.city', label: 'Future Dev', desc: 'future.dev.cloudi.city' },
+        { value: 'qa-eu-1.test.cloudi.city', label: 'QA EU 1', desc: 'qa-eu-1.test.cloudi.city' },
+        { value: 'custom', label: 'Custom...', desc: '' },
+    ];
+
+    async function loadSettingsConnections() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading connections</div>';
+        const profiles = await fetchMisProfiles();
+        const activeId = getMisActiveProfile()?.id;
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">MIS Connections</h2>
+                <button class="modal-save-btn" onclick="document.getElementById('connFormWrap').style.display='block'; document.getElementById('connFormTitle').textContent='Add Connection'; document.getElementById('connEditId').value='';">
+                    <i class="icon" data-lucide="plus"></i> Add Connection
+                </button>
+            </div>
+            ${profiles.length ? `
+            <div class="table-wrap">
+                <table>
+                    <thead><tr><th>Name</th><th>Type</th><th>Details</th><th>Token</th><th>Status</th><th style="width:100px;"></th></tr></thead>
+                    <tbody id="connTableBody">
+                        ${profiles.map(p => {
+                            const isActive = p.id === activeId;
+                            const details = p.type === 'ae'
+                                ? `<span style="font-size:0.78rem;">${esc(p.serverUrl || '-')}</span>`
+                                : `<span style="font-size:0.78rem;">${esc(CLUSTER_OPTIONS.find(c => c.value === p.cluster)?.label || p.cluster || '')}</span>
+                                   <span style="font-family:var(--mono); font-size:0.72rem; color:var(--text-muted);">${p.ecan ? esc(p.ecan.slice(0, 18)) + '...' : ''}</span>`;
+                            return `<tr${isActive ? ' style="background:var(--accent-dim);"' : ''}>
+                                <td style="font-weight:${isActive ? '600' : '400'};">${esc(p.name)}</td>
+                                <td><span class="type-badge">${esc((p.type || 'wcp').toUpperCase())}</span></td>
+                                <td>${details}</td>
+                                <td>${p.hasToken ? '<span style="color:var(--accent);">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>' : '<span style="color:var(--red); font-size:0.78rem;">No token</span>'}</td>
+                                <td>${isActive ? '<span class="type-badge" style="border-color:var(--accent); color:var(--accent);">Active</span>' : ''}</td>
+                                <td style="text-align:right; white-space:nowrap;">
+                                    ${!isActive ? `<button class="modal-save-btn" style="padding:0.2rem 0.5rem; font-size:0.75rem;" onclick="activateMisConn('${p.id}')">Activate</button> ` : ''}
+                                    <button style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0.2rem;" onclick="editMisConn('${p.id}')"><i class="icon" data-lucide="pencil" style="width:14px; height:14px;"></i></button>
+                                    <button style="background:none; border:none; color:var(--red); cursor:pointer; padding:0.2rem;" onclick="deleteMisConn('${p.id}')"><i class="icon" data-lucide="trash-2" style="width:14px; height:14px;"></i></button>
+                                </td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>` : '<p style="color:var(--text-muted);">No connections configured yet.</p>'}
+
+            <div id="connFormWrap" style="display:none; margin-top:1.5rem; padding:1.25rem; background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md);">
+                <input type="hidden" id="connEditId" value="">
+                <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:1rem;" id="connFormTitle">Add Connection</h3>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Connection Name *</div>
+                        <input class="modal-edit-input" id="connName" placeholder="e.g. Production EU">
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Type</div>
+                        <select class="modal-edit-select" id="connType" onchange="toggleConnType()">
+                            <option value="wcp">WebCenter Pack</option>
+                            <option value="ae">Automation Engine</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="connWcpFields">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                        <div class="modal-edit-field">
+                            <div class="modal-edit-label">Cluster *</div>
+                            <select class="modal-edit-select" id="connCluster">
+                                ${CLUSTER_OPTIONS.map(c => `<option value="${c.value}">${c.label}${c.desc ? ' (' + c.desc + ')' : ''}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="modal-edit-field" id="connCustomClusterWrap" style="display:none;">
+                            <div class="modal-edit-label">Custom Cluster URL</div>
+                            <input class="modal-edit-input" id="connCustomCluster" placeholder="e.g. my-env.dev.cloudi.city">
+                        </div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                        <div class="modal-edit-field">
+                            <div class="modal-edit-label">ECAN *</div>
+                            <input class="modal-edit-input" id="connEcan" placeholder="a-p-1710-XXXX-XXXX-XXXX">
+                        </div>
+                        <div class="modal-edit-field">
+                            <div class="modal-edit-label">Repository ID *</div>
+                            <input class="modal-edit-input" id="connRepoId" placeholder="rU8qTgJTx2VV">
+                        </div>
+                    </div>
+                </div>
+                <div id="connAeFields" style="display:none;">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Server URL *</div>
+                        <input class="modal-edit-input" id="connServerUrl" placeholder="e.g. sandbox-rd1-ae.esko-saas.com">
+                    </div>
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Equipment Token *</div>
+                    <input class="modal-edit-input" type="password" id="connToken" placeholder="Your Equipment Token">
+                    <div id="connTokenHint" style="display:none; font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Leave blank to keep existing token.</div>
+                </div>
+                <div class="modal-actions">
+                    <button class="modal-save-btn" onclick="saveMisConn()">Save</button>
+                    <button style="background:none; border:1px solid var(--border); border-radius:var(--radius-sm); padding:0.5rem 1rem; color:var(--text-muted); cursor:pointer;" onclick="document.getElementById('connFormWrap').style.display='none';">Cancel</button>
+                    <span class="modal-save-status" id="connSaveStatus"></span>
+                </div>
+            </div>
+        `;
+        refreshIcons();
+
+        // Wire cluster change to show/hide custom field
+        document.getElementById('connCluster').addEventListener('change', () => {
+            document.getElementById('connCustomClusterWrap').style.display =
+                document.getElementById('connCluster').value === 'custom' ? '' : 'none';
+        });
+    }
+
+    // Global functions for connection management (called from onclick)
+    window.toggleConnType = function() {
+        const isAE = document.getElementById('connType').value === 'ae';
+        document.getElementById('connWcpFields').style.display = isAE ? 'none' : '';
+        document.getElementById('connAeFields').style.display = isAE ? '' : 'none';
+    };
+
+    window.activateMisConn = async function(id) {
+        await fetch(`/api/mis/connections/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: true }),
+        });
+        await fetchMisProfiles();
+        loadSettingsConnections();
+    };
+
+    window.editMisConn = function(id) {
+        const p = (_misProfilesCache || []).find(pp => pp.id === id);
+        if (!p) return;
+        document.getElementById('connFormWrap').style.display = 'block';
+        document.getElementById('connFormTitle').textContent = 'Edit Connection';
+        document.getElementById('connEditId').value = id;
+        document.getElementById('connName').value = p.name || '';
+        document.getElementById('connType').value = p.type || 'wcp';
+        toggleConnType();
+        if (p.type === 'wcp') {
+            const clusterMatch = CLUSTER_OPTIONS.find(c => c.value === p.cluster);
+            document.getElementById('connCluster').value = clusterMatch ? p.cluster : 'custom';
+            if (!clusterMatch) {
+                document.getElementById('connCustomClusterWrap').style.display = '';
+                document.getElementById('connCustomCluster').value = p.cluster || '';
+            }
+            document.getElementById('connEcan').value = p.ecan || '';
+            document.getElementById('connRepoId').value = p.repoId || '';
+        } else {
+            document.getElementById('connServerUrl').value = p.serverUrl || '';
+        }
+        document.getElementById('connToken').value = '';
+        document.getElementById('connTokenHint').style.display = '';
+    };
+
+    window.deleteMisConn = async function(id) {
+        if (!confirm('Delete this connection?')) return;
+        await fetch(`/api/mis/connections/${id}`, { method: 'DELETE' });
+        await fetchMisProfiles();
+        loadSettingsConnections();
+    };
+
+    window.saveMisConn = async function() {
+        const status = document.getElementById('connSaveStatus');
+        status.textContent = 'saving...';
+        status.className = 'modal-save-status saving';
+        try {
+            const editId = document.getElementById('connEditId').value;
+            const type = document.getElementById('connType').value;
+            const cluster = type === 'wcp'
+                ? (document.getElementById('connCluster').value === 'custom'
+                    ? document.getElementById('connCustomCluster').value.trim()
+                    : document.getElementById('connCluster').value)
+                : null;
+            const body = {
+                name: document.getElementById('connName').value.trim(),
+                type,
+                cluster,
+                ecan: type === 'wcp' ? document.getElementById('connEcan').value.trim() : null,
+                repo_id: type === 'wcp' ? document.getElementById('connRepoId').value.trim() : null,
+                server_url: type === 'ae' ? document.getElementById('connServerUrl').value.trim() : null,
+            };
+            const token = document.getElementById('connToken').value;
+            if (token) body.token = token;
+
+            if (!body.name) throw new Error('Connection name is required');
+
+            if (editId) {
+                await fetch(`/api/mis/connections/${editId}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            } else {
+                if (!token) throw new Error('Token is required for new connections');
+                await fetch('/api/mis/connections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+            }
+
+            await fetchMisProfiles();
+            document.getElementById('connFormWrap').style.display = 'none';
+            loadSettingsConnections();
+            status.textContent = 'saved';
+            status.className = 'modal-save-status saved';
+        } catch (err) {
+            status.textContent = err.message || 'failed';
+            status.className = 'modal-save-status error';
+        }
+    };
+
+    // ─── Settings: System ─────────────────────────────────────
+
+    async function loadSettingsSystem() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading system info</div>';
+
+        let statusData = {};
+        try {
+            const { data } = await db.from('content').select('id', { count: 'exact', head: true }).is('embedded_at', null);
+            const { data: totalData } = await db.from('content').select('id', { count: 'exact', head: true });
+            statusData = { unembedded: data?.length || 0, total: totalData?.length || 0 };
+        } catch (e) {}
+
+        main.innerHTML = `
+            <div class="page-header"><h2 class="page-title">System</h2></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:1rem; margin-bottom:1.5rem;">
+                <div style="background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md); padding:1rem;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Unembedded Content</div>
+                    <div style="font-size:1.3rem; font-weight:600; color:var(--accent); margin-top:0.25rem;">${countData.articles ? Object.values(countData).reduce((a, b) => a + b, 0) : '-'}</div>
+                </div>
+                <div style="background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md); padding:1rem;">
+                    <div style="font-size:0.75rem; color:var(--text-muted); text-transform:uppercase; letter-spacing:0.04em;">Last Refresh</div>
+                    <div style="font-size:1.1rem; font-weight:500; color:var(--star); margin-top:0.25rem;">${document.getElementById('lastRefresh')?.textContent || '-'}</div>
+                </div>
+            </div>
+            <div style="background:var(--void-lighter); border:1px solid var(--border); border-radius:var(--radius-md); padding:1rem;">
+                <h3 style="font-size:0.9rem; font-weight:600; margin-bottom:0.75rem;">Vector Embeddings</h3>
+                <p style="font-size:0.85rem; color:var(--text-muted); margin-bottom:0.75rem;">Generate embeddings for unembedded content items. This enables semantic search across the knowledge base.</p>
+                <button class="modal-save-btn" onclick="runBatchEmbed()">Run Batch Embed</button>
+                <span id="embedStatus" style="font-size:0.82rem; color:var(--text-muted); margin-left:0.75rem;"></span>
+            </div>
+        `;
+        refreshIcons();
+    }
+
+    window.runBatchEmbed = async function() {
+        const status = document.getElementById('embedStatus');
+        status.textContent = 'Embedding...';
+        try {
+            const res = await fetch('/api/embed-batch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            const data = await res.json();
+            status.textContent = data.embedded ? `Embedded ${data.embedded} items` : 'No items to embed';
+        } catch (e) {
+            status.textContent = 'Error: ' + e.message;
+        }
+    };
+
+    // ─── Settings (Appearance) ────────────────────────────────
 
     function loadSettingsView() {
         const accents = [
