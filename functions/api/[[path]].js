@@ -32,10 +32,16 @@ export async function onRequest(ctx) {
     });
   }
 
-  // Validate Cloudflare Access JWT
-  const authResult = await validateAccessJWT(request, env);
-  if (!authResult.valid) {
-    return json({ error: 'Unauthorized', detail: authResult.reason }, 401);
+  // Allow trusted internal server-to-server calls (e.g. MCP Worker) via pre-shared key
+  const internalKey = request.headers.get('X-Internal-API-Key');
+  const isInternalRequest = internalKey && env.PAULLAND_INTERNAL_API_KEY && internalKey === env.PAULLAND_INTERNAL_API_KEY;
+
+  if (!isInternalRequest) {
+    // Validate Cloudflare Access JWT for all other requests
+    const authResult = await validateAccessJWT(request, env);
+    if (!authResult.valid) {
+      return json({ error: 'Unauthorized', detail: authResult.reason }, 401);
+    }
   }
 
   // Route to handler

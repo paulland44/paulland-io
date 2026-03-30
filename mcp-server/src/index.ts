@@ -39,11 +39,13 @@ const server = new McpServer({
 let _misApiUrl: string | undefined;
 let _misCfClientId: string | undefined;
 let _misCfClientSecret: string | undefined;
+let _misInternalApiKey: string | undefined;
 
-export function initMisProxy(apiUrl?: string, clientId?: string, clientSecret?: string) {
+export function initMisProxy(apiUrl?: string, clientId?: string, clientSecret?: string, internalApiKey?: string) {
   if (apiUrl) _misApiUrl = apiUrl;
   if (clientId) _misCfClientId = clientId;
   if (clientSecret) _misCfClientSecret = clientSecret;
+  if (internalApiKey) _misInternalApiKey = internalApiKey;
 }
 
 async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string } | null> {
@@ -59,12 +61,17 @@ async function callMisProxy(method: string, path: string, connectionId: string, 
   const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
   const clientId = _misCfClientId || process.env.CF_ACCESS_CLIENT_ID;
   const clientSecret = _misCfClientSecret || process.env.CF_ACCESS_CLIENT_SECRET;
+  const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
   const headers: Record<string, string> = {
     'Accept': 'application/json',
     'X-MIS-Connection-Id': connectionId,
   };
-  if (clientId) headers['CF-Access-Client-Id'] = clientId;
-  if (clientSecret) headers['CF-Access-Client-Secret'] = clientSecret;
+  if (internalApiKey) {
+    headers['X-Internal-API-Key'] = internalApiKey;
+  } else {
+    if (clientId) headers['CF-Access-Client-Id'] = clientId;
+    if (clientSecret) headers['CF-Access-Client-Secret'] = clientSecret;
+  }
   if (body) headers['Content-Type'] = 'application/json';
 
   const resp = await fetch(`${apiUrl}/mis/${path}`, {

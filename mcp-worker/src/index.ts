@@ -26,6 +26,7 @@ interface Env {
   PAULLAND_API_URL?: string;
   CF_ACCESS_CLIENT_ID?: string;
   CF_ACCESS_CLIENT_SECRET?: string;
+  PAULLAND_INTERNAL_API_KEY?: string;
 }
 
 // ─── CORS ────────────────────────────────────────────────────
@@ -269,7 +270,7 @@ export default {
     // Init Supabase + embeddings with Worker env
     initSupabase(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     initEmbeddings(env.CF_ACCOUNT_ID, env.CF_API_TOKEN);
-    initMisProxy(env.PAULLAND_API_URL, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET);
+    initMisProxy(env.PAULLAND_API_URL, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET, env.PAULLAND_INTERNAL_API_KEY);
 
     // Fresh server + transport per request (required by SDK for stateless mode)
     const server = createServer();
