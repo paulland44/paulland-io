@@ -2957,6 +2957,12 @@
         .mis-badge-active { border-color: var(--accent); color: var(--accent); }
         .mis-badge-created { border-color: var(--accent); color: var(--accent); }
         .mis-badge-failed { border-color: var(--red, #ef4444); color: var(--red, #ef4444); }
+        .mis-badge-completed { border-color: #22c55e; color: #22c55e; }
+
+        .mis-checkbox { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
+        .mis-row-selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+        .mis-editable { cursor: pointer; border-bottom: 1px dashed var(--border); }
+        .mis-editable:hover { border-bottom-color: var(--accent); }
 
         .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 100; display: flex; flex-direction: column; gap: 0.5rem; }
         .toast { display: flex; align-items: center; gap: 0.5rem; padding: 0.6rem 1rem; border-radius: var(--radius-sm); font-size: 0.82rem; background: var(--void-light); border: 1px solid var(--border); color: var(--text-body); box-shadow: var(--shadow-md); transition: opacity 0.2s; }
@@ -8703,36 +8709,150 @@
     // ─── MCP Overview Dashboard ─────────────────────────────────
 
     const MCP_TOOLS = [
-        { name: 'list_content', desc: 'List articles, thoughts, signals, reflections', group: 'Content', params: 5 },
-        { name: 'get_content', desc: 'Get full content item by ID', group: 'Content', params: 1 },
-        { name: 'list_daily_notes', desc: 'List daily notes for date range', group: 'Content', params: 3 },
-        { name: 'get_daily_note', desc: 'Get full daily note for a date', group: 'Content', params: 1 },
-        { name: 'list_entities', desc: 'List people, companies, products, projects', group: 'Content', params: 3 },
-        { name: 'get_entity', desc: 'Get entity with related content and assets', group: 'Content', params: 2 },
-        { name: 'list_feed_items', desc: 'List feed items awaiting triage', group: 'Content', params: 2 },
-        { name: 'search_knowledge_base', desc: 'Semantic vector search across KB', group: 'Search', params: 6 },
-        { name: 'create_content', desc: 'Create article, thought, signal, or reflection', group: 'Write', params: 7 },
-        { name: 'update_content', desc: 'Update an existing content item', group: 'Write', params: 2 },
-        { name: 'update_tags', desc: 'Update tags and trigger re-embedding', group: 'Write', params: 2 },
-        { name: 'upsert_daily_note', desc: 'Create or update daily note by date', group: 'Write', params: 4 },
-        { name: 'create_entity', desc: 'Create person, company, product, or project', group: 'Write', params: 2 },
-        { name: 'update_entity', desc: 'Update entity fields', group: 'Write', params: 3 },
-        { name: 'capture_feed_item', desc: 'Promote feed item to content article', group: 'Feed', params: 1 },
-        { name: 'dismiss_feed_item', desc: 'Dismiss feed item from triage', group: 'Feed', params: 1 },
-        { name: 'daily_review_extract', desc: 'Fetch daily note with entity context for review', group: 'AI Workflows', params: 1 },
-        { name: 'daily_review_write', desc: 'Write structured review results to database', group: 'AI Workflows', params: 2 },
-        { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2 },
-        { name: 'batch_embed', desc: 'Embed up to 6 unembedded items', group: 'Embeddings', params: 1 },
-        { name: 'get_system_status', desc: 'Overview of KB health and counts', group: 'Utility', params: 0 },
-        { name: 'list_prompts', desc: 'List all prompt templates with metadata', group: 'Prompts', params: 0 },
-        { name: 'get_prompt', desc: 'Get full prompt template by slug', group: 'Prompts', params: 1 },
-        { name: 'update_prompt', desc: 'Update prompt template, auto-version', group: 'Prompts', params: 2 },
-        { name: 'list_mis_connections', desc: 'List MIS simulator connections', group: 'MIS', params: 0 },
-        { name: 'list_mis_jobs', desc: 'List MIS simulator jobs', group: 'MIS', params: 2 },
-        { name: 'create_mis_job', desc: 'Create draft MIS job record', group: 'MIS', params: 7 },
-        { name: 'submit_mis_job', desc: 'Submit draft job to WebCenter Pack', group: 'MIS', params: 1 },
-        { name: 'list_customers', desc: 'List customers/partners from WCP', group: 'MIS', params: 1 },
-        { name: 'list_task_templates', desc: 'List task templates from WCP', group: 'MIS', params: 1 },
+        { name: 'list_content', desc: 'List articles, thoughts, signals, reflections', group: 'Content', params: 5, paramDetails: [
+            { name: 'type', type: 'string?', desc: 'article, thought, signal, reflection, summary' },
+            { name: 'status', type: 'string?', desc: 'new, reviewed, archived' },
+            { name: 'tags', type: 'string[]?', desc: 'Filter by tags (must have all)' },
+            { name: 'search', type: 'string?', desc: 'Text search in title' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default 20)' },
+        ]},
+        { name: 'get_content', desc: 'Get full content item by ID', group: 'Content', params: 1, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Content item UUID' },
+        ]},
+        { name: 'list_daily_notes', desc: 'List daily notes for date range', group: 'Content', params: 3, paramDetails: [
+            { name: 'date_from', type: 'string?', desc: 'Start date (YYYY-MM-DD)' },
+            { name: 'date_to', type: 'string?', desc: 'End date (YYYY-MM-DD)' },
+            { name: 'limit', type: 'number?', desc: 'Max notes (default 7)' },
+        ]},
+        { name: 'get_daily_note', desc: 'Get full daily note for a date', group: 'Content', params: 1, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+        ]},
+        { name: 'list_entities', desc: 'List people, companies, products, projects', group: 'Content', params: 3, paramDetails: [
+            { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
+            { name: 'search', type: 'string?', desc: 'Search by name' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default 50)' },
+        ]},
+        { name: 'get_entity', desc: 'Get entity with related content and assets', group: 'Content', params: 2, paramDetails: [
+            { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
+            { name: 'id', type: 'string', desc: 'Entity UUID' },
+        ]},
+        { name: 'list_feed_items', desc: 'List feed items awaiting triage', group: 'Content', params: 2, paramDetails: [
+            { name: 'show', type: 'string?', desc: 'pending, captured, dismissed, all' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default 30)' },
+        ]},
+        { name: 'search_knowledge_base', desc: 'Semantic vector search across KB', group: 'Search', params: 6, paramDetails: [
+            { name: 'query', type: 'string', desc: 'Search query text' },
+            { name: 'tables', type: 'string[]?', desc: 'Limit to specific tables' },
+            { name: 'limit', type: 'number?', desc: 'Max results (default 10)' },
+            { name: 'date_from', type: 'string?', desc: 'Filter from date' },
+            { name: 'date_to', type: 'string?', desc: 'Filter to date' },
+            { name: 'tags', type: 'string[]?', desc: 'Filter by tags' },
+        ]},
+        { name: 'create_content', desc: 'Create article, thought, signal, or reflection', group: 'Write', params: 7, paramDetails: [
+            { name: 'type', type: 'string', desc: 'article, thought, signal, reflection' },
+            { name: 'title', type: 'string', desc: 'Title' },
+            { name: 'body', type: 'string', desc: 'Body (markdown)' },
+            { name: 'tags', type: 'string[]?', desc: 'Content tags' },
+            { name: 'url', type: 'string?', desc: 'Source URL' },
+            { name: 'source', type: 'string?', desc: 'Source name' },
+            { name: 'status', type: 'string?', desc: 'Initial status (default: new)' },
+        ]},
+        { name: 'update_content', desc: 'Update an existing content item', group: 'Write', params: 2, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Content item UUID' },
+            { name: 'updates', type: 'object', desc: 'title, body, status, tags, metadata' },
+        ]},
+        { name: 'update_tags', desc: 'Update tags and trigger re-embedding', group: 'Write', params: 2, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Content item UUID' },
+            { name: 'tags', type: 'string[]', desc: 'New tags array' },
+        ]},
+        { name: 'upsert_daily_note', desc: 'Create or update daily note by date', group: 'Write', params: 4, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+            { name: 'tasks', type: 'string?', desc: 'Tasks markdown' },
+            { name: 'notes', type: 'string?', desc: 'Notes markdown' },
+            { name: 'meetings', type: 'string?', desc: 'Meetings markdown' },
+        ]},
+        { name: 'create_entity', desc: 'Create person, company, product, or project', group: 'Write', params: 2, paramDetails: [
+            { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
+            { name: 'data', type: 'object', desc: 'Entity data (name required)' },
+        ]},
+        { name: 'update_entity', desc: 'Update entity fields', group: 'Write', params: 3, paramDetails: [
+            { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
+            { name: 'id', type: 'string', desc: 'Entity UUID' },
+            { name: 'updates', type: 'object', desc: 'Fields to update' },
+        ]},
+        { name: 'capture_feed_item', desc: 'Promote feed item to content article', group: 'Feed', params: 1, paramDetails: [
+            { name: 'feed_item_id', type: 'string', desc: 'Feed item UUID' },
+        ]},
+        { name: 'dismiss_feed_item', desc: 'Dismiss feed item from triage', group: 'Feed', params: 1, paramDetails: [
+            { name: 'feed_item_id', type: 'string', desc: 'Feed item UUID' },
+        ]},
+        { name: 'daily_review_extract', desc: 'Fetch daily note + entity context + prompt for review', group: 'AI Workflows', params: 1, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+        ]},
+        { name: 'daily_review_write', desc: 'Write structured review results to database', group: 'AI Workflows', params: 2, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+            { name: 'review_data', type: 'object', desc: 'people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, review_summary' },
+        ]},
+        { name: 'weekly_summary_extract', desc: 'Fetch week data + entity context + prompt for summary', group: 'AI Workflows', params: 1, paramDetails: [
+            { name: 'week', type: 'string', desc: 'ISO week, e.g. "2026-W13"' },
+        ]},
+        { name: 'weekly_summary_write', desc: 'Write structured weekly summary to database', group: 'AI Workflows', params: 2, paramDetails: [
+            { name: 'week', type: 'string', desc: 'ISO week string' },
+            { name: 'summary_data', type: 'object', desc: 'highlights, key_meetings, domain_updates, product_updates, decisions, learnings, leadership_development, summary' },
+        ]},
+        { name: 'monthly_review_extract', desc: 'Fetch month data + weeklies + prompt for review', group: 'AI Workflows', params: 1, paramDetails: [
+            { name: 'month', type: 'string', desc: 'Month, e.g. "2026-03"' },
+        ]},
+        { name: 'monthly_review_write', desc: 'Write structured monthly review to database', group: 'AI Workflows', params: 2, paramDetails: [
+            { name: 'month', type: 'string', desc: 'Month string' },
+            { name: 'review_data', type: 'object', desc: 'themes, problem_progress, strategic_decisions, customer_interactions, team_updates, metrics, summary' },
+        ]},
+        { name: 'show_and_tell_extract', desc: 'Fetch daily note + context + prompt for Show & Tell', group: 'AI Workflows', params: 1, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+        ]},
+        { name: 'show_and_tell_write', desc: 'Write Show & Tell demos, decisions, follow-ups', group: 'AI Workflows', params: 2, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+            { name: 'review_data', type: 'object', desc: 'demos, decisions, follow_ups, attendee_observations, summary' },
+        ]},
+        { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
+            { name: 'source_table', type: 'string', desc: 'Table name (e.g. content, daily_notes)' },
+            { name: 'source_id', type: 'string', desc: 'Row UUID' },
+        ]},
+        { name: 'batch_embed', desc: 'Embed up to 6 unembedded items', group: 'Embeddings', params: 1, paramDetails: [
+            { name: 'tables', type: 'string[]?', desc: 'Limit to specific tables' },
+        ]},
+        { name: 'get_system_status', desc: 'Overview of KB health and counts', group: 'Utility', params: 0, paramDetails: [] },
+        { name: 'list_prompts', desc: 'List all prompt templates with metadata', group: 'Prompts', params: 0, paramDetails: [] },
+        { name: 'get_prompt', desc: 'Get full prompt template by slug', group: 'Prompts', params: 1, paramDetails: [
+            { name: 'slug', type: 'string', desc: 'Prompt slug (e.g. "daily-review")' },
+        ]},
+        { name: 'update_prompt', desc: 'Update prompt template, auto-version', group: 'Prompts', params: 2, paramDetails: [
+            { name: 'slug', type: 'string', desc: 'Prompt slug' },
+            { name: 'updates', type: 'object', desc: 'system_prompt, user_prompt_template, description, model, max_tokens' },
+        ]},
+        { name: 'list_mis_connections', desc: 'List MIS simulator connections', group: 'MIS', params: 0, paramDetails: [] },
+        { name: 'list_mis_jobs', desc: 'List MIS simulator jobs', group: 'MIS', params: 2, paramDetails: [
+            { name: 'limit', type: 'number?', desc: 'Max jobs (default 20)' },
+            { name: 'status', type: 'string?', desc: 'Filter by status' },
+        ]},
+        { name: 'create_mis_job', desc: 'Create draft MIS job record', group: 'MIS', params: 7, paramDetails: [
+            { name: 'job_name', type: 'string', desc: 'Job display name' },
+            { name: 'customer_code', type: 'string?', desc: 'Partner/customer ID' },
+            { name: 'customer_name', type: 'string?', desc: 'Display name' },
+            { name: 'description', type: 'string?', desc: 'Job description' },
+            { name: 'due_date', type: 'string?', desc: 'ISO 8601 date' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+            { name: 'tasks', type: 'object[]?', desc: 'Job tasks (WCP only)' },
+        ]},
+        { name: 'submit_mis_job', desc: 'Submit draft job to WCP or AE', group: 'MIS', params: 1, paramDetails: [
+            { name: 'job_id', type: 'string', desc: 'Draft job UUID' },
+        ]},
+        { name: 'list_customers', desc: 'List customers/partners from WCP', group: 'MIS', params: 1, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'list_task_templates', desc: 'List task templates from WCP', group: 'MIS', params: 1, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
     ];
 
     const MCP_SKILLS = [
@@ -8762,6 +8882,48 @@
                 'Extract 1-5 signals per article',
                 'Save each signal as content item',
                 'Mark source article as processed',
+            ],
+        },
+        {
+            name: 'Weekly Summary',
+            slug: 'weekly-summary',
+            desc: 'Compile daily notes into a weekly narrative with highlights, decisions, learnings, and leadership development.',
+            tools: ['get_prompt', 'weekly_summary_extract', 'weekly_summary_write'],
+            prompt: 'weekly-summary',
+            steps: [
+                'Fetch weekly-summary prompt template',
+                'Load week daily notes + entity data',
+                'Compile weekly summary in-context',
+                'Write results to knowledge base',
+                'Report compilation summary',
+            ],
+        },
+        {
+            name: 'Monthly Review',
+            slug: 'monthly-review',
+            desc: 'Aggregate weekly summaries into a strategic monthly review with problem progress, decisions, and coaching.',
+            tools: ['get_prompt', 'monthly_review_extract', 'monthly_review_write'],
+            prompt: 'monthly-summary',
+            steps: [
+                'Fetch monthly-summary prompt template',
+                'Load month weeklies + entity data',
+                'Compile monthly review in-context',
+                'Write results to knowledge base',
+                'Report review summary',
+            ],
+        },
+        {
+            name: 'Show & Tell Review',
+            slug: 'show-and-tell',
+            desc: 'Extract demos, decisions, and follow-ups from Show & Tell meetings and distribute to product/people files.',
+            tools: ['get_prompt', 'show_and_tell_extract', 'show_and_tell_write'],
+            prompt: 'show-and-tell',
+            steps: [
+                'Fetch show-and-tell prompt template',
+                'Load meeting note + product context',
+                'Extract demos, decisions, follow-ups',
+                'Write results to knowledge base',
+                'Report extraction summary',
             ],
         },
     ];
@@ -8808,10 +8970,24 @@
                         <span style="opacity: 0.5;">(${tools.length})</span>
                     </div>
                     ${tools.map(t => `
-                        <div style="display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border-faint, rgba(255,255,255,0.04));">
-                            <code style="font-size: 0.78rem; color: var(--accent); white-space: nowrap;">${t.name}</code>
-                            <span style="font-size: 0.78rem; color: var(--text-muted); flex: 1;">${esc(t.desc)}</span>
-                            ${t.params ? `<span style="font-size: 0.7rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 9px; padding: 0.1rem 0.4rem; color: var(--text-muted); white-space: nowrap;">${t.params} params</span>` : ''}
+                        <div class="mcp-tool-row">
+                            <div style="display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0; border-bottom: 1px solid var(--border-faint, rgba(255,255,255,0.04));">
+                                <code style="font-size: 0.78rem; color: var(--accent); white-space: nowrap;">${t.name}</code>
+                                <span style="font-size: 0.78rem; color: var(--text-muted); flex: 1;">${esc(t.desc)}</span>
+                                ${t.params ? `<span class="mcp-params-badge" style="font-size: 0.7rem; background: var(--void-lighter); border: 1px solid var(--border); border-radius: 9px; padding: 0.1rem 0.4rem; color: var(--text-muted); white-space: nowrap; cursor: pointer; transition: border-color 0.15s;" data-tool-name="${t.name}">${t.params} params</span>` : ''}
+                            </div>
+                            ${t.paramDetails && t.paramDetails.length ? `
+                            <div class="mcp-param-details" data-tool-detail="${t.name}" style="max-height: 0; overflow: hidden; transition: max-height 0.25s ease; padding-left: 0.5rem;">
+                                <div style="padding: 0.35rem 0 0.5rem 0;">
+                                    ${t.paramDetails.map(p => `
+                                        <div style="display: flex; align-items: baseline; gap: 0.4rem; padding: 0.15rem 0; font-size: 0.74rem;">
+                                            <code style="color: var(--star); white-space: nowrap;">${p.name}</code>
+                                            <span style="color: var(--text-muted); opacity: 0.6; white-space: nowrap;">${p.type}</span>
+                                            <span style="color: var(--text-muted);">${esc(p.desc)}</span>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>` : ''}
                         </div>
                     `).join('')}
                 </div>
@@ -8914,6 +9090,32 @@
             badge.addEventListener('click', () => {
                 const p = promptsList.find(pp => pp.slug === badge.dataset.promptSlug);
                 if (p) openPromptModal(p);
+            });
+        });
+
+        // Wire params badge clicks (expand/collapse)
+        main.querySelectorAll('.mcp-params-badge').forEach(badge => {
+            badge.addEventListener('click', () => {
+                const toolName = badge.dataset.toolName;
+                const detail = main.querySelector(`[data-tool-detail="${toolName}"]`);
+                if (!detail) return;
+                const isOpen = detail.style.maxHeight && detail.style.maxHeight !== '0px';
+                if (isOpen) {
+                    detail.style.maxHeight = '0px';
+                    badge.style.borderColor = '';
+                    badge.style.color = '';
+                } else {
+                    detail.style.maxHeight = detail.scrollHeight + 'px';
+                    badge.style.borderColor = 'var(--accent)';
+                    badge.style.color = 'var(--accent)';
+                }
+            });
+            badge.addEventListener('mouseenter', () => { badge.style.borderColor = 'var(--accent)'; });
+            badge.addEventListener('mouseleave', () => {
+                const toolName = badge.dataset.toolName;
+                const detail = main.querySelector(`[data-tool-detail="${toolName}"]`);
+                const isOpen = detail && detail.style.maxHeight && detail.style.maxHeight !== '0px';
+                if (!isOpen) badge.style.borderColor = '';
             });
         });
 
@@ -9362,7 +9564,8 @@
 
     function misHasActiveConnection() {
         const p = getMisActiveProfile();
-        return p && !!(p.ecan && p.repoId);
+        if (!p) return false;
+        return p.type === 'ae' ? !!p.serverUrl : !!(p.ecan && p.repoId);
     }
 
     function misGetCreds() {
@@ -9413,6 +9616,7 @@
 
     async function misLoadRefData() {
         if (!misHasActiveConnection()) { showToast('Configure a connection in Settings first.', 'error'); return; }
+        if (getMisActiveProfile()?.type === 'ae') return; // AE has no ref data
         const load = async (name, path) => { try { return await misGet(path); } catch (e) { showToast(`${name}: ${e.message}`, 'error'); return null; } };
         const [cust, tasks, prods, preflights] = await Promise.all([
             cachedCustomers || load('Customers', 'customers'),
@@ -9430,6 +9634,13 @@
         if (!cachedTaskTemplates) return [{ id: 'Default', name: 'Default Upload Task' }];
         if (Array.isArray(cachedTaskTemplates)) return cachedTaskTemplates;
         if (cachedTaskTemplates.taskTemplates) return cachedTaskTemplates.taskTemplates.map(t => ({ id: t.nodeId, name: t.name }));
+        if (cachedTaskTemplates.templates) {
+            const t = cachedTaskTemplates.templates;
+            const results = [];
+            for (const [key, tmpl] of Object.entries(t.system || {})) results.push({ id: tmpl.nodeId || key, name: tmpl.name || key });
+            for (const [key, tmpl] of Object.entries(t.custom?.global || {})) results.push({ id: tmpl.nodeId || key, name: tmpl.name || key });
+            return results.length ? results : [{ id: 'Default', name: 'Default Upload Task' }];
+        }
         return [{ id: 'Default', name: 'Default Upload Task' }];
     }
 
@@ -9437,6 +9648,13 @@
         if (!cachedProductTemplates) return [];
         if (Array.isArray(cachedProductTemplates)) return cachedProductTemplates;
         if (cachedProductTemplates.productTemplates) return cachedProductTemplates.productTemplates.map(p => ({ id: p.nodeId, name: p.name }));
+        if (cachedProductTemplates.templates) {
+            const t = cachedProductTemplates.templates;
+            const results = [];
+            for (const [key, tmpl] of Object.entries(t.system || {})) results.push({ id: key, name: tmpl.productTypeDetails || tmpl.descriptiveName || key });
+            for (const [key, tmpl] of Object.entries(t.custom?.global || {})) results.push({ id: key, name: tmpl.productTypeDetails || tmpl.descriptiveName || key });
+            return results;
+        }
         return [];
     }
 
@@ -9542,6 +9760,11 @@
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading reference data...</div>';
         await fetchMisProfiles();
+        const ap = getMisActiveProfile();
+
+        // Branch to AE form if active connection is Automation Engine
+        if (ap?.type === 'ae') return loadAeCreate(ap);
+
         await misLoadRefData();
 
         const customers = cachedCustomers?.data || [];
@@ -9550,7 +9773,6 @@
         const preflightProfiles = cachedPreflightProfiles || [];
         jobTasks = []; taskCounter = 0;
         const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
-        const ap = getMisActiveProfile();
 
         main.innerHTML = `
             <div class="page-header">
@@ -9641,6 +9863,117 @@
         });
         refreshIcons();
     }
+
+    // ─── AE: Create Job Form ─────────────────────────────────
+
+    async function loadAeCreate(ap) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Create AE Job</h2>
+                <div><span class="type-badge" style="border-color:var(--accent);color:var(--accent);">${esc(ap.name)}</span> <span class="type-badge">AE</span></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start;">
+                <div>
+                    <div class="mis-card">
+                        <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
+                        <div class="mis-form-row">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Job Name *</div>
+                                <input class="modal-edit-input" id="aeJobName" placeholder="e.g. Spring Label Run">
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Job ID *</div>
+                                <input class="modal-edit-input" id="aeJobId" placeholder="e.g. 000001" style="font-family:var(--mono);font-size:0.78rem;">
+                            </div>
+                        </div>
+                        <div class="mis-form-row">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Job Part ID</div>
+                                <input class="modal-edit-input" id="aeJobPartId" placeholder="e.g. 000001" style="font-family:var(--mono);font-size:0.78rem;">
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Customer ID</div>
+                                <input class="modal-edit-input" id="aeCustomerId" placeholder="e.g. 0001">
+                            </div>
+                        </div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Description</div>
+                            <textarea class="mis-form-textarea" id="aeDescription" placeholder="Optional job description..."></textarea>
+                        </div>
+                        <div class="mis-form-row">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Category</div>
+                                <select class="modal-edit-select" id="aeCategory">
+                                    <option value="Production">Production</option>
+                                    <option value="Prepress">Prepress</option>
+                                    <option value="">None</option>
+                                </select>
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Custom Field 1</div>
+                                <input class="modal-edit-input" id="aeCustomField1" placeholder="e.g. Flexo">
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:1rem;display:flex;gap:0.75rem;">
+                        <button class="mis-btn mis-btn-primary" onclick="aeSubmitJob()" id="aeSubmitBtn"><i class="icon" data-lucide="send"></i> Create AE Job</button>
+                        <button class="mis-btn" onclick="aeUpdatePreview()"><i class="icon" data-lucide="eye"></i> Preview</button>
+                    </div>
+                </div>
+                <div class="mis-card" style="position:sticky;top:6rem;">
+                    <div class="mis-card-title"><i class="icon" data-lucide="braces"></i> Request Preview</div>
+                    <pre class="json-preview" id="aeJsonPreview">{}</pre>
+                    <div style="margin-top:0.75rem;"><button class="mis-btn mis-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('aeJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button></div>
+                </div>
+            </div>`;
+        ['aeJobName','aeJobId','aeJobPartId','aeCustomerId','aeDescription','aeCategory','aeCustomField1'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.addEventListener('input', aeUpdatePreview); el.addEventListener('change', aeUpdatePreview); }
+        });
+        refreshIcons();
+    }
+
+    function aeBuildPayload() {
+        return {
+            jobName: document.getElementById('aeJobName')?.value?.trim() || '',
+            jobId: document.getElementById('aeJobId')?.value?.trim() || '',
+            jobPartId: document.getElementById('aeJobPartId')?.value?.trim() || '',
+            customerCode: document.getElementById('aeCustomerId')?.value?.trim() || '',
+            description: document.getElementById('aeDescription')?.value?.trim() || '',
+            category: document.getElementById('aeCategory')?.value || '',
+            customField1: document.getElementById('aeCustomField1')?.value?.trim() || '',
+        };
+    }
+
+    window.aeUpdatePreview = function() {
+        const payload = aeBuildPayload();
+        const el = document.getElementById('aeJsonPreview');
+        if (el) el.textContent = JSON.stringify(payload, null, 2);
+    };
+
+    window.aeSubmitJob = async function() {
+        const btn = document.getElementById('aeSubmitBtn');
+        const payload = aeBuildPayload();
+        if (!payload.jobName) return showToast('Enter a job name', 'error');
+        if (!payload.jobId) return showToast('Enter a job ID', 'error');
+        btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Creating...';
+        try {
+            const result = await misPut('create-job', payload);
+            const ap = getMisActiveProfile();
+            await storeMisJob({
+                job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
+                customer_name: '', status: 'Created', phase: '',
+                due_date: null, description: payload.description || '',
+                connection_id: ap?.id || null, connection_name: ap?.name || '', solution: 'ae',
+                cluster: '', payload, wcp_response: result,
+            });
+            showToast(`AE Job "${payload.jobId}" created!`, 'success');
+            const monTab = document.querySelector('.sub-tab[data-view="mis-monitor"]');
+            if (monTab) monTab.click();
+        } catch (e) { showToast(`Failed: ${e.message}`, 'error'); }
+        finally { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="send"></i> Create AE Job'; refreshIcons(); }
+    };
 
     function misUpdateJobId() {
         const el = document.getElementById('misJobCustomer');
@@ -9760,27 +10093,31 @@
         const jobs = await getMisStoredJobs(true);
 
         function statusBadge(s) {
-            const cls = s === 'Created' ? 'mis-badge-created' : s === 'Failed' ? 'mis-badge-failed' : '';
+            const cls = s === 'Created' ? 'mis-badge-created' : s === 'Active' ? 'mis-badge-active' : s === 'Completed' ? 'mis-badge-completed' : s === 'Failed' ? 'mis-badge-failed' : '';
             return `<span class="mis-badge ${cls}">${esc(s || '-')}</span>`;
         }
 
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Job Monitor</h2>
-                <button class="mis-btn mis-btn-sm" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> Refresh</button>
+                <button class="mis-btn mis-btn-sm" id="misRefreshBtn" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> <span id="misRefreshLabel">Refresh</span></button>
             </div>
             ${!jobs.length ? '<div style="padding:2rem;text-align:center;color:var(--text-muted);">No jobs tracked. Create a job to see it here.</div>' : `
             <div class="table-wrap">
                 <table>
-                    <thead><tr><th>Job ID</th><th>Name</th><th>Customer</th><th>Type</th><th>Status</th><th>Phase</th><th>Due</th><th style="width:80px;"></th></tr></thead>
+                    <thead><tr>
+                        <th style="width:36px;"><input type="checkbox" id="misSelectAll" class="mis-checkbox" title="Select all"></th>
+                        <th>Job ID</th><th>Name</th><th>Customer</th><th>Type</th><th>Status</th><th>Phase</th><th>Due</th><th style="width:80px;"></th>
+                    </tr></thead>
                     <tbody>${jobs.map(j => `
-                        <tr>
+                        <tr data-job-row="${j.id}">
+                            <td><input type="checkbox" class="mis-checkbox mis-job-select" value="${j.id}" data-jobid="${esc(j.job_id || '')}" onchange="misUpdateSelection()"></td>
                             <td><code style="font-size:0.78rem;">${esc(j.job_id || '')}</code></td>
                             <td class="title-text">${esc(j.job_name || '-')}</td>
                             <td style="font-size:0.85rem;">${esc(j.customer_name || j.customer_code || '-')}</td>
                             <td><span class="type-badge">${esc((j.solution || 'wcp').toUpperCase())}</span></td>
-                            <td>${statusBadge(j.status)}</td>
-                            <td style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</td>
+                            <td><span class="mis-editable" onclick="misEditField('${j.id}','status','${esc(j.status || '')}')" title="Click to edit">${statusBadge(j.status)}</span></td>
+                            <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;">
                                 <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
@@ -9790,9 +10127,111 @@
                 </table>
             </div>`}`;
         refreshIcons();
+
+        // Wire up select-all
+        const selectAll = document.getElementById('misSelectAll');
+        if (selectAll) {
+            selectAll.addEventListener('change', () => {
+                document.querySelectorAll('.mis-job-select').forEach(cb => { cb.checked = selectAll.checked; });
+                misUpdateSelection();
+            });
+        }
     }
 
-    window.misRefreshMonitor = function() { _cachedMisJobs = null; loadMisMonitor(); };
+    window.misUpdateSelection = function() {
+        const selected = document.querySelectorAll('.mis-job-select:checked');
+        const label = document.getElementById('misRefreshLabel');
+        if (label) label.textContent = selected.length ? `Sync Status (${selected.length})` : 'Refresh';
+        // Highlight selected rows
+        document.querySelectorAll('[data-job-row]').forEach(row => {
+            const cb = row.querySelector('.mis-job-select');
+            row.classList.toggle('mis-row-selected', cb?.checked || false);
+        });
+        // Keep select-all in sync
+        const all = document.querySelectorAll('.mis-job-select');
+        const selectAll = document.getElementById('misSelectAll');
+        if (selectAll && all.length) selectAll.checked = selected.length === all.length;
+    };
+
+    function misGetSelectedJobs() {
+        return Array.from(document.querySelectorAll('.mis-job-select:checked')).map(cb => ({
+            id: cb.value,
+            job_id: cb.dataset.jobid,
+        }));
+    }
+
+    async function misRefreshSelectedJobs(jobs) {
+        const btn = document.getElementById('misRefreshBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Syncing...'; }
+        let ok = 0, fail = 0;
+        const errors = [];
+        const results = await Promise.allSettled(jobs.map(async ({ id, job_id }) => {
+            // Try fetching from WCP — also try with nodeId from wcp_response
+            const job = (_cachedMisJobs || []).find(j => j.id === id);
+            const nodeId = job?.wcp_response?.job?.nodeId;
+            const idsToTry = [job_id, ...(nodeId ? [nodeId] : [])];
+            let details = null;
+            for (const tryId of idsToTry) {
+                try {
+                    details = await misGet('job-details/' + encodeURIComponent(tryId));
+                    if (details && !details.error) break;
+                } catch (e) { /* try next */ }
+            }
+            if (!details || details.error) {
+                throw new Error(`${job_id}: ${details?.error || 'WCP API returned no data'}`);
+            }
+            const status = details?.status || details?.jobStatus;
+            const phase = details?.phase || details?.jobPhase;
+            const updates = {};
+            if (status) updates.status = status;
+            if (phase) updates.phase = phase;
+            if (Object.keys(updates).length) {
+                await fetch(`${MIS_API_BASE}/jobs/${id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates),
+                });
+            }
+            return { job_id, status, phase };
+        }));
+        results.forEach(r => {
+            if (r.status === 'fulfilled') ok++;
+            else { fail++; errors.push(r.reason?.message || 'Unknown error'); }
+        });
+        if (fail && !ok) showToast(`WCP sync failed: ${errors[0]}`, 'error');
+        else if (fail) showToast(`Synced ${ok}/${ok + fail} jobs. Failed: ${errors.join('; ')}`, 'error');
+        else showToast(`Synced ${ok} job${ok !== 1 ? 's' : ''} from WCP`, 'success');
+        _cachedMisJobs = null;
+        loadMisMonitor();
+    }
+
+    window.misRefreshMonitor = function() {
+        const selected = misGetSelectedJobs();
+        if (selected.length) {
+            misRefreshSelectedJobs(selected);
+        } else {
+            _cachedMisJobs = null;
+            loadMisMonitor();
+        }
+    };
+
+    window.misEditField = async function(id, field, currentValue) {
+        const options = field === 'status'
+            ? ['Draft', 'Created', 'Active', 'Completed', 'Cancelled', 'Failed']
+            : ['Draft', 'Pending', 'InProgress', 'Review', 'Done', 'Cancelled'];
+        const newVal = prompt(`Update ${field}:\n\nOptions: ${options.join(', ')}`, currentValue);
+        if (newVal === null || newVal === currentValue) return;
+        try {
+            await fetch(`${MIS_API_BASE}/jobs/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [field]: newVal }),
+            });
+            _cachedMisJobs = null;
+            loadMisMonitor();
+            showToast(`${field} updated to "${newVal}"`, 'success');
+        } catch (e) { showToast('Failed to update: ' + e.message, 'error'); }
+    };
 
     window.misDeleteJob = async function(id) {
         if (!confirm('Delete this job from the monitor?')) return;

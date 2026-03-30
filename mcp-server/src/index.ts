@@ -26,6 +26,37 @@ import {
 } from './embeddings.js';
 import { extractArticleContent } from './utils/html-to-markdown.js';
 
+// ─── Date Helpers ────────────────────────────────────────────
+
+function getWeekDates(week: string): string[] {
+  // Parse ISO week string like "2026-W13" → array of Mon–Sun date strings
+  const match = week.match(/^(\d{4})-W(\d{2})$/);
+  if (!match) return [];
+  const year = parseInt(match[1]);
+  const weekNum = parseInt(match[2]);
+  // Jan 4 is always in week 1 (ISO 8601)
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const dayOfWeek = jan4.getUTCDay() || 7; // Mon=1 .. Sun=7
+  const monday = new Date(jan4);
+  monday.setUTCDate(jan4.getUTCDate() - dayOfWeek + 1 + (weekNum - 1) * 7);
+  const dates: string[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(monday);
+    d.setUTCDate(monday.getUTCDate() + i);
+    dates.push(d.toISOString().split('T')[0]);
+  }
+  return dates;
+}
+
+function getMonthRange(month: string): { first: string; last: string } {
+  // "2026-03" → { first: "2026-03-01", last: "2026-03-31" }
+  const [year, mon] = month.split('-').map(Number);
+  const first = `${month}-01`;
+  const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
+  const last = `${month}-${String(lastDay).padStart(2, '0')}`;
+  return { first, last };
+}
+
 // ─── Server Setup ────────────────────────────────────────────
 
 const server = new McpServer({
@@ -48,12 +79,12 @@ export function initMisProxy(apiUrl?: string, clientId?: string, clientSecret?: 
   if (internalApiKey) _misInternalApiKey = internalApiKey;
 }
 
-async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string } | null> {
+async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string; type?: string } | null> {
   if (connection_id) {
-    const rows = await supabaseGet(`mis_connections?id=eq.${connection_id}&select=id,name&limit=1`);
+    const rows = await supabaseGet(`mis_connections?id=eq.${connection_id}&select=id,name,type&limit=1`);
     return rows.length ? rows[0] : null;
   }
-  const rows = await supabaseGet('mis_connections?is_active=eq.true&select=id,name&limit=1');
+  const rows = await supabaseGet('mis_connections?is_active=eq.true&select=id,name,type&limit=1');
   return rows.length ? rows[0] : null;
 }
 
@@ -821,16 +852,27 @@ server.tool(
     }
     const dailyNote = noteRes[0];
 
-    // Fetch entity context
-    const [people, products, projects] = await Promise.all([
+    // Fetch entity context + prompt
+    const [people, products, projects, promptRes] = await Promise.all([
       supabaseGet('people?select=id,name,role,organization&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet('projects?select=id,name,product_id&order=name'),
+      supabaseGet('prompts?slug=eq.daily-review&limit=1'),
     ]);
+    const prompt = promptRes?.[0] || null;
 
     const peopleNames = people.map((p: any) => p.name);
     const productNames = products.map((p: any) => p.name);
     const projectNames = projects.map((p: any) => p.name);
+
+    // Interpolate template variables into system prompt
+    let systemPrompt = prompt?.system_prompt || null;
+    if (systemPrompt) {
+      systemPrompt = systemPrompt
+        .replace('{{people_list}}', peopleNames.join(', '))
+        .replace('{{product_list}}', productNames.join(', '))
+        .replace('{{project_list}}', projectNames.join(', '));
+    }
 
     // Build the user prompt (same as API version)
     let userPrompt = `## Daily Note for ${date}\n\n`;
@@ -870,6 +912,9 @@ server.tool(
               known_people: peopleNames,
               known_products: productNames,
               known_projects: projectNames,
+              system_prompt: systemPrompt,
+              user_prompt_template: prompt?.user_prompt_template || null,
+              prompt_version: prompt?.version || null,
               user_prompt: userPrompt,
               instructions:
                 'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, and review_summary. Return as JSON. Then call daily_review_write with the results.',
@@ -1195,6 +1240,606 @@ server.tool(
   }
 );
 
+// ─── Weekly Summary Tools ────────────────────────────────────
+
+server.tool(
+  'weekly_summary_extract',
+  'Fetch all daily notes, review data, and entity context for a given ISO week so Claude can produce a weekly summary in-context. Returns compiled week data and instructions.',
+  {
+    week: z.string().describe('ISO week string, e.g. "2026-W13"'),
+  },
+  async ({ week }) => {
+    const dates = getWeekDates(week);
+    if (!dates.length) {
+      return { content: [{ type: 'text' as const, text: `Invalid week format: ${week}. Use YYYY-Www (e.g. 2026-W13).` }] };
+    }
+
+    const dateList = dates.map(d => `"${d}"`).join(',');
+    const dateFilter = `note_date=in.(${dateList})`;
+    const dateRangeFilter = `note_date=gte.${dates[0]}&note_date=lte.${dates[6]}`;
+
+    const [dailyNotes, reviews, peopleLog, productEvidence, productDecisions, projectUpdates, reflections, people, products, projects, promptRes] = await Promise.all([
+      supabaseGet(`daily_notes?${dateFilter}&order=note_date`),
+      supabaseGet(`ai_reviews?review_type=eq.daily&source_date=in.(${dateList})&order=source_date`),
+      supabaseGet(`people_log?${dateRangeFilter}&select=id,person_id,note_date,entry,source&order=note_date`),
+      supabaseGet(`product_evidence?${dateRangeFilter}&select=id,product_id,note_date,evidence,evidence_type&order=note_date`),
+      supabaseGet(`product_decisions?${dateRangeFilter}&select=id,product_id,note_date,decision,context&order=note_date`),
+      supabaseGet(`project_updates?${dateRangeFilter}&select=id,project_id,note_date,update_text&order=note_date`),
+      supabaseGet(`reflections_log?${dateRangeFilter}&select=id,note_date,observation,coach_perspective,category&order=note_date`),
+      supabaseGet('people?select=id,name,role,organization&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+      supabaseGet('projects?select=id,name,product_id&order=name'),
+      supabaseGet('prompts?slug=eq.weekly-summary&limit=1'),
+    ]);
+    const prompt = promptRes?.[0] || null;
+
+    // Build ID→name maps for enrichment
+    const peopleMap: Record<string, string> = {};
+    people.forEach((p: any) => { peopleMap[p.id] = p.name; });
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.id] = p.name; });
+    const projectMap: Record<string, string> = {};
+    projects.forEach((p: any) => { projectMap[p.id] = p.name; });
+
+    // Enrich log entries with names
+    const enrichedPeopleLog = peopleLog.map((e: any) => ({ ...e, person_name: peopleMap[e.person_id] || 'Unknown' }));
+    const enrichedEvidence = productEvidence.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
+    const enrichedDecisions = productDecisions.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
+    const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
+
+    // Check for existing weekly summary
+    const existingSummary = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&metadata->>week=eq.${week}&limit=1`);
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          week,
+          dates,
+          daily_notes: dailyNotes,
+          daily_reviews: reviews.map((r: any) => ({ date: r.source_date, summary: r.output_summary })),
+          people_log: enrichedPeopleLog,
+          product_evidence: enrichedEvidence,
+          product_decisions: enrichedDecisions,
+          project_updates: enrichedProjectUpdates,
+          reflections,
+          known_people: people.map((p: any) => p.name),
+          known_products: products.map((p: any) => p.name),
+          known_projects: projects.map((p: any) => p.name),
+          existing_summary: existingSummary.length ? existingSummary[0] : null,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          prompt_version: prompt?.version || null,
+          instructions: 'Compile a weekly summary from this data. Produce a JSON object with: highlights (string[]), key_meetings ([{ title, outcome }]), domain_updates (string[]), product_updates ([{ product_name, update }]), decisions ([{ decision, context, impact }]), learnings (string[]), leadership_development (string), and summary (string). Then call weekly_summary_write with the results.',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'weekly_summary_write',
+  'Write the structured results of a weekly summary back to the database. Call this after processing weekly_summary_extract data.',
+  {
+    week: z.string().describe('ISO week string, e.g. "2026-W13"'),
+    summary_data: z.object({
+      highlights: z.array(z.string()).optional().default([]),
+      key_meetings: z.array(z.object({
+        title: z.string(),
+        outcome: z.string(),
+      })).optional().default([]),
+      domain_updates: z.array(z.string()).optional().default([]),
+      product_updates: z.array(z.object({
+        product_name: z.string(),
+        update: z.string(),
+      })).optional().default([]),
+      decisions: z.array(z.object({
+        decision: z.string(),
+        context: z.string().optional(),
+        impact: z.string().optional(),
+      })).optional().default([]),
+      learnings: z.array(z.string()).optional().default([]),
+      leadership_development: z.string().optional().default(''),
+      summary: z.string().optional().default(''),
+    }).describe('Structured weekly summary data'),
+  },
+  async ({ week, summary_data }) => {
+    const dates = getWeekDates(week);
+    if (!dates.length) {
+      return { content: [{ type: 'text' as const, text: `Invalid week format: ${week}` }] };
+    }
+
+    // Build markdown body from structured data
+    let body = `# Weekly Summary — ${week}\n\n`;
+    body += `**Period:** ${dates[0]} to ${dates[6]}\n\n`;
+
+    if (summary_data.summary) {
+      body += `## Overview\n${summary_data.summary}\n\n`;
+    }
+    if (summary_data.highlights.length) {
+      body += `## Highlights\n${summary_data.highlights.map(h => `- ${h}`).join('\n')}\n\n`;
+    }
+    if (summary_data.key_meetings.length) {
+      body += `## Key Meetings\n${summary_data.key_meetings.map(m => `- **${m.title}**: ${m.outcome}`).join('\n')}\n\n`;
+    }
+    if (summary_data.domain_updates.length) {
+      body += `## Domain Updates\n${summary_data.domain_updates.map(u => `- ${u}`).join('\n')}\n\n`;
+    }
+    if (summary_data.product_updates.length) {
+      body += `## Product Updates\n${summary_data.product_updates.map(p => `- **${p.product_name}**: ${p.update}`).join('\n')}\n\n`;
+    }
+    if (summary_data.decisions.length) {
+      body += `## Decisions\n${summary_data.decisions.map(d => `- **${d.decision}**${d.context ? ` — ${d.context}` : ''}${d.impact ? ` → ${d.impact}` : ''}`).join('\n')}\n\n`;
+    }
+    if (summary_data.learnings.length) {
+      body += `## Learnings\n${summary_data.learnings.map(l => `- ${l}`).join('\n')}\n\n`;
+    }
+    if (summary_data.leadership_development) {
+      body += `## Leadership & Development\n${summary_data.leadership_development}\n\n`;
+    }
+
+    // Check for existing summary to update
+    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&metadata->>week=eq.${week}&limit=1`);
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        title: `Weekly Summary — ${week}`,
+        body,
+        metadata: { period: 'weekly', week, dates, updated_at: new Date().toISOString() },
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Weekly Summary — ${week}`,
+        body,
+        status: 'new',
+        tags: ['weekly-summary'],
+        metadata: { period: 'weekly', week, dates },
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'weekly',
+      source_date: dates[0],
+      status: 'completed',
+      output_summary: summary_data.summary,
+      files_updated: { content_id: contentId },
+      completed_at: new Date().toISOString(),
+    });
+
+    // Embed the summary
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ ok: true, content_id: contentId, week, action: existing.length ? 'updated' : 'created' }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Monthly Review Tools ────────────────────────────────────
+
+server.tool(
+  'monthly_review_extract',
+  'Fetch weekly summaries, daily notes, and all review data for a given month so Claude can produce a monthly review in-context. Returns compiled month data and instructions.',
+  {
+    month: z.string().describe('Month string, e.g. "2026-03"'),
+  },
+  async ({ month }) => {
+    const { first, last } = getMonthRange(month);
+    const dateRangeFilter = `note_date=gte.${first}&note_date=lte.${last}`;
+
+    const [weeklySummaries, dailyNotes, productEvidence, productDecisions, projectUpdates, reflections, people, products, projects, promptRes] = await Promise.all([
+      supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&order=created_at&limit=10`),
+      supabaseGet(`daily_notes?note_date=gte.${first}&note_date=lte.${last}&order=note_date`),
+      supabaseGet(`product_evidence?${dateRangeFilter}&select=id,product_id,note_date,evidence,evidence_type&order=note_date`),
+      supabaseGet(`product_decisions?${dateRangeFilter}&select=id,product_id,note_date,decision,context&order=note_date`),
+      supabaseGet(`project_updates?${dateRangeFilter}&select=id,project_id,note_date,update_text&order=note_date`),
+      supabaseGet(`reflections_log?${dateRangeFilter}&select=id,note_date,observation,coach_perspective,category&order=note_date`),
+      supabaseGet('people?select=id,name,role,organization&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+      supabaseGet('projects?select=id,name,status&order=name'),
+      supabaseGet('prompts?slug=eq.monthly-summary&limit=1'),
+    ]);
+    const prompt = promptRes?.[0] || null;
+
+    // Filter weekly summaries to those whose week falls within this month
+    const monthWeeklies = weeklySummaries.filter((s: any) => {
+      const w = s.metadata?.week;
+      if (!w) return false;
+      const wDates = getWeekDates(w);
+      return wDates.some(d => d >= first && d <= last);
+    });
+
+    // Build ID→name maps
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.id] = p.name; });
+    const projectMap: Record<string, string> = {};
+    projects.forEach((p: any) => { projectMap[p.id] = p.name; });
+
+    const enrichedEvidence = productEvidence.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
+    const enrichedDecisions = productDecisions.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
+    const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
+
+    // Check for existing monthly summary
+    const existingSummary = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.monthly&metadata->>month=eq.${month}&limit=1`);
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          month,
+          date_range: { first, last },
+          weekly_summaries: monthWeeklies.map((s: any) => ({ week: s.metadata?.week, title: s.title, body: s.body })),
+          daily_notes_count: dailyNotes.length,
+          daily_notes: dailyNotes,
+          product_evidence: enrichedEvidence,
+          product_decisions: enrichedDecisions,
+          project_updates: enrichedProjectUpdates,
+          reflections,
+          known_products: products.map((p: any) => p.name),
+          known_projects: projects.map((p: any) => ({ name: p.name, status: p.status })),
+          existing_summary: existingSummary.length ? existingSummary[0] : null,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          prompt_version: prompt?.version || null,
+          instructions: 'Compile a monthly review from this data. Produce a JSON object with: themes (string[]), problem_progress ([{ problem_id, problem_name, status, evidence }] for P1-P12), strategic_decisions ([{ decision, rationale, impact }]), customer_interactions ([{ customer, context, outcome }]), team_updates (string[]), metrics (object with any quantifiable data), and summary (string). Then call monthly_review_write with the results.',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'monthly_review_write',
+  'Write the structured results of a monthly review back to the database. Call this after processing monthly_review_extract data.',
+  {
+    month: z.string().describe('Month string, e.g. "2026-03"'),
+    review_data: z.object({
+      themes: z.array(z.string()).optional().default([]),
+      problem_progress: z.array(z.object({
+        problem_id: z.string(),
+        problem_name: z.string(),
+        status: z.string(),
+        evidence: z.string().optional(),
+      })).optional().default([]),
+      strategic_decisions: z.array(z.object({
+        decision: z.string(),
+        rationale: z.string().optional(),
+        impact: z.string().optional(),
+      })).optional().default([]),
+      customer_interactions: z.array(z.object({
+        customer: z.string(),
+        context: z.string(),
+        outcome: z.string().optional(),
+      })).optional().default([]),
+      team_updates: z.array(z.string()).optional().default([]),
+      metrics: z.record(z.any()).optional().default({}),
+      summary: z.string().optional().default(''),
+    }).describe('Structured monthly review data'),
+  },
+  async ({ month, review_data }) => {
+    const { first, last } = getMonthRange(month);
+
+    // Build markdown body
+    let body = `# Monthly Review — ${month}\n\n`;
+    body += `**Period:** ${first} to ${last}\n\n`;
+
+    if (review_data.summary) {
+      body += `## Overview\n${review_data.summary}\n\n`;
+    }
+    if (review_data.themes.length) {
+      body += `## Key Themes\n${review_data.themes.map(t => `- ${t}`).join('\n')}\n\n`;
+    }
+    if (review_data.problem_progress.length) {
+      body += `## Problems Progress (P1-P12)\n`;
+      body += `| Problem | Status | Evidence |\n|---|---|---|\n`;
+      body += review_data.problem_progress.map(p => `| ${p.problem_id} — ${p.problem_name} | ${p.status} | ${p.evidence || '—'} |`).join('\n');
+      body += '\n\n';
+    }
+    if (review_data.strategic_decisions.length) {
+      body += `## Strategic Decisions\n${review_data.strategic_decisions.map(d => `- **${d.decision}**${d.rationale ? ` — ${d.rationale}` : ''}${d.impact ? ` → ${d.impact}` : ''}`).join('\n')}\n\n`;
+    }
+    if (review_data.customer_interactions.length) {
+      body += `## Customer Interactions\n${review_data.customer_interactions.map(c => `- **${c.customer}**: ${c.context}${c.outcome ? ` → ${c.outcome}` : ''}`).join('\n')}\n\n`;
+    }
+    if (review_data.team_updates.length) {
+      body += `## Team Updates\n${review_data.team_updates.map(u => `- ${u}`).join('\n')}\n\n`;
+    }
+    if (Object.keys(review_data.metrics).length) {
+      body += `## Metrics\n${Object.entries(review_data.metrics).map(([k, v]) => `- **${k}**: ${v}`).join('\n')}\n\n`;
+    }
+
+    // Check for existing summary to update
+    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.monthly&metadata->>month=eq.${month}&limit=1`);
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        title: `Monthly Review — ${month}`,
+        body,
+        metadata: { period: 'monthly', month, updated_at: new Date().toISOString(), review_data },
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Monthly Review — ${month}`,
+        body,
+        status: 'new',
+        tags: ['monthly-review'],
+        metadata: { period: 'monthly', month, review_data },
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'monthly',
+      source_date: first,
+      status: 'completed',
+      output_summary: review_data.summary,
+      files_updated: { content_id: contentId },
+      completed_at: new Date().toISOString(),
+    });
+
+    // Embed the summary
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ ok: true, content_id: contentId, month, action: existing.length ? 'updated' : 'created' }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Show & Tell Review Tools ────────────────────────────────
+
+server.tool(
+  'show_and_tell_extract',
+  'Fetch the daily note and entity context for a Show & Tell meeting date so Claude can extract demos, decisions, and follow-ups in-context. Returns meeting content and instructions.',
+  {
+    date: z.string().describe('Date of the Show & Tell in YYYY-MM-DD format'),
+  },
+  async ({ date }) => {
+    const noteRes = await supabaseGet(`daily_notes?note_date=eq.${date}&limit=1`);
+    if (!noteRes.length) {
+      return { content: [{ type: 'text' as const, text: `No daily note found for ${date}` }] };
+    }
+    const dailyNote = noteRes[0];
+
+    // Get recent product evidence for context (last 2 weeks)
+    const twoWeeksAgo = new Date(date + 'T12:00:00Z');
+    twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
+    const fromDate = twoWeeksAgo.toISOString().split('T')[0];
+
+    const [people, products, recentEvidence, promptRes] = await Promise.all([
+      supabaseGet('people?select=id,name,role,organization&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+      supabaseGet(`product_evidence?note_date=gte.${fromDate}&note_date=lte.${date}&select=id,product_id,evidence,evidence_type&order=note_date.desc&limit=30`),
+      supabaseGet('prompts?slug=eq.show-and-tell&limit=1'),
+    ]);
+    const prompt = promptRes?.[0] || null;
+
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.id] = p.name; });
+    const enrichedEvidence = recentEvidence.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
+
+    // Interpolate template variables into system prompt
+    let systemPrompt = prompt?.system_prompt || null;
+    if (systemPrompt) {
+      systemPrompt = systemPrompt
+        .replace('{{people_list}}', people.map((p: any) => p.name).join(', '))
+        .replace('{{product_list}}', products.map((p: any) => p.name).join(', '));
+    }
+
+    // Build user prompt from daily note
+    let noteContent = `## Daily Note for ${date}\n\n`;
+    if (dailyNote.meetings) noteContent += `### Meetings & Conversations\n${dailyNote.meetings}\n\n`;
+    if (dailyNote.notes) noteContent += `### Notes\n${dailyNote.notes}\n\n`;
+
+    const structured = dailyNote.metadata?.meetings_structured;
+    if (structured?.length) {
+      noteContent += `### Meeting Details (structured)\n`;
+      for (const m of structured) {
+        noteContent += `#### ${m.title || 'Untitled Meeting'}${m.time ? ` (${m.time})` : ''}\n`;
+        noteContent += `${m.notes || '(no notes)'}\n\n`;
+      }
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          date,
+          daily_note: noteContent,
+          known_people: people.map((p: any) => p.name),
+          known_products: products.map((p: any) => p.name),
+          recent_product_evidence: enrichedEvidence,
+          system_prompt: systemPrompt,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          prompt_version: prompt?.version || null,
+          instructions: 'Extract Show & Tell content from this daily note. Look for demos, product demonstrations, decisions made, and follow-up actions. Produce a JSON object with: demos ([{ presenter, product_name, description, outcome }]), decisions ([{ decision, owner, context }]), follow_ups ([{ action, owner, due_date?, product_name? }]), attendee_observations ([{ person_name, observation }]), and summary (string). Then call show_and_tell_write with the results.',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'show_and_tell_write',
+  'Write the structured results of a Show & Tell review back to the database. Call this after processing show_and_tell_extract data.',
+  {
+    date: z.string().describe('Date of the Show & Tell in YYYY-MM-DD format'),
+    review_data: z.object({
+      demos: z.array(z.object({
+        presenter: z.string(),
+        product_name: z.string(),
+        description: z.string(),
+        outcome: z.string().optional(),
+      })).optional().default([]),
+      decisions: z.array(z.object({
+        decision: z.string(),
+        owner: z.string().optional(),
+        context: z.string().optional(),
+      })).optional().default([]),
+      follow_ups: z.array(z.object({
+        action: z.string(),
+        owner: z.string().optional(),
+        due_date: z.string().optional(),
+        product_name: z.string().optional(),
+      })).optional().default([]),
+      attendee_observations: z.array(z.object({
+        person_name: z.string(),
+        observation: z.string(),
+      })).optional().default([]),
+      summary: z.string().optional().default(''),
+    }).describe('Structured Show & Tell review data'),
+  },
+  async ({ date, review_data }) => {
+    // Fetch entity maps
+    const [people, products] = await Promise.all([
+      supabaseGet('people?select=id,name&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+    ]);
+
+    const peopleMap: Record<string, string> = {};
+    people.forEach((p: any) => { peopleMap[p.name.toLowerCase()] = p.id; });
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
+
+    const sourceRef = { show_and_tell_date: date };
+    const results = { demos: 0, decisions: 0, follow_ups: 0, people_log: 0 };
+
+    // Write demo entries as product evidence
+    for (const demo of review_data.demos) {
+      const productId = productMap[demo.product_name?.toLowerCase()];
+      if (!productId) continue;
+      await supabasePost('product_evidence', {
+        product_id: productId,
+        note_date: date,
+        evidence: `Demo by ${demo.presenter}: ${demo.description}${demo.outcome ? ` — ${demo.outcome}` : ''}`,
+        evidence_type: 'demo',
+        source_ref: sourceRef,
+      });
+      results.demos++;
+
+      // Also log for the presenter
+      const presenterId = peopleMap[demo.presenter?.toLowerCase()];
+      if (presenterId) {
+        await supabasePost('people_log', {
+          person_id: presenterId,
+          note_date: date,
+          entry: `Demoed ${demo.product_name}: ${demo.description}`,
+          source: 'show_and_tell',
+          source_ref: sourceRef,
+        });
+        results.people_log++;
+      }
+    }
+
+    // Write decisions as product decisions
+    for (const dec of review_data.decisions) {
+      const productId = dec.context ? productMap[dec.context?.toLowerCase()] : null;
+      await supabasePost('product_decisions', {
+        product_id: productId || null,
+        note_date: date,
+        decision: dec.decision,
+        context: `Show & Tell${dec.owner ? ` — Owner: ${dec.owner}` : ''}${dec.context ? ` — ${dec.context}` : ''}`,
+        source_ref: sourceRef,
+      });
+      results.decisions++;
+    }
+
+    // Write attendee observations as people log entries
+    for (const obs of review_data.attendee_observations) {
+      const personId = peopleMap[obs.person_name?.toLowerCase()];
+      if (!personId) continue;
+      await supabasePost('people_log', {
+        person_id: personId,
+        note_date: date,
+        entry: obs.observation,
+        source: 'show_and_tell',
+        source_ref: sourceRef,
+      });
+      results.people_log++;
+    }
+
+    // Build markdown body for content item
+    let body = `# Show & Tell Review — ${date}\n\n`;
+    if (review_data.summary) body += `## Summary\n${review_data.summary}\n\n`;
+    if (review_data.demos.length) {
+      body += `## Demos\n${review_data.demos.map(d => `- **${d.presenter}** (${d.product_name}): ${d.description}${d.outcome ? ` → ${d.outcome}` : ''}`).join('\n')}\n\n`;
+    }
+    if (review_data.decisions.length) {
+      body += `## Decisions\n${review_data.decisions.map(d => `- **${d.decision}**${d.owner ? ` (${d.owner})` : ''}${d.context ? ` — ${d.context}` : ''}`).join('\n')}\n\n`;
+    }
+    if (review_data.follow_ups.length) {
+      body += `## Follow-ups\n${review_data.follow_ups.map(f => `- [ ] ${f.action}${f.owner ? ` — @${f.owner}` : ''}${f.due_date ? ` (due: ${f.due_date})` : ''}${f.product_name ? ` [${f.product_name}]` : ''}`).join('\n')}\n\n`;
+      results.follow_ups = review_data.follow_ups.length;
+    }
+
+    // Create/update content item
+    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.show_and_tell&metadata->>date=eq.${date}&limit=1`);
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        title: `Show & Tell Review — ${date}`,
+        body,
+        metadata: { period: 'show_and_tell', date, updated_at: new Date().toISOString(), review_data },
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Show & Tell Review — ${date}`,
+        body,
+        status: 'new',
+        tags: ['show-and-tell'],
+        metadata: { period: 'show_and_tell', date, review_data },
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'show_and_tell',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary,
+      files_updated: { content_id: contentId, ...results },
+      completed_at: new Date().toISOString(),
+    });
+
+    // Embed the summary
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ ok: true, content_id: contentId, date, writes: results, action: existing.length ? 'updated' : 'created' }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Embedding Tools ─────────────────────────────────────────
+
 server.tool(
   'generate_embedding',
   'Generate and store embedding for a single content item',
@@ -1474,7 +2119,7 @@ server.tool(
 
 server.tool(
   'create_mis_job',
-  'Create a draft MIS job record in the simulator. Use list_customers to find a valid customer_code and list_task_templates to find taskTemplateNodeId values. Once created, submit the draft to WCP with submit_mis_job.',
+  'Create a draft MIS job record in the simulator. For WCP connections, use list_customers to find a valid customer_code and list_task_templates to find taskTemplateNodeId values. For AE connections, provide job_name, customer_code, and optionally category/custom_field_1. Once created, submit the draft with submit_mis_job.',
   {
     job_name: z.string().describe('Job display name'),
     customer_code: z.string().optional().describe('Partner/customer ID'),
@@ -1487,22 +2132,28 @@ server.tool(
       assignee: z.string().optional().describe('Assignee email'),
       subject: z.string().optional(),
       message: z.string().optional(),
-    })).optional().describe('Job tasks'),
+    })).optional().describe('Job tasks (WCP only)'),
+    job_part_id: z.string().optional().describe('Job Part ID (AE only)'),
+    category: z.string().optional().describe('Job category e.g. "Production", "Prepress" (AE only)'),
+    custom_field_1: z.string().optional().describe('Custom field 1 value e.g. "Flexo" (AE only)'),
   },
-  async ({ job_name, customer_code, customer_name, description, due_date, connection_id, tasks }) => {
+  async ({ job_name, customer_code, customer_name, description, due_date, connection_id, tasks, job_part_id, category, custom_field_1 }) => {
     // Resolve connection
     let connection: any = null;
+    const connSelect = 'id,name,type,cluster,ecan,repo_id,server_url';
     if (connection_id) {
       const rows = await supabaseGet(
-        `mis_connections?id=eq.${connection_id}&select=id,name,type,cluster,ecan,repo_id&limit=1`
+        `mis_connections?id=eq.${connection_id}&select=${connSelect}&limit=1`
       );
       if (rows.length) connection = rows[0];
     } else {
       const rows = await supabaseGet(
-        'mis_connections?is_active=eq.true&select=id,name,type,cluster,ecan,repo_id&limit=1'
+        `mis_connections?is_active=eq.true&select=${connSelect}&limit=1`
       );
       if (rows.length) connection = rows[0];
     }
+
+    const isAe = connection?.type === 'ae';
 
     // Auto-generate job_id
     const code = customer_code || 'GEN';
@@ -1516,26 +2167,39 @@ server.tool(
     }
     const job_id = `MIS-${code}-${String(seq).padStart(4, '0')}`;
 
-    // Build WCP-compatible payload
-    const payload: any = {
-      siteName: connection?.ecan || 'Home',
-      customerCode: customer_code || '',
-      jobName: job_name,
-      jobId: job_id,
-      dueDate: due_date || new Date(Date.now() + 7 * 86400000).toISOString(),
-    };
-    if (description) payload.description = description;
-    if (tasks?.length) {
-      payload.tasks = tasks.map(t => ({
-        taskTemplateNodeId: t.taskTemplateNodeId,
-        properties: {
-          dueDate: new Date(due_date || Date.now() + 5 * 86400000).getTime(),
-          allowFiles: true,
-          ...(t.subject ? { subject: t.subject } : {}),
-          ...(t.message ? { message: t.message } : {}),
-        },
-        assignee: t.assignee ? [{ id: t.assignee }] : [],
-      }));
+    // Build payload — different structure for AE vs WCP
+    let payload: any;
+    if (isAe) {
+      payload = {
+        jobName: job_name,
+        jobId: job_id,
+        jobPartId: job_part_id || job_id,
+        customerCode: customer_code || '',
+        description: description || '',
+        category: category || 'Production',
+        customField1: custom_field_1 || '',
+      };
+    } else {
+      payload = {
+        siteName: connection?.ecan || 'Home',
+        customerCode: customer_code || '',
+        jobName: job_name,
+        jobId: job_id,
+        dueDate: due_date || new Date(Date.now() + 7 * 86400000).toISOString(),
+      };
+      if (description) payload.description = description;
+      if (tasks?.length) {
+        payload.tasks = tasks.map(t => ({
+          taskTemplateNodeId: t.taskTemplateNodeId,
+          properties: {
+            dueDate: new Date(due_date || Date.now() + 5 * 86400000).getTime(),
+            allowFiles: true,
+            ...(t.subject ? { subject: t.subject } : {}),
+            ...(t.message ? { message: t.message } : {}),
+          },
+          assignee: t.assignee ? [{ id: t.assignee }] : [],
+        }));
+      }
     }
 
     // Insert job record
@@ -1545,8 +2209,8 @@ server.tool(
       customer_code: customer_code || null,
       customer_name: customer_name || null,
       status: 'Draft',
-      phase: 'Draft',
-      due_date: payload.dueDate,
+      phase: isAe ? '' : 'Draft',
+      due_date: isAe ? null : (payload.dueDate || null),
       description: description || null,
       connection_id: connection?.id || null,
       connection_name: connection?.name || null,
@@ -1571,8 +2235,9 @@ server.tool(
           job_id,
           job_name,
           status: 'Draft',
+          type: isAe ? 'ae' : 'wcp',
           connection: connection?.name || 'none',
-          note: 'Job record created as Draft. Submit to WCP via the MIS Simulator web UI to activate.',
+          note: `Job record created as Draft. Submit with submit_mis_job to send to ${isAe ? 'Automation Engine' : 'WebCenter Pack'}.`,
         }, null, 2),
       }],
     };
@@ -1581,7 +2246,7 @@ server.tool(
 
 server.tool(
   'submit_mis_job',
-  'Submit a draft MIS job to WebCenter Pack. The job must exist in Draft status (created via create_mis_job). Calls the WCP API through the proxy and updates the job record on success.',
+  'Submit a draft MIS job to WebCenter Pack or Automation Engine. The job must exist in Draft status (created via create_mis_job). Calls the WCP/AE API through the proxy and updates the job record on success.',
   {
     job_id: z.string().describe('Supabase UUID of the draft job to submit'),
   },
@@ -1623,7 +2288,7 @@ server.tool(
         content: [{
           type: 'text' as const,
           text: JSON.stringify({
-            error: `WCP submission failed (HTTP ${result.status})`,
+            error: `${job.solution === 'ae' ? 'AE' : 'WCP'} submission failed (HTTP ${result.status})`,
             detail: result.data,
             job_id: job.job_id,
           }, null, 2),
@@ -1669,7 +2334,7 @@ server.tool(
 
 server.tool(
   'list_customers',
-  'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs.',
+  'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs. Not available for AE connections.',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
   },
@@ -1679,6 +2344,11 @@ server.tool(
       return {
         content: [{ type: 'text' as const, text: 'No MIS connection found. Create one in the MIS Settings.' }],
         isError: true,
+      };
+    }
+    if (conn.type === 'ae') {
+      return {
+        content: [{ type: 'text' as const, text: 'Automation Engine connections do not have a customer list API. Provide customer_code directly when creating an AE job.' }],
       };
     }
 
@@ -1701,7 +2371,7 @@ server.tool(
 
 server.tool(
   'list_task_templates',
-  'List task templates from WCP. Returns template names and node IDs needed for creating MIS job tasks.',
+  'List task templates from WCP. Returns template names and node IDs needed for creating MIS job tasks. Not available for AE connections.',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
   },
@@ -1711,6 +2381,11 @@ server.tool(
       return {
         content: [{ type: 'text' as const, text: 'No MIS connection found. Create one in the MIS Settings.' }],
         isError: true,
+      };
+    }
+    if (conn.type === 'ae') {
+      return {
+        content: [{ type: 'text' as const, text: 'Automation Engine connections do not use task templates. Create AE jobs directly with job_name, customer_code, category, and custom_field_1.' }],
       };
     }
 

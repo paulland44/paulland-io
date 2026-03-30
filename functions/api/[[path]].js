@@ -413,6 +413,52 @@ async function getActiveConnection(env) {
   return conn;
 }
 
+// ─── Automation Engine Routes ────────────────────────────────
+
+async function handleAeRoute(subPath, request, conn, env) {
+  const serverUrl = conn.server_url;
+  let token = conn.token || '';
+  try { const p = JSON.parse(token); if (p.token) token = p.token; } catch {}
+
+  if (!serverUrl || !token) {
+    return json({ error: 'AE connection missing server_url or token' }, 503);
+  }
+
+  const aeBase = serverUrl.startsWith('https://') ? serverUrl : `https://${serverUrl}`;
+  const aeHeaders = {
+    'AutomationEngine-Token': token,
+    'Accept': 'application/json',
+    'User-Agent': 'PaulLand-MIS/1.0',
+  };
+
+  // AE has no ref data — return empty for these routes
+  if (['customers', 'task-templates', 'product-templates', 'preflight-profiles'].includes(subPath)) {
+    return json([]);
+  }
+
+  // Create job via AE WebService
+  if (subPath === 'create-job') {
+    const body = await request.json();
+    const params = new URLSearchParams();
+    if (body.jobId) params.set('Job ID', body.jobId);
+    if (body.jobPartId) params.set('Job Part ID', body.jobPartId);
+    if (body.jobName) params.set('Name', body.jobName);
+    if (body.description) params.set('Description', body.description);
+    if (body.category) params.set('Category', body.category);
+    if (body.customField1) params.set('Custom Field 1', body.customField1);
+    if (body.customerCode) params.set('Customer ID', body.customerCode);
+
+    const aeUrl = `${aeBase}/ws/JobCreation?${params.toString()}`;
+    const resp = await fetch(aeUrl, { method: 'GET', headers: aeHeaders });
+    const text = await resp.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 1000) }; }
+    return json(data, resp.status);
+  }
+
+  return json({ error: `AE route not supported: ${subPath}` }, 404);
+}
+
 // ─── MIS Proxy Routes ────────────────────────────────────────
 
 async function handleMisRoute(path, request, env) {
@@ -435,6 +481,12 @@ async function handleMisRoute(path, request, env) {
   if (connectionId) {
     const conn = await getConnectionToken(connectionId, env);
     if (!conn) return json({ error: 'Connection not found or token decryption failed' }, 403);
+
+    // Route AE connections to dedicated handler
+    if (conn.type === 'ae') {
+      return handleAeRoute(path.replace('mis/', ''), request, conn, env);
+    }
+
     cluster = conn.cluster || 'eu';
     WCP_ECAN = conn.ecan || '';
     WCP_REPOID = conn.repo_id || '';
@@ -525,11 +577,23 @@ async function handleMisRoute(path, request, env) {
 
     if (subPath.startsWith('job-details/')) {
       const jobId = subPath.replace('job-details/', '');
-      const resp = await fetch(
-        `${w2pBase}/api/v0/${WCP_ECAN}/getJobDetails/${encodeURIComponent(jobId)}`,
-        { headers: wcpHeaders }
-      );
-      return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+      const encodedId = encodeURIComponent(jobId);
+      // Try multiple URL patterns — WCP API docs are inconsistent on ECAN vs REPOID
+      const urls = [
+        `${w2pBase}/api/v0/${WCP_REPOID}/${encodedId}/getJobDetails`,
+        `${w2pBase}/api/v0/${WCP_REPOID}/getJobDetails/${encodedId}`,
+        `${w2pBase}/api/v0/${WCP_ECAN}/getJobDetails/${encodedId}`,
+      ];
+      for (const url of urls) {
+        const resp = await fetch(url, { headers: wcpHeaders });
+        if (resp.ok) {
+          return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+        }
+        // Consume body before trying next URL
+        await resp.text();
+      }
+      // All failed — return last attempt's error
+      return json({ error: 'Job not found in WCP', tried: urls.length + ' URL patterns', jobId }, 404);
     }
 
     if (subPath === 'config') {
