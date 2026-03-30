@@ -10,3 +10,7 @@ compatibility_flags = ["nodejs_compat"]
 # CF_API_TOKEN
 # CF_ACCESS_TEAM_DOMAIN
 # CF_ACCESS_AUD
+# MCP_AUTH_TOKEN
+# CF_ACCESS_CLIENT_ID       — CF Access Service Token client ID (for MIS proxy auth)
+# CF_ACCESS_CLIENT_SECRET   — CF Access Service Token client secret
+# PAULLAND_API_URL           — optional, defaults to https://paulland.io/api

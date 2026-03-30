@@ -33,6 +33,51 @@ const server = new McpServer({
   version: '1.0.0',
 });
 
+// ─── MIS Proxy Config ────────────────────────────────────────
+// Module-level state — set via initMisProxy() in the Worker, falls back to process.env locally.
+
+let _misApiUrl: string | undefined;
+let _misCfClientId: string | undefined;
+let _misCfClientSecret: string | undefined;
+
+export function initMisProxy(apiUrl?: string, clientId?: string, clientSecret?: string) {
+  if (apiUrl) _misApiUrl = apiUrl;
+  if (clientId) _misCfClientId = clientId;
+  if (clientSecret) _misCfClientSecret = clientSecret;
+}
+
+async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string } | null> {
+  if (connection_id) {
+    const rows = await supabaseGet(`mis_connections?id=eq.${connection_id}&select=id,name&limit=1`);
+    return rows.length ? rows[0] : null;
+  }
+  const rows = await supabaseGet('mis_connections?is_active=eq.true&select=id,name&limit=1');
+  return rows.length ? rows[0] : null;
+}
+
+async function callMisProxy(method: string, path: string, connectionId: string, body?: any) {
+  const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const clientId = _misCfClientId || process.env.CF_ACCESS_CLIENT_ID;
+  const clientSecret = _misCfClientSecret || process.env.CF_ACCESS_CLIENT_SECRET;
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'X-MIS-Connection-Id': connectionId,
+  };
+  if (clientId) headers['CF-Access-Client-Id'] = clientId;
+  if (clientSecret) headers['CF-Access-Client-Secret'] = clientSecret;
+  if (body) headers['Content-Type'] = 'application/json';
+
+  const resp = await fetch(`${apiUrl}/mis/${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await resp.text();
+  let data: any;
+  try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
 // ─── Tool & Resource Registration ───────────────────────────
 // Wrapped in functions so the Worker can create fresh instances per request.
 
@@ -1387,38 +1432,6 @@ server.tool(
   }
 );
 
-// ─── MIS Proxy Helpers ──────────────────────────────────────
-
-async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string } | null> {
-  if (connection_id) {
-    const rows = await supabaseGet(`mis_connections?id=eq.${connection_id}&select=id,name&limit=1`);
-    return rows.length ? rows[0] : null;
-  }
-  const rows = await supabaseGet('mis_connections?is_active=eq.true&select=id,name&limit=1');
-  return rows.length ? rows[0] : null;
-}
-
-async function callMisProxy(method: string, path: string, connectionId: string, body?: any) {
-  const apiUrl = process.env.PAULLAND_API_URL || 'https://paulland.io/api';
-  const headers: Record<string, string> = {
-    'Accept': 'application/json',
-    'X-MIS-Connection-Id': connectionId,
-  };
-  if (process.env.CF_ACCESS_CLIENT_ID) headers['CF-Access-Client-Id'] = process.env.CF_ACCESS_CLIENT_ID;
-  if (process.env.CF_ACCESS_CLIENT_SECRET) headers['CF-Access-Client-Secret'] = process.env.CF_ACCESS_CLIENT_SECRET;
-  if (body) headers['Content-Type'] = 'application/json';
-
-  const resp = await fetch(`${apiUrl}/mis/${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const text = await resp.text();
-  let data: any;
-  try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
-  return { ok: resp.ok, status: resp.status, data };
-}
-
 // ─── Group 7: MIS Job Management ────────────────────────────
 
 server.tool(
@@ -1454,7 +1467,7 @@ server.tool(
 
 server.tool(
   'create_mis_job',
-  'Create a draft MIS job record in the simulator. The job can be submitted to WCP via the MIS Simulator web UI.',
+  'Create a draft MIS job record in the simulator. Use list_customers to find a valid customer_code and list_task_templates to find taskTemplateNodeId values. Once created, submit the draft to WCP with submit_mis_job.',
   {
     job_name: z.string().describe('Job display name'),
     customer_code: z.string().optional().describe('Partner/customer ID'),

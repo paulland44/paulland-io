@@ -15,7 +15,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { initSupabase } from '../../mcp-server/src/supabase.js';
 import { initEmbeddings } from '../../mcp-server/src/embeddings.js';
-import { createServer } from '../../mcp-server/src/index.js';
+import { createServer, initMisProxy } from '../../mcp-server/src/index.js';
 
 interface Env {
   SUPABASE_URL: string;
@@ -23,6 +23,9 @@ interface Env {
   CF_ACCOUNT_ID: string;
   CF_API_TOKEN: string;
   MCP_AUTH_TOKEN: string; // The access token issued after OAuth
+  PAULLAND_API_URL?: string;
+  CF_ACCESS_CLIENT_ID?: string;
+  CF_ACCESS_CLIENT_SECRET?: string;
 }
 
 // ─── CORS ────────────────────────────────────────────────────
@@ -266,6 +269,7 @@ export default {
     // Init Supabase + embeddings with Worker env
     initSupabase(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     initEmbeddings(env.CF_ACCOUNT_ID, env.CF_API_TOKEN);
+    initMisProxy(env.PAULLAND_API_URL, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET);
 
     // Fresh server + transport per request (required by SDK for stateless mode)
     const server = createServer();
