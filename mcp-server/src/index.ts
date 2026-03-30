@@ -1387,6 +1387,38 @@ server.tool(
   }
 );
 
+// ─── MIS Proxy Helpers ──────────────────────────────────────
+
+async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string } | null> {
+  if (connection_id) {
+    const rows = await supabaseGet(`mis_connections?id=eq.${connection_id}&select=id,name&limit=1`);
+    return rows.length ? rows[0] : null;
+  }
+  const rows = await supabaseGet('mis_connections?is_active=eq.true&select=id,name&limit=1');
+  return rows.length ? rows[0] : null;
+}
+
+async function callMisProxy(method: string, path: string, connectionId: string, body?: any) {
+  const apiUrl = process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'X-MIS-Connection-Id': connectionId,
+  };
+  if (process.env.CF_ACCESS_CLIENT_ID) headers['CF-Access-Client-Id'] = process.env.CF_ACCESS_CLIENT_ID;
+  if (process.env.CF_ACCESS_CLIENT_SECRET) headers['CF-Access-Client-Secret'] = process.env.CF_ACCESS_CLIENT_SECRET;
+  if (body) headers['Content-Type'] = 'application/json';
+
+  const resp = await fetch(`${apiUrl}/mis/${path}`, {
+    method,
+    headers,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await resp.text();
+  let data: any;
+  try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+  return { ok: resp.ok, status: resp.status, data };
+}
+
 // ─── Group 7: MIS Job Management ────────────────────────────
 
 server.tool(
@@ -1523,6 +1555,158 @@ server.tool(
           note: 'Job record created as Draft. Submit to WCP via the MIS Simulator web UI to activate.',
         }, null, 2),
       }],
+    };
+  }
+);
+
+server.tool(
+  'submit_mis_job',
+  'Submit a draft MIS job to WebCenter Pack. The job must exist in Draft status (created via create_mis_job). Calls the WCP API through the proxy and updates the job record on success.',
+  {
+    job_id: z.string().describe('Supabase UUID of the draft job to submit'),
+  },
+  async ({ job_id }) => {
+    // Fetch the job
+    const rows = await supabaseGet(`mis_jobs?id=eq.${job_id}&limit=1`);
+    if (!rows.length) {
+      return {
+        content: [{ type: 'text' as const, text: `Job not found: ${job_id}` }],
+        isError: true,
+      };
+    }
+    const job = rows[0];
+
+    if (job.status !== 'Draft') {
+      return {
+        content: [{ type: 'text' as const, text: `Job is not in Draft status (current: ${job.status}). Only Draft jobs can be submitted.` }],
+        isError: true,
+      };
+    }
+    if (!job.payload) {
+      return {
+        content: [{ type: 'text' as const, text: 'Job has no payload. Re-create the job with create_mis_job.' }],
+        isError: true,
+      };
+    }
+    if (!job.connection_id) {
+      return {
+        content: [{ type: 'text' as const, text: 'Job has no connection_id. Re-create the job with a connection specified.' }],
+        isError: true,
+      };
+    }
+
+    // Submit to WCP via proxy
+    const result = await callMisProxy('PUT', 'create-job', job.connection_id, job.payload);
+
+    if (!result.ok) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            error: `WCP submission failed (HTTP ${result.status})`,
+            detail: result.data,
+            job_id: job.job_id,
+          }, null, 2),
+        }],
+        isError: true,
+      };
+    }
+
+    // Update job record on success
+    const patchResult = await supabasePatch(`mis_jobs?id=eq.${job_id}`, {
+      status: 'Created',
+      wcp_response: result.data,
+    });
+    if (!patchResult.ok) {
+      // WCP succeeded but DB update failed — report success with warning
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            ok: true,
+            job_id: job.job_id,
+            warning: 'Job submitted to WCP successfully, but failed to update local record.',
+            wcp_response: result.data,
+          }, null, 2),
+        }],
+      };
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          job_id: job.job_id,
+          job_name: job.job_name,
+          status: 'Created',
+          wcp_response: result.data,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'list_customers',
+  'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) {
+      return {
+        content: [{ type: 'text' as const, text: 'No MIS connection found. Create one in the MIS Settings.' }],
+        isError: true,
+      };
+    }
+
+    const result = await callMisProxy('GET', 'customers', conn.id);
+    if (!result.ok) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ error: `Failed to fetch customers (HTTP ${result.status})`, detail: result.data }, null, 2),
+        }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'list_task_templates',
+  'List task templates from WCP. Returns template names and node IDs needed for creating MIS job tasks.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) {
+      return {
+        content: [{ type: 'text' as const, text: 'No MIS connection found. Create one in the MIS Settings.' }],
+        isError: true,
+      };
+    }
+
+    const result = await callMisProxy('GET', 'task-templates', conn.id);
+    if (!result.ok) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({ error: `Failed to fetch task templates (HTTP ${result.status})`, detail: result.data }, null, 2),
+        }],
+        isError: true,
+      };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
     };
   }
 );

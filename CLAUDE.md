@@ -204,6 +204,13 @@ Single-page app for simulating a Management Information System. Creates jobs in 
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
 - `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
 
+**MCP Server (set in `mcp-server/.env`):**
+- `SUPABASE_URL` — Supabase project URL
+- `SUPABASE_SERVICE_KEY` — Service role key
+- `PAULLAND_API_URL` — Base URL for paulland.io API (default: `https://paulland.io/api`)
+- `CF_ACCESS_CLIENT_ID` — Cloudflare Access Service Token client ID (for MIS proxy auth)
+- `CF_ACCESS_CLIENT_SECRET` — Cloudflare Access Service Token client secret
+
 **Legacy MIS env vars (optional fallback, superseded by Supabase-backed connections):**
 - `WCP_REGION` — WCP cluster region
 - `WCP_ECAN` — Esko Cloud Account Number
@@ -237,4 +244,4 @@ No build step required — static HTML files + Pages Functions are deployed dire
 - **MIS: Automation Engine API integration** — AE connection config exists but job creation/monitoring not yet implemented (awaiting API docs)
 - **MIS: WCP job refresh** — `getJobDetails` endpoint returns 404/session errors; may need alternative identifier or updated token handling
 - **MIS: Unified settings** — Consider merging admin and MIS settings into single page with shared appearance settings
-- **MIS: Admin navigation link** — Add MIS under Tools menu in admin sidebar for seamless navigation
+- **MIS: CF Access Service Token** — Create a Service Token in CF dashboard and add to paulland.io Access policy to enable MCP server proxy calls (`submit_mis_job`, `list_customers`, `list_task_templates`)
