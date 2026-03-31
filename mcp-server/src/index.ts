@@ -25,6 +25,8 @@ import {
   EMBEDDABLE_TABLES,
 } from './embeddings.js';
 import { extractArticleContent } from './utils/html-to-markdown.js';
+import * as fs from 'fs';
+import * as nodePath from 'path';
 
 // ─── Date Helpers ────────────────────────────────────────────
 
@@ -114,6 +116,53 @@ async function callMisProxy(method: string, path: string, connectionId: string, 
   let data: any;
   try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
   return { ok: resp.ok, status: resp.status, data };
+}
+
+// ─── Asset Upload Helper ─────────────────────────────────────
+
+async function uploadAssetToR2(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string,
+  tags: string[],
+  description: string,
+  productId?: string
+): Promise<{ ok: boolean; asset_id?: string; error?: string }> {
+  const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+  const clientId = _misCfClientId || process.env.CF_ACCESS_CLIENT_ID;
+  const clientSecret = _misCfClientSecret || process.env.CF_ACCESS_CLIENT_SECRET;
+
+  const formData = new FormData();
+  const arrayBuf = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+  formData.append('file', new Blob([arrayBuf], { type: mimeType }), filename);
+  formData.append('tags', tags.join(','));
+  formData.append('description', description);
+  if (productId) formData.append('product_id', productId);
+
+  const headers: Record<string, string> = {};
+  if (internalApiKey) {
+    headers['X-Internal-API-Key'] = internalApiKey;
+  } else {
+    if (clientId) headers['CF-Access-Client-Id'] = clientId;
+    if (clientSecret) headers['CF-Access-Client-Secret'] = clientSecret;
+  }
+
+  try {
+    const resp = await fetch(`${apiUrl}/assets/upload`, {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { ok: false, error: `Upload failed (${resp.status}): ${text.slice(0, 200)}` };
+    }
+    const data = await resp.json() as any;
+    return { ok: true, asset_id: data?.id || data?.asset?.id || undefined };
+  } catch (err: any) {
+    return { ok: false, error: `Upload error: ${err.message}` };
+  }
 }
 
 // ─── Tool & Resource Registration ───────────────────────────
@@ -1833,6 +1882,253 @@ server.tool(
       content: [{
         type: 'text' as const,
         text: JSON.stringify({ ok: true, content_id: contentId, date, writes: results, action: existing.length ? 'updated' : 'created' }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Support Review Tool ─────────────────────────────────────
+
+server.tool(
+  'support_review_process',
+  'Upload a Salesforce support export to R2 and write structured analysis to the knowledge base. Claude should read and analyse the Excel first, then call this tool with the structured results.',
+  {
+    file_path: z.string().describe('Absolute path to the uploaded Excel file'),
+    date: z.string().describe('Review date in YYYY-MM-DD format'),
+    review_data: z.object({
+      summary: z.string().optional().default(''),
+      overview_metrics: z.object({
+        total: z.number(),
+        open: z.number(),
+        closed: z.number(),
+        avg_age: z.number().optional(),
+        oldest_days: z.number().optional(),
+      }).optional(),
+      aging_cases: z.array(z.object({
+        case_number: z.string(),
+        subject: z.string(),
+        days_open: z.number(),
+        customer_name: z.string().optional(),
+        status: z.string().optional(),
+      })).optional().default([]),
+      support_patterns: z.array(z.object({
+        pattern: z.string(),
+        case_count: z.number().optional(),
+        severity: z.enum(['low', 'medium', 'high', 'critical']).optional(),
+        product_name: z.string().optional(),
+      })).optional().default([]),
+      feature_gaps: z.array(z.object({
+        gap: z.string(),
+        evidence: z.string(),
+        priority: z.enum(['low', 'medium', 'high']).optional(),
+        product_name: z.string().optional(),
+      })).optional().default([]),
+      customer_entries: z.array(z.object({
+        customer_name: z.string(),
+        summary: z.string(),
+        notable_cases: z.array(z.string()).optional().default([]),
+      })).optional().default([]),
+    }).describe('Structured support review analysis'),
+  },
+  async ({ file_path, date, review_data }) => {
+    // 1. Upload file to R2
+    let assetId: string | undefined;
+    let uploadError: string | undefined;
+    try {
+      const buffer = fs.readFileSync(file_path);
+      const filename = nodePath.basename(file_path);
+      const ext = nodePath.extname(filename).toLowerCase();
+      const mimeType = ext === '.xlsx'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : ext === '.xls' ? 'application/vnd.ms-excel'
+        : ext === '.csv' ? 'text/csv'
+        : 'application/octet-stream';
+
+      // Find WebCenter Pack product for linking
+      const wcpProducts = await supabaseGet('products?name=ilike.*webcenter*pack*&select=id&limit=1');
+      const productId = wcpProducts?.[0]?.id;
+
+      const uploadResult = await uploadAssetToR2(
+        buffer,
+        filename,
+        mimeType,
+        ['support-review', 'salesforce-export'],
+        `Support case export for ${date}`,
+        productId
+      );
+      if (uploadResult.ok) {
+        assetId = uploadResult.asset_id;
+      } else {
+        uploadError = uploadResult.error;
+      }
+    } catch (err: any) {
+      uploadError = `File read error: ${err.message}`;
+    }
+
+    // 2. Fetch entity maps
+    const [people, products] = await Promise.all([
+      supabaseGet('people?select=id,name&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+    ]);
+
+    const peopleMap: Record<string, string> = {};
+    people.forEach((p: any) => { peopleMap[p.name.toLowerCase()] = p.id; });
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
+
+    const sourceRef = { support_review_date: date, asset_id: assetId };
+    const results = { patterns: 0, feature_gaps: 0, customer_entries: 0 };
+
+    // 3. Build markdown body
+    let body = `# Support Review — ${date}\n\n`;
+    if (review_data.summary) body += `## Summary\n${review_data.summary}\n\n`;
+
+    if (review_data.overview_metrics) {
+      const m = review_data.overview_metrics;
+      body += `## Overview\n`;
+      body += `| Metric | Value |\n|---|---|\n`;
+      body += `| Total Cases | ${m.total} |\n`;
+      body += `| Open | ${m.open} |\n`;
+      body += `| Closed | ${m.closed} |\n`;
+      if (m.avg_age != null) body += `| Avg Age (days) | ${m.avg_age} |\n`;
+      if (m.oldest_days != null) body += `| Oldest Case | ${m.oldest_days} days |\n`;
+      body += '\n';
+    }
+
+    if (review_data.aging_cases.length) {
+      body += `## Aging Cases\n`;
+      body += `| Case | Subject | Days | Customer | Status |\n|---|---|---|---|---|\n`;
+      body += review_data.aging_cases.map(c =>
+        `| ${c.case_number} | ${c.subject} | ${c.days_open} | ${c.customer_name || '—'} | ${c.status || '—'} |`
+      ).join('\n');
+      body += '\n\n';
+    }
+
+    if (review_data.support_patterns.length) {
+      body += `## Support Patterns\n`;
+      body += review_data.support_patterns.map(p =>
+        `- **${p.pattern}**${p.case_count ? ` (${p.case_count} cases)` : ''}${p.severity ? ` — ${p.severity}` : ''}${p.product_name ? ` [${p.product_name}]` : ''}`
+      ).join('\n');
+      body += '\n\n';
+    }
+
+    if (review_data.feature_gaps.length) {
+      body += `## Feature Gaps\n`;
+      body += review_data.feature_gaps.map(g =>
+        `- **${g.gap}**: ${g.evidence}${g.priority ? ` (${g.priority})` : ''}${g.product_name ? ` [${g.product_name}]` : ''}`
+      ).join('\n');
+      body += '\n\n';
+    }
+
+    if (review_data.customer_entries.length) {
+      body += `## Customer Distribution\n`;
+      body += review_data.customer_entries.map(c =>
+        `- **${c.customer_name}**: ${c.summary}${c.notable_cases.length ? ` (${c.notable_cases.join(', ')})` : ''}`
+      ).join('\n');
+      body += '\n\n';
+    }
+
+    if (assetId) body += `\n---\n*Source file: asset ${assetId}*\n`;
+    if (uploadError) body += `\n---\n*File upload warning: ${uploadError}*\n`;
+
+    // 4. Create/update content item
+    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.support_review&metadata->>date=eq.${date}&limit=1`);
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        title: `Support Review — ${date}`,
+        body,
+        metadata: { period: 'support_review', date, asset_id: assetId, updated_at: new Date().toISOString(), review_data },
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Support Review — ${date}`,
+        body,
+        status: 'new',
+        tags: ['support-review'],
+        metadata: { period: 'support_review', date, asset_id: assetId, review_data },
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // 5. Write product evidence for patterns
+    for (const pattern of review_data.support_patterns) {
+      const productId = pattern.product_name ? productMap[pattern.product_name.toLowerCase()] : null;
+      // Default to first product matching "webcenter" if no specific product
+      const wcpId = productId || Object.entries(productMap).find(([k]) => k.includes('webcenter'))?.[1] || null;
+      if (!wcpId) continue;
+      await supabasePost('product_evidence', {
+        product_id: wcpId,
+        note_date: date,
+        evidence: `Support pattern: ${pattern.pattern}${pattern.case_count ? ` (${pattern.case_count} cases)` : ''}`,
+        evidence_type: 'support_pattern',
+        source_ref: sourceRef,
+      });
+      results.patterns++;
+    }
+
+    // 6. Write product evidence for feature gaps
+    for (const gap of review_data.feature_gaps) {
+      const productId = gap.product_name ? productMap[gap.product_name.toLowerCase()] : null;
+      const wcpId = productId || Object.entries(productMap).find(([k]) => k.includes('webcenter'))?.[1] || null;
+      if (!wcpId) continue;
+      await supabasePost('product_evidence', {
+        product_id: wcpId,
+        note_date: date,
+        evidence: `Feature gap: ${gap.gap} — ${gap.evidence}`,
+        evidence_type: 'feature_gap',
+        source_ref: sourceRef,
+      });
+      results.feature_gaps++;
+    }
+
+    // 7. Write people log for customer entries
+    for (const entry of review_data.customer_entries) {
+      // Try matching customer name to known people (including "Customer - Name" pattern)
+      const personId = peopleMap[entry.customer_name?.toLowerCase()]
+        || peopleMap[`customer - ${entry.customer_name?.toLowerCase()}`]
+        || null;
+      if (!personId) continue;
+      await supabasePost('people_log', {
+        person_id: personId,
+        note_date: date,
+        entry: `Support review: ${entry.summary}`,
+        source: 'support_review',
+        source_ref: sourceRef,
+      });
+      results.customer_entries++;
+    }
+
+    // 8. Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'support_review',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary,
+      files_updated: { content_id: contentId, asset_id: assetId, ...results },
+      completed_at: new Date().toISOString(),
+    });
+
+    // 9. Embed the content item
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          content_id: contentId,
+          asset_id: assetId,
+          asset_upload: uploadError ? { error: uploadError } : { ok: true },
+          date,
+          writes: results,
+          action: existing.length ? 'updated' : 'created',
+        }, null, 2),
       }],
     };
   }

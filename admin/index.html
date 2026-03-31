@@ -8814,6 +8814,11 @@
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
             { name: 'review_data', type: 'object', desc: 'demos, decisions, follow_ups, attendee_observations, summary' },
         ]},
+        { name: 'support_review_process', desc: 'Upload support export to R2 + write analysis to KB', group: 'AI Workflows', params: 3, paramDetails: [
+            { name: 'file_path', type: 'string', desc: 'Path to uploaded Excel file' },
+            { name: 'date', type: 'string', desc: 'Review date YYYY-MM-DD' },
+            { name: 'review_data', type: 'object', desc: 'summary, overview_metrics, aging_cases, support_patterns, feature_gaps, customer_entries' },
+        ]},
         { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
             { name: 'source_table', type: 'string', desc: 'Table name (e.g. content, daily_notes)' },
             { name: 'source_id', type: 'string', desc: 'Row UUID' },
@@ -8924,6 +8929,20 @@
                 'Extract demos, decisions, follow-ups',
                 'Write results to knowledge base',
                 'Report extraction summary',
+            ],
+        },
+        {
+            name: 'Support Review',
+            slug: 'support-review',
+            desc: 'Process Salesforce support export — upload to asset library, analyse cases, write patterns and feature gaps to KB.',
+            tools: ['get_prompt', 'support_review_process'],
+            prompt: 'support-review',
+            steps: [
+                'Fetch support-review prompt template',
+                'User uploads Excel to chat, Claude reads it',
+                'Analyse cases using prompt instructions',
+                'Call tool to upload file + write results',
+                'Report analysis summary',
             ],
         },
     ];
