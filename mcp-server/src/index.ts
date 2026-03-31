@@ -1956,7 +1956,7 @@ server.tool(
           buffer,
           filename,
           mimeType,
-          ['support-review', 'salesforce-export'],
+          ['support', 'support-review', 'salesforce-export'],
           `Support case export for ${date}`,
           productId
         );
