@@ -25,8 +25,8 @@ import {
   EMBEDDABLE_TABLES,
 } from './embeddings.js';
 import { extractArticleContent } from './utils/html-to-markdown.js';
-import * as fs from 'fs';
-import * as nodePath from 'path';
+// Note: fs/path are NOT available in the Cloudflare Worker runtime.
+// Tools must not depend on filesystem access. Use base64 data parameters instead.
 
 // ─── Date Helpers ────────────────────────────────────────────
 
@@ -121,7 +121,7 @@ async function callMisProxy(method: string, path: string, connectionId: string, 
 // ─── Asset Upload Helper ─────────────────────────────────────
 
 async function uploadAssetToR2(
-  buffer: Buffer,
+  buffer: ArrayBuffer | Buffer,
   filename: string,
   mimeType: string,
   tags: string[],
@@ -134,7 +134,9 @@ async function uploadAssetToR2(
   const clientSecret = _misCfClientSecret || process.env.CF_ACCESS_CLIENT_SECRET;
 
   const formData = new FormData();
-  const arrayBuf = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
+  // Handle both Node Buffer and ArrayBuffer (Worker-compatible)
+  const arrayBuf = buffer instanceof ArrayBuffer ? buffer
+    : buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
   formData.append('file', new Blob([arrayBuf], { type: mimeType }), filename);
   formData.append('tags', tags.join(','));
   formData.append('description', description);
@@ -1891,9 +1893,10 @@ server.tool(
 
 server.tool(
   'support_review_process',
-  'Upload a Salesforce support export to R2 and write structured analysis to the knowledge base. Claude should read and analyse the Excel first, then call this tool with the structured results.',
+  'Upload a Salesforce support export to R2 and write structured analysis to the knowledge base. Claude should read and analyse the Excel first, then call this tool with the structured results and the file as base64.',
   {
-    file_path: z.string().describe('Absolute path to the uploaded Excel file'),
+    file_data: z.string().optional().describe('Base64-encoded file content for R2 upload (Claude encodes the uploaded file)'),
+    file_name: z.string().optional().describe('Original filename, e.g. "Support Cases 2026-03-28.xlsx"'),
     date: z.string().describe('Review date in YYYY-MM-DD format'),
     review_data: z.object({
       summary: z.string().optional().default(''),
@@ -1930,39 +1933,41 @@ server.tool(
       })).optional().default([]),
     }).describe('Structured support review analysis'),
   },
-  async ({ file_path, date, review_data }) => {
-    // 1. Upload file to R2
+  async ({ file_data, file_name, date, review_data }) => {
+    // 1. Upload file to R2 (if base64 file data provided)
     let assetId: string | undefined;
     let uploadError: string | undefined;
-    try {
-      const buffer = fs.readFileSync(file_path);
-      const filename = nodePath.basename(file_path);
-      const ext = nodePath.extname(filename).toLowerCase();
-      const mimeType = ext === '.xlsx'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : ext === '.xls' ? 'application/vnd.ms-excel'
-        : ext === '.csv' ? 'text/csv'
-        : 'application/octet-stream';
+    if (file_data) {
+      try {
+        const buffer = Buffer.from(file_data, 'base64');
+        const filename = file_name || `support-export-${date}.xlsx`;
+        const ext = filename.split('.').pop()?.toLowerCase() || 'xlsx';
+        const mimeType = ext === 'xlsx'
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : ext === 'xls' ? 'application/vnd.ms-excel'
+          : ext === 'csv' ? 'text/csv'
+          : 'application/octet-stream';
 
-      // Find WebCenter Pack product for linking
-      const wcpProducts = await supabaseGet('products?name=ilike.*webcenter*pack*&select=id&limit=1');
-      const productId = wcpProducts?.[0]?.id;
+        // Find WebCenter Pack product for linking
+        const wcpProducts = await supabaseGet('products?name=ilike.*webcenter*pack*&select=id&limit=1');
+        const productId = wcpProducts?.[0]?.id;
 
-      const uploadResult = await uploadAssetToR2(
-        buffer,
-        filename,
-        mimeType,
-        ['support-review', 'salesforce-export'],
-        `Support case export for ${date}`,
-        productId
-      );
-      if (uploadResult.ok) {
-        assetId = uploadResult.asset_id;
-      } else {
-        uploadError = uploadResult.error;
+        const uploadResult = await uploadAssetToR2(
+          buffer,
+          filename,
+          mimeType,
+          ['support-review', 'salesforce-export'],
+          `Support case export for ${date}`,
+          productId
+        );
+        if (uploadResult.ok) {
+          assetId = uploadResult.asset_id;
+        } else {
+          uploadError = uploadResult.error;
+        }
+      } catch (err: any) {
+        uploadError = `File upload error: ${err.message}`;
       }
-    } catch (err: any) {
-      uploadError = `File read error: ${err.message}`;
     }
 
     // 2. Fetch entity maps

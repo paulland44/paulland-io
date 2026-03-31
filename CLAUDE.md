@@ -18,10 +18,23 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
                 ├── index.html          (public homepage)
                 ├── admin/index.html    (admin dashboard SPA, ~8900 lines)
                 └── mis/index.html      (MIS simulator SPA, ~2500 lines)
+
+Claude ──→ Cloudflare Worker (MCP Remote Server)
+  (web/mobile/       │
+   desktop/CLI)      ├── mcp-worker/src/index.ts  (OAuth 2.0 + MCP Streamable HTTP)
+                     │       │
+                     │       └── imports mcp-server/src/index.ts (shared tool implementation)
+                     │               │
+                     │               ├── Supabase (all KB read/write)
+                     │               ├── Cloudflare AI (embeddings)
+                     │               └── Pages API proxy (R2 uploads, MIS)
+                     │
+                     └── https://paulland-mcp.paul-land.workers.dev
 ```
 
 - **Hosting**: Cloudflare Pages — deploy with `npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true`
-- **Auth**: Cloudflare Access JWT validation on all API routes
+- **MCP Server**: Cloudflare Worker — deploy with `cd mcp-worker && npx wrangler deploy`
+- **Auth**: Cloudflare Access JWT on API routes; OAuth 2.0 + Bearer token on MCP endpoint
 - **Database**: Supabase with RLS enabled on all tables. Service key bypasses RLS.
 - **Companion service**: `capture-bot` (Python, Railway) handles background sync — see that repo's CLAUDE.md
 
@@ -183,6 +196,85 @@ Single-page app for simulating a Management Information System. Creates jobs in 
 
 **Known Limitation**: Esko APIs block requests from Cloudflare Worker IPs directly. The proxy works because tokens are decrypted and forwarded server-side, but Esko's gateway blocks some requests. Job creation works; job details retrieval may fail with `session.invalid` errors depending on the token/system.
 
+## MCP Server (Cloud)
+
+The MCP server runs as a **Cloudflare Worker** at `https://paulland-mcp.paul-land.workers.dev`. It is the primary interface for Claude (web, mobile, desktop, CLI) to interact with the knowledge base.
+
+**IMPORTANT**: The MCP server runs in the cloud, NOT locally. All tools must work in a Cloudflare Worker environment (no filesystem access, no Node.js-specific APIs like `fs` or `child_process`). The `mcp-server/` directory contains the shared implementation; `mcp-worker/` contains the Worker entry point.
+
+### Architecture
+
+```
+mcp-server/src/index.ts    ← Shared implementation (37 tools, resources, prompts)
+    exports: createServer(), initMisProxy(), registerTools(), registerResources()
+
+mcp-worker/src/index.ts    ← Cloudflare Worker entry point
+    imports: createServer() from mcp-server
+    implements: OAuth 2.0 + PKCE, MCP Streamable HTTP transport
+    per-request: fresh McpServer + WebStandardStreamableHTTPServerTransport
+```
+
+### Deployment
+
+```bash
+# Build the shared implementation
+cd mcp-server && npm run build
+
+# Deploy the Worker (picks up built mcp-server code)
+cd mcp-worker && npx wrangler deploy
+```
+
+Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
+
+### Tool Groups (37 tools)
+
+| Group | Tools | Count |
+|-------|-------|-------|
+| Content | list_content, get_content, list_daily_notes, get_daily_note, list_entities, get_entity, list_feed_items | 7 |
+| Search | search_knowledge_base | 1 |
+| Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
+| Feed | capture_feed_item, dismiss_feed_item | 2 |
+| AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_process | 9 |
+| Embeddings | generate_embedding, batch_embed | 2 |
+| Prompts | list_prompts, get_prompt, update_prompt | 3 |
+| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |
+| Utility | get_system_status | 1 |
+
+### Skills (6 skills, defined in `.claude/skills/`)
+
+| Skill | Prompt Slug | Tools Used |
+|-------|-------------|------------|
+| End-of-Day Review | `daily-review` | get_prompt, daily_review_extract, daily_review_write |
+| Extract Signals | `extract-signals` | get_prompt, list_content, get_content, create_content, update_content |
+| Weekly Summary | `weekly-summary` | get_prompt, weekly_summary_extract, weekly_summary_write |
+| Monthly Review | `monthly-summary` | get_prompt, monthly_review_extract, monthly_review_write |
+| Show & Tell Review | `show-and-tell` | get_prompt, show_and_tell_extract, show_and_tell_write |
+| Support Review | `support-review` | get_prompt, support_review_process |
+
+### Prompt Templates (8 prompts, stored in Supabase `prompts` table)
+
+Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
+
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
+
+### Worker Secrets (set via `wrangler secret put`)
+
+- `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` — Database access
+- `CF_ACCOUNT_ID`, `CF_API_TOKEN` — Cloudflare AI (embeddings)
+- `MCP_AUTH_TOKEN` — OAuth access token for MCP endpoint
+- `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` — CF Access (MIS proxy auth)
+- `PAULLAND_API_URL` — Pages API base URL (default: `https://paulland.io/api`)
+- `PAULLAND_INTERNAL_API_KEY` — Internal API key for Pages API proxy
+
+### Cloud Constraints
+
+Tools run inside a Cloudflare Worker. They **cannot**:
+- Read local files (`fs` module unavailable)
+- Spawn processes (`child_process` unavailable)
+- Use Node.js-specific APIs not in the Workers runtime
+
+Tools that need file content (e.g. `support_review_process`) should accept file data as a base64 string parameter rather than a file path. For R2 uploads, use the `uploadAssetToR2` helper which POSTs to the Pages API.
+
 ## Key Patterns & Conventions
 
 - **API Supabase access**: Raw REST calls via `supabaseGet()`, `supabasePost()`, `supabasePatch()` helpers — NOT the Supabase JS client. These take `(url, key, path)` or `(url, key, table, data)`.
@@ -204,10 +296,14 @@ Single-page app for simulating a Management Information System. Creates jobs in 
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
 - `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
 
-**MCP Server (set in `mcp-server/.env`):**
+**MCP Worker (set via `wrangler secret put` in `mcp-worker/`):**
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_SERVICE_KEY` — Service role key
+- `CF_ACCOUNT_ID` — Cloudflare account ID (for AI embeddings)
+- `CF_API_TOKEN` — Cloudflare API token (for AI embeddings)
+- `MCP_AUTH_TOKEN` — OAuth access token for MCP endpoint auth
 - `PAULLAND_API_URL` — Base URL for paulland.io API (default: `https://paulland.io/api`)
+- `PAULLAND_INTERNAL_API_KEY` — Internal API key for Pages API proxy calls
 - `CF_ACCESS_CLIENT_ID` — Cloudflare Access Service Token client ID (for MIS proxy auth)
 - `CF_ACCESS_CLIENT_SECRET` — Cloudflare Access Service Token client secret
 
@@ -227,11 +323,15 @@ Single-page app for simulating a Management Information System. Creates jobs in 
 ## Deployment
 
 ```bash
-# Deploy to Cloudflare Pages
+# Deploy admin/API to Cloudflare Pages (no build step — static HTML + Pages Functions)
 npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true
+
+# Deploy MCP server to Cloudflare Workers (required when tools change)
+cd mcp-server && npm run build
+cd ../mcp-worker && npx wrangler deploy
 ```
 
-No build step required — static HTML files + Pages Functions are deployed directly.
+Both deploys are needed when MCP tools change. Pages deploy is sufficient for admin UI or API-only changes.
 
 ## Pending / Future Work
 

@@ -8814,8 +8814,9 @@
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
             { name: 'review_data', type: 'object', desc: 'demos, decisions, follow_ups, attendee_observations, summary' },
         ]},
-        { name: 'support_review_process', desc: 'Upload support export to R2 + write analysis to KB', group: 'AI Workflows', params: 3, paramDetails: [
-            { name: 'file_path', type: 'string', desc: 'Path to uploaded Excel file' },
+        { name: 'support_review_process', desc: 'Upload support export to R2 + write analysis to KB', group: 'AI Workflows', params: 4, paramDetails: [
+            { name: 'file_data', type: 'string?', desc: 'Base64-encoded file for R2 upload' },
+            { name: 'file_name', type: 'string?', desc: 'Original filename' },
             { name: 'date', type: 'string', desc: 'Review date YYYY-MM-DD' },
             { name: 'review_data', type: 'object', desc: 'summary, overview_metrics, aging_cases, support_patterns, feature_gaps, customer_entries' },
         ]},
