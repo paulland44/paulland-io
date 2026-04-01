@@ -179,7 +179,7 @@ server.tool(
   'List content items (articles, thoughts, signals, reflections) with optional filters',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'summary'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
       .optional()
       .describe('Filter by content type'),
     status: z.string().optional().describe('Filter by status (new, reviewed, archived)'),
@@ -1339,7 +1339,7 @@ server.tool(
     const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
 
     // Check for existing weekly summary
-    const existingSummary = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&metadata->>week=eq.${week}&limit=1`);
+    const existingSummary = await supabaseGet(`content?type=eq.weekly-summary&metadata->>week=eq.${week}&limit=1`);
 
     return {
       content: [{
@@ -1430,7 +1430,7 @@ server.tool(
     }
 
     // Check for existing summary to update
-    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&metadata->>week=eq.${week}&limit=1`);
+    const existing = await supabaseGet(`content?type=eq.weekly-summary&metadata->>week=eq.${week}&limit=1`);
 
     let contentId: string;
     if (existing.length) {
@@ -1442,7 +1442,7 @@ server.tool(
       });
     } else {
       const created = await supabasePost('content', {
-        type: 'summary',
+        type: 'weekly-summary',
         title: `Weekly Summary — ${week}`,
         body,
         status: 'new',
@@ -1489,7 +1489,7 @@ server.tool(
     const dateRangeFilter = `note_date=gte.${first}&note_date=lte.${last}`;
 
     const [weeklySummaries, dailyNotes, productEvidence, productDecisions, projectUpdates, reflections, people, products, projects, promptRes] = await Promise.all([
-      supabaseGet(`content?type=eq.summary&metadata->>period=eq.weekly&order=created_at&limit=10`),
+      supabaseGet(`content?type=eq.weekly-summary&order=created_at&limit=10`),
       supabaseGet(`daily_notes?note_date=gte.${first}&note_date=lte.${last}&order=note_date`),
       supabaseGet(`product_evidence?${dateRangeFilter}&select=id,product_id,note_date,evidence,evidence_type&order=note_date`),
       supabaseGet(`product_decisions?${dateRangeFilter}&select=id,product_id,note_date,decision,context&order=note_date`),
@@ -1521,7 +1521,7 @@ server.tool(
     const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
 
     // Check for existing monthly summary
-    const existingSummary = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.monthly&metadata->>month=eq.${month}&limit=1`);
+    const existingSummary = await supabaseGet(`content?type=eq.monthly-review&metadata->>month=eq.${month}&limit=1`);
 
     return {
       content: [{
@@ -1610,7 +1610,7 @@ server.tool(
     }
 
     // Check for existing summary to update
-    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.monthly&metadata->>month=eq.${month}&limit=1`);
+    const existing = await supabaseGet(`content?type=eq.monthly-review&metadata->>month=eq.${month}&limit=1`);
 
     let contentId: string;
     if (existing.length) {
@@ -1622,7 +1622,7 @@ server.tool(
       });
     } else {
       const created = await supabasePost('content', {
-        type: 'summary',
+        type: 'monthly-review',
         title: `Monthly Review — ${month}`,
         body,
         status: 'new',
@@ -1843,7 +1843,7 @@ server.tool(
     }
 
     // Create/update content item
-    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.show_and_tell&metadata->>date=eq.${date}&limit=1`);
+    const existing = await supabaseGet(`content?type=eq.show-and-tell&metadata->>date=eq.${date}&limit=1`);
 
     let contentId: string;
     if (existing.length) {
@@ -1855,7 +1855,7 @@ server.tool(
       });
     } else {
       const created = await supabasePost('content', {
-        type: 'summary',
+        type: 'show-and-tell',
         title: `Show & Tell Review — ${date}`,
         body,
         status: 'new',
@@ -2037,7 +2037,7 @@ server.tool(
     if (uploadError) body += `\n---\n*File upload warning: ${uploadError}*\n`;
 
     // 4. Create/update content item
-    const existing = await supabaseGet(`content?type=eq.summary&metadata->>period=eq.support_review&metadata->>date=eq.${date}&limit=1`);
+    const existing = await supabaseGet(`content?type=eq.support-review&metadata->>date=eq.${date}&limit=1`);
 
     let contentId: string;
     if (existing.length) {
@@ -2049,7 +2049,7 @@ server.tool(
       });
     } else {
       const created = await supabasePost('content', {
-        type: 'summary',
+        type: 'support-review',
         title: `Support Review — ${date}`,
         body,
         status: 'new',
