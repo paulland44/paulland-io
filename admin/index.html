@@ -7717,10 +7717,10 @@
 
     function summaryPreview(content) {
         if (!content) return '';
-        // Get first meaningful line after headings
-        const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#'));
+        // Get first meaningful line after headings, skip blank/period lines
+        const lines = content.split('\n').filter(l => l.trim() && !l.startsWith('#') && !l.startsWith('**Period') && !l.startsWith('**Daily'));
         const first = lines[0] || '';
-        return first.replace(/^\*\*|\*\*$/g, '').replace(/^- /, '').substring(0, 80);
+        return first.replace(/\*\*/g, '').replace(/^- /, '').substring(0, 100);
     }
 
     function openSummaryDetail(item) {

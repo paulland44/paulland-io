@@ -1339,7 +1339,7 @@ server.tool(
     const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
 
     // Check for existing weekly summary
-    const existingSummary = await supabaseGet(`content?type=eq.weekly-summary&metadata->>week=eq.${week}&limit=1`);
+    const existingSummary = await supabaseGet(`summaries?type=eq.weekly&metadata->>week=eq.${week}&limit=1`);
 
     return {
       content: [{
@@ -1429,27 +1429,27 @@ server.tool(
       body += `## Leadership & Development\n${summary_data.leadership_development}\n\n`;
     }
 
-    // Check for existing summary to update
-    const existing = await supabaseGet(`content?type=eq.weekly-summary&metadata->>week=eq.${week}&limit=1`);
+    // Check for existing summary to update (summaries table)
+    const existing = await supabaseGet(`summaries?type=eq.weekly&metadata->>week=eq.${week}&limit=1`);
 
-    let contentId: string;
+    let summaryId: string;
     if (existing.length) {
-      contentId = existing[0].id;
-      await supabasePatch(`content?id=eq.${contentId}`, {
-        title: `Weekly Summary — ${week}`,
-        body,
-        metadata: { period: 'weekly', week, dates, updated_at: new Date().toISOString() },
+      summaryId = existing[0].id;
+      await supabasePatch(`summaries?id=eq.${summaryId}`, {
+        content: body,
+        period_start: dates[0],
+        period_end: dates[6],
+        metadata: { week, dates, updated_at: new Date().toISOString() },
       });
     } else {
-      const created = await supabasePost('content', {
-        type: 'weekly-summary',
-        title: `Weekly Summary — ${week}`,
-        body,
-        status: 'new',
-        tags: ['weekly-summary'],
-        metadata: { period: 'weekly', week, dates },
+      const created = await supabasePost('summaries', {
+        type: 'weekly',
+        period_start: dates[0],
+        period_end: dates[6],
+        content: body,
+        metadata: { week, dates },
       }, true);
-      contentId = created.data?.[0]?.id || 'unknown';
+      summaryId = created.data?.[0]?.id || 'unknown';
     }
 
     // Create audit record
@@ -1458,19 +1458,19 @@ server.tool(
       source_date: dates[0],
       status: 'completed',
       output_summary: summary_data.summary,
-      files_updated: { content_id: contentId },
+      files_updated: { summary_id: summaryId },
       completed_at: new Date().toISOString(),
     });
 
     // Embed the summary
-    if (contentId && contentId !== 'unknown') {
-      embedItem('content', contentId).catch(() => {});
+    if (summaryId && summaryId !== 'unknown') {
+      embedItem('summaries', summaryId).catch(() => {});
     }
 
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ ok: true, content_id: contentId, week, action: existing.length ? 'updated' : 'created' }, null, 2),
+        text: JSON.stringify({ ok: true, summary_id: summaryId, week, action: existing.length ? 'updated' : 'created' }, null, 2),
       }],
     };
   }
@@ -1489,7 +1489,7 @@ server.tool(
     const dateRangeFilter = `note_date=gte.${first}&note_date=lte.${last}`;
 
     const [weeklySummaries, dailyNotes, productEvidence, productDecisions, projectUpdates, reflections, people, products, projects, promptRes] = await Promise.all([
-      supabaseGet(`content?type=eq.weekly-summary&order=created_at&limit=10`),
+      supabaseGet(`summaries?type=eq.weekly&order=created_at&limit=10`),
       supabaseGet(`daily_notes?note_date=gte.${first}&note_date=lte.${last}&order=note_date`),
       supabaseGet(`product_evidence?${dateRangeFilter}&select=id,product_id,note_date,evidence,evidence_type&order=note_date`),
       supabaseGet(`product_decisions?${dateRangeFilter}&select=id,product_id,note_date,decision,context&order=note_date`),
@@ -1521,7 +1521,7 @@ server.tool(
     const enrichedProjectUpdates = projectUpdates.map((e: any) => ({ ...e, project_name: projectMap[e.project_id] || 'Unknown' }));
 
     // Check for existing monthly summary
-    const existingSummary = await supabaseGet(`content?type=eq.monthly-review&metadata->>month=eq.${month}&limit=1`);
+    const existingSummary = await supabaseGet(`summaries?type=eq.monthly&metadata->>month=eq.${month}&limit=1`);
 
     return {
       content: [{
@@ -1609,27 +1609,27 @@ server.tool(
       body += `## Metrics\n${Object.entries(review_data.metrics).map(([k, v]) => `- **${k}**: ${v}`).join('\n')}\n\n`;
     }
 
-    // Check for existing summary to update
-    const existing = await supabaseGet(`content?type=eq.monthly-review&metadata->>month=eq.${month}&limit=1`);
+    // Check for existing summary to update (summaries table)
+    const existing = await supabaseGet(`summaries?type=eq.monthly&metadata->>month=eq.${month}&limit=1`);
 
-    let contentId: string;
+    let summaryId: string;
     if (existing.length) {
-      contentId = existing[0].id;
-      await supabasePatch(`content?id=eq.${contentId}`, {
-        title: `Monthly Review — ${month}`,
-        body,
-        metadata: { period: 'monthly', month, updated_at: new Date().toISOString(), review_data },
+      summaryId = existing[0].id;
+      await supabasePatch(`summaries?id=eq.${summaryId}`, {
+        content: body,
+        period_start: first,
+        period_end: last,
+        metadata: { month, updated_at: new Date().toISOString(), review_data },
       });
     } else {
-      const created = await supabasePost('content', {
-        type: 'monthly-review',
-        title: `Monthly Review — ${month}`,
-        body,
-        status: 'new',
-        tags: ['monthly-review'],
-        metadata: { period: 'monthly', month, review_data },
+      const created = await supabasePost('summaries', {
+        type: 'monthly',
+        period_start: first,
+        period_end: last,
+        content: body,
+        metadata: { month, review_data },
       }, true);
-      contentId = created.data?.[0]?.id || 'unknown';
+      summaryId = created.data?.[0]?.id || 'unknown';
     }
 
     // Create audit record
@@ -1638,19 +1638,19 @@ server.tool(
       source_date: first,
       status: 'completed',
       output_summary: review_data.summary,
-      files_updated: { content_id: contentId },
+      files_updated: { summary_id: summaryId },
       completed_at: new Date().toISOString(),
     });
 
     // Embed the summary
-    if (contentId && contentId !== 'unknown') {
-      embedItem('content', contentId).catch(() => {});
+    if (summaryId && summaryId !== 'unknown') {
+      embedItem('summaries', summaryId).catch(() => {});
     }
 
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ ok: true, content_id: contentId, month, action: existing.length ? 'updated' : 'created' }, null, 2),
+        text: JSON.stringify({ ok: true, summary_id: summaryId, month, action: existing.length ? 'updated' : 'created' }, null, 2),
       }],
     };
   }
@@ -1842,27 +1842,25 @@ server.tool(
       results.follow_ups = review_data.follow_ups.length;
     }
 
-    // Create/update content item
-    const existing = await supabaseGet(`content?type=eq.show-and-tell&metadata->>date=eq.${date}&limit=1`);
+    // Create/update in summaries table
+    const existing = await supabaseGet(`summaries?type=eq.show-and-tell&metadata->>date=eq.${date}&limit=1`);
 
-    let contentId: string;
+    let summaryId: string;
     if (existing.length) {
-      contentId = existing[0].id;
-      await supabasePatch(`content?id=eq.${contentId}`, {
-        title: `Show & Tell Review — ${date}`,
-        body,
-        metadata: { period: 'show_and_tell', date, updated_at: new Date().toISOString(), review_data },
+      summaryId = existing[0].id;
+      await supabasePatch(`summaries?id=eq.${summaryId}`, {
+        content: body,
+        metadata: { date, updated_at: new Date().toISOString(), review_data },
       });
     } else {
-      const created = await supabasePost('content', {
+      const created = await supabasePost('summaries', {
         type: 'show-and-tell',
-        title: `Show & Tell Review — ${date}`,
-        body,
-        status: 'new',
-        tags: ['show-and-tell'],
-        metadata: { period: 'show_and_tell', date, review_data },
+        period_start: date,
+        period_end: date,
+        content: body,
+        metadata: { date, review_data },
       }, true);
-      contentId = created.data?.[0]?.id || 'unknown';
+      summaryId = created.data?.[0]?.id || 'unknown';
     }
 
     // Create audit record
@@ -1871,19 +1869,19 @@ server.tool(
       source_date: date,
       status: 'completed',
       output_summary: review_data.summary,
-      files_updated: { content_id: contentId, ...results },
+      files_updated: { summary_id: summaryId, ...results },
       completed_at: new Date().toISOString(),
     });
 
     // Embed the summary
-    if (contentId && contentId !== 'unknown') {
-      embedItem('content', contentId).catch(() => {});
+    if (summaryId && summaryId !== 'unknown') {
+      embedItem('summaries', summaryId).catch(() => {});
     }
 
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ ok: true, content_id: contentId, date, writes: results, action: existing.length ? 'updated' : 'created' }, null, 2),
+        text: JSON.stringify({ ok: true, summary_id: summaryId, date, writes: results, action: existing.length ? 'updated' : 'created' }, null, 2),
       }],
     };
   }
@@ -2036,27 +2034,25 @@ server.tool(
     if (assetId) body += `\n---\n*Source file: asset ${assetId}*\n`;
     if (uploadError) body += `\n---\n*File upload warning: ${uploadError}*\n`;
 
-    // 4. Create/update content item
-    const existing = await supabaseGet(`content?type=eq.support-review&metadata->>date=eq.${date}&limit=1`);
+    // 4. Create/update in summaries table
+    const existing = await supabaseGet(`summaries?type=eq.support&metadata->>date=eq.${date}&limit=1`);
 
-    let contentId: string;
+    let summaryId: string;
     if (existing.length) {
-      contentId = existing[0].id;
-      await supabasePatch(`content?id=eq.${contentId}`, {
-        title: `Support Review — ${date}`,
-        body,
-        metadata: { period: 'support_review', date, asset_id: assetId, updated_at: new Date().toISOString(), review_data },
+      summaryId = existing[0].id;
+      await supabasePatch(`summaries?id=eq.${summaryId}`, {
+        content: body,
+        metadata: { date, asset_id: assetId, updated_at: new Date().toISOString(), review_data },
       });
     } else {
-      const created = await supabasePost('content', {
-        type: 'support-review',
-        title: `Support Review — ${date}`,
-        body,
-        status: 'new',
-        tags: ['support-review'],
-        metadata: { period: 'support_review', date, asset_id: assetId, review_data },
+      const created = await supabasePost('summaries', {
+        type: 'support',
+        period_start: date,
+        period_end: date,
+        content: body,
+        metadata: { date, asset_id: assetId, review_data },
       }, true);
-      contentId = created.data?.[0]?.id || 'unknown';
+      summaryId = created.data?.[0]?.id || 'unknown';
     }
 
     // 5. Write product evidence for patterns
@@ -2113,13 +2109,13 @@ server.tool(
       source_date: date,
       status: 'completed',
       output_summary: review_data.summary,
-      files_updated: { content_id: contentId, asset_id: assetId, ...results },
+      files_updated: { summary_id: summaryId, asset_id: assetId, ...results },
       completed_at: new Date().toISOString(),
     });
 
-    // 9. Embed the content item
-    if (contentId && contentId !== 'unknown') {
-      embedItem('content', contentId).catch(() => {});
+    // 9. Embed the summary
+    if (summaryId && summaryId !== 'unknown') {
+      embedItem('summaries', summaryId).catch(() => {});
     }
 
     return {
@@ -2127,7 +2123,7 @@ server.tool(
         type: 'text' as const,
         text: JSON.stringify({
           ok: true,
-          content_id: contentId,
+          summary_id: summaryId,
           asset_id: assetId,
           asset_upload: uploadError ? { error: uploadError } : { ok: true },
           date,
