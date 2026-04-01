@@ -205,7 +205,7 @@ The MCP server runs as a **Cloudflare Worker** at `https://paulland-mcp.paul-lan
 ### Architecture
 
 ```
-mcp-server/src/index.ts    ← Shared implementation (37 tools, resources, prompts)
+mcp-server/src/index.ts    ← Shared implementation (38 tools, resources, prompts)
     exports: createServer(), initMisProxy(), registerTools(), registerResources()
 
 mcp-worker/src/index.ts    ← Cloudflare Worker entry point
@@ -226,11 +226,11 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (37 tools)
+### Tool Groups (38 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
-| Content | list_content, get_content, list_daily_notes, get_daily_note, list_entities, get_entity, list_feed_items | 7 |
+| Content | list_content, get_content, get_summary, list_daily_notes, get_daily_note, list_entities, get_entity, list_feed_items | 8 |
 | Search | search_knowledge_base | 1 |
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
 | Feed | capture_feed_item, dismiss_feed_item | 2 |

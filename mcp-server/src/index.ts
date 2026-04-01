@@ -232,6 +232,23 @@ server.tool(
 );
 
 server.tool(
+  'get_summary',
+  'Get a full summary by ID from the summaries table (weekly, monthly, show-and-tell, support)',
+  {
+    id: z.string().describe('Summary UUID (returned by weekly_summary_write, monthly_review_write, etc.)'),
+  },
+  async ({ id }) => {
+    const rows = await supabaseGet(`summaries?id=eq.${id}&limit=1`);
+    if (!rows.length) {
+      return { content: [{ type: 'text' as const, text: 'Summary not found' }] };
+    }
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(rows[0], null, 2) }],
+    };
+  }
+);
+
+server.tool(
   'list_daily_notes',
   'List daily notes for a date range',
   {
