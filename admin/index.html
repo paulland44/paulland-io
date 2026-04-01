@@ -4189,7 +4189,7 @@
         if (!container) return;
         container.innerHTML = '';
 
-        // 1. Restore saved meeting cards
+        // 1. Restore saved meeting cards (de-duplicate by title+time)
         const savedMeetings = [];
         if (data?.meetings) {
             let meetings = [];
@@ -4200,7 +4200,11 @@
             } catch {}
 
             if (meetings.length > 0) {
+                const seen = new Set();
                 meetings.forEach(m => {
+                    const key = `${(m.title || '').toLowerCase().trim()}|${(m.time || '').trim()}`;
+                    if (seen.has(key)) return; // skip duplicate
+                    seen.add(key);
                     savedMeetings.push({ title: m.title || '', notes: m.notes || '', time: m.time || '', fromCalendar: false });
                 });
             } else {
