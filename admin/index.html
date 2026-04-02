@@ -5084,16 +5084,30 @@
             .from('content')
             .select('id, title, type, tags, status, captured_at, body')
             .eq('type', 'thought')
+            .neq('status', 'deleted')
             .order('captured_at', { ascending: false })
             .limit(100);
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No thoughts yet.</div>'; return; }
+
+        let newThoughtTags = [];
 
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Thoughts</h2>
+                <span style="flex:1"></span>
+                <button class="btn" id="toggleNewThought"><i class="icon" data-lucide="plus"></i> New Thought</button>
             </div>
+            <div class="new-signal-form" id="newThoughtForm">
+                <input type="text" id="newThoughtTitle" placeholder="Thought title..." class="input">
+                <textarea id="newThoughtBody" placeholder="What's on your mind?" class="input" rows="4"></textarea>
+                <div style="margin-top:0.5rem">${buildTagEditor([], 'newthought')}</div>
+                <div class="form-actions">
+                    <button class="btn" id="cancelNewThought">Cancel</button>
+                    <button class="btn btn-primary" id="saveNewThought">Save Thought</button>
+                </div>
+            </div>
+            ${!data.length ? '<div class="empty">No thoughts yet.</div>' : `
             <div class="table-wrap">
                 <table>
                     <thead>
@@ -5101,25 +5115,59 @@
                     </thead>
                     <tbody id="thoughtsBody"></tbody>
                 </table>
-            </div>
+            </div>`}
         `;
 
-        const tbody = document.getElementById('thoughtsBody');
-        tbody.innerHTML = data.map(t => `
-            <tr class="expandable" data-id="${t.id}">
-                <td class="title-cell"><div class="title-text">${esc(t.title)}</div></td>
-                <td><span class="type-badge type-${t.type}">${t.type}</span></td>
-                <td>${(t.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
-                <td class="date-cell">${formatDate(t.captured_at)}</td>
-            </tr>
-        `).join('');
+        if (data.length) {
+            const tbody = document.getElementById('thoughtsBody');
+            tbody.innerHTML = data.map(t => `
+                <tr class="expandable" data-id="${t.id}">
+                    <td class="title-cell"><div class="title-text">${esc(t.title)}</div></td>
+                    <td><span class="type-badge type-${t.type}">${t.type}</span></td>
+                    <td>${(t.tags || []).map(tag => `<span class="tag">${esc(tag)}</span>`).join('')}</td>
+                    <td class="date-cell">${formatDate(t.captured_at)}</td>
+                </tr>
+            `).join('');
 
-        tbody.querySelectorAll('tr.expandable').forEach(row => {
-            row.addEventListener('click', () => {
-                const item = data.find(t => t.id === row.dataset.id);
-                if (item) openContentModal(item);
+            tbody.querySelectorAll('tr.expandable').forEach(row => {
+                row.addEventListener('click', () => {
+                    const item = data.find(t => t.id === row.dataset.id);
+                    if (item) openContentModal(item);
+                });
             });
+        }
+
+        // Wire new thought form
+        document.getElementById('toggleNewThought').addEventListener('click', () => {
+            document.getElementById('newThoughtForm').classList.toggle('open');
         });
+        document.getElementById('cancelNewThought').addEventListener('click', () => {
+            document.getElementById('newThoughtForm').classList.remove('open');
+        });
+        wireTagEditor('newthought', (tags) => { newThoughtTags = tags; });
+
+        document.getElementById('saveNewThought').addEventListener('click', async () => {
+            const title = document.getElementById('newThoughtTitle').value.trim();
+            const body = document.getElementById('newThoughtBody').value.trim();
+            if (!title) return;
+            const btn = document.getElementById('saveNewThought');
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', data: { type: 'thought', title, body, tags: newThoughtTags, status: 'new' } }),
+                });
+                if (res.ok) {
+                    loadThoughts();
+                    loadCounts();
+                } else {
+                    btn.textContent = 'Save Thought'; btn.disabled = false;
+                }
+            } catch { btn.textContent = 'Save Thought'; btn.disabled = false; }
+        });
+
+        refreshIcons();
     }
 
     // ─── Signals ─────────────────────────────────────────────
@@ -10777,7 +10825,12 @@
 
     async function openContentModal(item) {
         currentModalItem = item;
-        document.getElementById('contentModalTitle').textContent = item.title || 'Untitled';
+        const editableTypes = ['thought', 'signal', 'reflection'];
+        const titleEl = document.getElementById('contentModalTitle');
+        titleEl.textContent = item.title || 'Untitled';
+        if (editableTypes.includes(item.type)) {
+            titleEl.insertAdjacentHTML('beforeend', ' <button class="btn-sm" id="editContentBtn" title="Edit" style="vertical-align:middle;margin-left:0.5rem"><i class="icon" data-lucide="pencil" style="width:14px;height:14px"></i></button>');
+        }
 
         const meta = [];
         if (item.source) meta.push(`<span>Source: ${esc(item.source)}</span>`);
@@ -11046,7 +11099,56 @@
             });
         });
 
+        // Wire edit button for editable content types
+        document.getElementById('editContentBtn')?.addEventListener('click', () => enterContentEditMode(item));
+
         refreshIcons();
+    }
+
+    function enterContentEditMode(item) {
+        const titleEl = document.getElementById('contentModalTitle');
+        titleEl.innerHTML = `<input type="text" id="editTitleInput" class="input" style="font-size:1.3rem;font-weight:600;width:100%">`;
+        document.getElementById('editTitleInput').value = item.title || '';
+
+        const bodyEl = document.getElementById('contentModalBody');
+        // Hide existing children (status bar, linked items, rendered body, etc.)
+        Array.from(bodyEl.children).forEach(c => c.style.display = 'none');
+
+        const editArea = document.createElement('div');
+        editArea.id = 'contentEditArea';
+        editArea.innerHTML = `
+            <textarea id="editBodyTextarea" class="input" style="width:100%;min-height:300px;font-family:var(--mono);font-size:0.85rem;resize:vertical;line-height:1.6"></textarea>
+            <div class="form-actions" style="margin-top:0.75rem">
+                <button class="btn" id="cancelEditContent">Cancel</button>
+                <button class="btn btn-primary" id="saveEditContent">Save</button>
+            </div>
+        `;
+        bodyEl.prepend(editArea);
+        document.getElementById('editBodyTextarea').value = item.body || '';
+
+        document.getElementById('cancelEditContent').addEventListener('click', () => openContentModal(item));
+
+        document.getElementById('saveEditContent').addEventListener('click', async () => {
+            const newTitle = document.getElementById('editTitleInput').value.trim();
+            const newBody = document.getElementById('editBodyTextarea').value.trim();
+            if (!newTitle) return;
+            const btn = document.getElementById('saveEditContent');
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', id: item.id, updates: { title: newTitle, body: newBody } }),
+                });
+                if (res.ok) {
+                    item.title = newTitle;
+                    item.body = newBody;
+                    openContentModal(item);
+                } else {
+                    btn.textContent = 'Save'; btn.disabled = false;
+                }
+            } catch { btn.textContent = 'Save'; btn.disabled = false; }
+        });
     }
 
     function closeContentModal() {
