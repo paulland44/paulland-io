@@ -42,7 +42,7 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `content` | Articles, thoughts, reflections, signals, summaries | type, title, body, url, source, tags[], status, metadata, embedding |
+| `content` | Articles, thoughts, reflections, signals, problems, summaries | type, title, body, url, source, tags[], status, metadata, embedding |
 | `companies` | Companies & competitors | name, website, industry, notes, is_competitor, is_internal |
 | `people` | Contacts | name, company_id, role, notes |
 | `products` | Products linked to companies | name, description, company_id, url |
@@ -55,6 +55,7 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 | `company_content` | Junction: companies ↔ content | company_id, content_id |
 | `product_assets` | Junction: products ↔ assets | product_id, asset_id |
 | `product_content` | Junction: products ↔ content | product_id, content_id |
+| `content_links` | Junction: content ↔ content (signals→problems, articles→problems, etc.) | source_id, target_id, link_type, context |
 | `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active |
 | `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
 
@@ -138,7 +139,7 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Sources (Feed Items, Feeds), Library (Assets, Tags), Knowledge (People, Companies, Products, Projects, Competition), Tools (Ask AI)
+**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Sources (Feed Items, Feeds), Library (Assets, Tags), Knowledge (Problems, People, Companies, Products, Projects, Competition), Tools (Ask AI)
 
 **Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI
 
@@ -226,7 +227,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (38 tools)
+### Tool Groups (44 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -235,12 +236,43 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
 | Feed | capture_feed_item, dismiss_feed_item | 2 |
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_process | 9 |
+| Content Linking | link_content, get_content_links | 2 |
+| Problem Intelligence | problem_extract, problem_write | 2 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |
 | Utility | get_system_status | 1 |
 
-### Skills (6 skills, defined in `.claude/skills/`)
+### Content Types
+
+| Type | Purpose | Metadata Fields |
+|------|---------|-----------------|
+| `article` | Captured articles from feeds or manual entry | source, author, image_url |
+| `thought` | Quick thoughts and observations | — |
+| `signal` | Strategic signals extracted from articles | source_content_id, source_ids |
+| `reflection` | Leadership and coaching reflections | — |
+| `problem` | Problem definitions (P1-P18 domain, PP1-PP10 Phoenix) | problem_id, problem_domain, priority, category, related_problems, affected_personas, is_index |
+
+### Problem Metadata Schema
+
+```json
+{
+  "problem_id": "P1",
+  "problem_domain": "domain|phoenix|stack|index",
+  "priority": "High|Medium-High|Medium|Lower",
+  "category": "Operational Efficiency|Strategic/Competitive|Compliance & Risk|Foundational/Enabler",
+  "related_problems": ["P3", "P5"],
+  "affected_personas": ["CSR", "Estimator"],
+  "is_index": false,
+  "migrated_from": "brain/discovery/problems/P1 - Information Flow.md"
+}
+```
+
+### Content Links
+
+The `content_links` table enables linking any content item to any other (signal→problem, article→problem, problem→problem). Link types: `evidence`, `related`, `derived_from`, `supports`.
+
+### Skills (7 skills, defined in `.claude/skills/`)
 
 | Skill | Prompt Slug | Tools Used |
 |-------|-------------|------------|
@@ -249,13 +281,14 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Weekly Summary | `weekly-summary` | get_prompt, weekly_summary_extract, weekly_summary_write |
 | Monthly Review | `monthly-summary` | get_prompt, monthly_review_extract, monthly_review_write |
 | Show & Tell Review | `show-and-tell` | get_prompt, show_and_tell_extract, show_and_tell_write |
+| Extract Problems | `extract-problems` | get_prompt, problem_extract, problem_write, list_content, get_content, link_content |
 | Support Review | `support-review` | get_prompt, support_review_process |
 
-### Prompt Templates (8 prompts, stored in Supabase `prompts` table)
+### Prompt Templates (9 prompts, stored in Supabase `prompts` table)
 
 Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
 
-Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
 
 ### Worker Secrets (set via `wrangler secret put`)
 

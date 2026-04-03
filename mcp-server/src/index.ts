@@ -176,10 +176,10 @@ function registerTools(server: McpServer) {
 
 server.tool(
   'list_content',
-  'List content items (articles, thoughts, signals, reflections) with optional filters',
+  'List content items (articles, thoughts, signals, reflections, problems) with optional filters',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
       .optional()
       .describe('Filter by content type'),
     status: z.string().optional().describe('Filter by status (new, reviewed, archived)'),
@@ -524,10 +524,10 @@ server.tool(
 
 server.tool(
   'create_content',
-  'Create a new content item (article, thought, signal, reflection)',
+  'Create a new content item (article, thought, signal, reflection, problem)',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem'])
       .describe('Content type'),
     title: z.string().describe('Title'),
     body: z.string().describe('Body (markdown)'),
@@ -920,11 +920,12 @@ server.tool(
     }
     const dailyNote = noteRes[0];
 
-    // Fetch entity context + prompt
-    const [people, products, projects, promptRes] = await Promise.all([
+    // Fetch entity context + problems + prompt
+    const [people, products, projects, problemsRes, promptRes] = await Promise.all([
       supabaseGet('people?select=id,name,role,organization&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet('projects?select=id,name,product_id&order=name'),
+      supabaseGet('content?type=eq.problem&select=id,title,metadata&order=title&limit=100'),
       supabaseGet('prompts?slug=eq.daily-review&limit=1'),
     ]);
     const prompt = promptRes?.[0] || null;
@@ -932,6 +933,10 @@ server.tool(
     const peopleNames = people.map((p: any) => p.name);
     const productNames = products.map((p: any) => p.name);
     const projectNames = projects.map((p: any) => p.name);
+    const problemsList = problemsRes
+      .filter((p: any) => p.metadata?.problem_id && !p.metadata?.is_index)
+      .map((p: any) => `${p.metadata.problem_id}: ${p.title}`)
+      .join(', ');
 
     // Interpolate template variables into system prompt
     let systemPrompt = prompt?.system_prompt || null;
@@ -939,7 +944,8 @@ server.tool(
       systemPrompt = systemPrompt
         .replace('{{people_list}}', peopleNames.join(', '))
         .replace('{{product_list}}', productNames.join(', '))
-        .replace('{{project_list}}', projectNames.join(', '));
+        .replace('{{project_list}}', projectNames.join(', '))
+        .replace('{{problems_list}}', problemsList || '(none loaded)');
     }
 
     // Build the user prompt (same as API version)
@@ -980,12 +986,13 @@ server.tool(
               known_people: peopleNames,
               known_products: productNames,
               known_projects: projectNames,
+              known_problems: problemsList,
               system_prompt: systemPrompt,
               user_prompt_template: prompt?.user_prompt_template || null,
               prompt_version: prompt?.version || null,
               user_prompt: userPrompt,
               instructions:
-                'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, and review_summary. Return as JSON. Then call daily_review_write with the results.',
+                'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.',
             },
             null,
             2
@@ -1057,6 +1064,17 @@ server.tool(
             z.object({
               meeting_title: z.string(),
               context: z.string(),
+            })
+          )
+          .optional()
+          .default([]),
+        problem_observations: z
+          .array(
+            z.object({
+              problem_id: z.string().describe('Problem ID (e.g. "P1", "PP3")'),
+              observation: z.string().describe('What was observed'),
+              evidence_type: z.string().optional().describe('customer_quote, workflow_gap, market_data, interview_insight'),
+              source_context: z.string().optional().describe('Which meeting/note it came from'),
             })
           )
           .optional()
@@ -1172,6 +1190,35 @@ server.tool(
       });
       results.reflections++;
     }
+
+    // Write problem observations — append evidence to matching problems
+    let problemObsCount = 0;
+    for (const obs of review_data.problem_observations) {
+      if (!obs.problem_id || !obs.observation) continue;
+      const problems = await supabaseGet(
+        `content?type=eq.problem&metadata->>problem_id=eq.${obs.problem_id}&select=id,body&limit=1`
+      );
+      if (!problems.length) continue;
+
+      const problem = problems[0];
+      const evidenceSection = `\n\n---\n### Evidence from Daily Review ${date}${obs.evidence_type ? ` (${obs.evidence_type})` : ''}\n${obs.source_context ? `*Source: ${obs.source_context}*\n\n` : ''}${obs.observation}`;
+
+      await supabasePatch(`content?id=eq.${problem.id}`, {
+        body: (problem.body || '') + evidenceSection,
+        updated_at: new Date().toISOString(),
+      });
+
+      // Link daily note to problem
+      const noteForLink = await supabaseGet(`daily_notes?note_date=eq.${date}&select=id&limit=1`);
+      if (noteForLink.length) {
+        // Note: content_links requires content IDs — daily_notes are a different table
+        // We track this in the problem's body instead
+      }
+
+      embedItem('content', problem.id).catch(() => {});
+      problemObsCount++;
+    }
+    (results as any).problem_observations = problemObsCount;
 
     // Create audit record
     await supabasePost('ai_reviews', {
@@ -1559,7 +1606,7 @@ server.tool(
           system_prompt: prompt?.system_prompt || null,
           user_prompt_template: prompt?.user_prompt_template || null,
           prompt_version: prompt?.version || null,
-          instructions: 'Compile a monthly review from this data. Produce a JSON object with: themes (string[]), problem_progress ([{ problem_id, problem_name, status, evidence }] for P1-P12), strategic_decisions ([{ decision, rationale, impact }]), customer_interactions ([{ customer, context, outcome }]), team_updates (string[]), metrics (object with any quantifiable data), and summary (string). Then call monthly_review_write with the results.',
+          instructions: 'Compile a monthly review from this data. Produce a JSON object with: themes (string[]), problem_progress ([{ problem_id, problem_name, status, evidence }] for P1-P18 and PP1-PP10), strategic_decisions ([{ decision, rationale, impact }]), customer_interactions ([{ customer, context, outcome }]), team_updates (string[]), metrics (object with any quantifiable data), and summary (string). Then call monthly_review_write with the results.',
         }, null, 2),
       }],
     };
@@ -1608,7 +1655,7 @@ server.tool(
       body += `## Key Themes\n${review_data.themes.map(t => `- ${t}`).join('\n')}\n\n`;
     }
     if (review_data.problem_progress.length) {
-      body += `## Problems Progress (P1-P12)\n`;
+      body += `## Problems Progress\n`;
       body += `| Problem | Status | Evidence |\n|---|---|---|\n`;
       body += review_data.problem_progress.map(p => `| ${p.problem_id} — ${p.problem_name} | ${p.status} | ${p.evidence || '—'} |`).join('\n');
       body += '\n\n';
@@ -2271,6 +2318,7 @@ server.tool(
       thoughts,
       signals,
       reflections,
+      problems,
       dailyNotes,
       people,
       companies,
@@ -2284,6 +2332,7 @@ server.tool(
       supabaseGet('content?type=eq.thought&select=id&limit=1000'),
       supabaseGet('content?type=eq.signal&select=id&limit=1000'),
       supabaseGet('content?type=eq.reflection&select=id&limit=1000'),
+      supabaseGet('content?type=eq.problem&select=id&limit=1000'),
       supabaseGet('daily_notes?select=id&limit=1000'),
       supabaseGet('people?select=id&limit=1000'),
       supabaseGet('companies?select=id&limit=1000'),
@@ -2302,6 +2351,7 @@ server.tool(
         thoughts: thoughts.length,
         signals: signals.length,
         reflections: reflections.length,
+        problems: problems.length,
         summaries: summaries.length,
       },
       daily_notes: dailyNotes.length,
@@ -2716,6 +2766,278 @@ server.tool(
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
+    };
+  }
+);
+
+// ─── Group 9: Content Linking ──────────────────────────────
+
+server.tool(
+  'link_content',
+  'Create a link between two content items (e.g. signal→problem, article→problem). Requires the content_links table.',
+  {
+    source_id: z.string().describe('UUID of the source content item'),
+    target_id: z.string().describe('UUID of the target content item'),
+    link_type: z.enum(['evidence', 'related', 'derived_from', 'supports']).describe('Type of relationship'),
+    context: z.string().optional().describe('Brief note on why these items are linked'),
+  },
+  async ({ source_id, target_id, link_type, context }) => {
+    const result = await supabasePost('content_links', {
+      source_id,
+      target_id,
+      link_type,
+      context: context || null,
+    }, true);
+
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: `Failed to create link: ${result.error}` }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, link_type, source_id, target_id }, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'get_content_links',
+  'Get all links for a content item, with linked item titles and types',
+  {
+    content_id: z.string().describe('UUID of the content item'),
+    direction: z.enum(['inbound', 'outbound', 'both']).optional().default('both').describe('Which direction of links to fetch'),
+  },
+  async ({ content_id, direction }) => {
+    const links: any[] = [];
+
+    if (direction === 'outbound' || direction === 'both') {
+      const outbound = await supabaseGet(`content_links?source_id=eq.${content_id}&select=id,target_id,link_type,context,created_at`);
+      if (outbound.length) {
+        const targetIds = outbound.map((l: any) => l.target_id);
+        const targets = await supabaseGet(`content?id=in.(${targetIds.join(',')})&select=id,title,type,tags,metadata`);
+        const targetMap: Record<string, any> = {};
+        targets.forEach((t: any) => { targetMap[t.id] = t; });
+        for (const link of outbound) {
+          links.push({
+            direction: 'outbound',
+            link_type: link.link_type,
+            context: link.context,
+            content: targetMap[link.target_id] || { id: link.target_id },
+            created_at: link.created_at,
+          });
+        }
+      }
+    }
+
+    if (direction === 'inbound' || direction === 'both') {
+      const inbound = await supabaseGet(`content_links?target_id=eq.${content_id}&select=id,source_id,link_type,context,created_at`);
+      if (inbound.length) {
+        const sourceIds = inbound.map((l: any) => l.source_id);
+        const sources = await supabaseGet(`content?id=in.(${sourceIds.join(',')})&select=id,title,type,tags,metadata`);
+        const sourceMap: Record<string, any> = {};
+        sources.forEach((s: any) => { sourceMap[s.id] = s; });
+        for (const link of inbound) {
+          links.push({
+            direction: 'inbound',
+            link_type: link.link_type,
+            context: link.context,
+            content: sourceMap[link.source_id] || { id: link.source_id },
+            created_at: link.created_at,
+          });
+        }
+      }
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ content_id, total: links.length, links }, null, 2) }],
+    };
+  }
+);
+
+// ─── Group 10: Problem Intelligence ───────────────────────
+
+server.tool(
+  'problem_extract',
+  'Fetch context for extracting/updating problems from source content (articles, meeting notes, interview transcripts). Returns source content, existing problems, and prompt for Claude to analyse.',
+  {
+    content_ids: z.array(z.string()).describe('UUIDs of source content items to analyse'),
+    problem_ids: z.array(z.string()).optional().describe('Specific problem IDs to focus on (e.g. ["P1", "P3"]). If omitted, all problems are considered.'),
+  },
+  async ({ content_ids, problem_ids }) => {
+    // Fetch source content
+    const sourceContent = await supabaseGet(
+      `content?id=in.(${content_ids.join(',')})&select=id,title,type,body,tags,metadata`
+    );
+    if (!sourceContent.length) {
+      return { content: [{ type: 'text' as const, text: 'No source content found for the given IDs' }] };
+    }
+
+    // Fetch existing problems
+    let problemQuery = 'content?type=eq.problem&select=id,title,body,tags,metadata&order=title&limit=100';
+    const allProblems = await supabaseGet(problemQuery);
+
+    // Filter to specific problem_ids if provided
+    let problems = allProblems;
+    if (problem_ids?.length) {
+      const pidSet = new Set(problem_ids.map(p => p.toUpperCase()));
+      problems = allProblems.filter((p: any) =>
+        pidSet.has(p.metadata?.problem_id?.toUpperCase?.())
+      );
+    }
+
+    // Fetch prompt template
+    const promptRes = await supabaseGet('prompts?slug=eq.extract-problems&limit=1');
+    const prompt = promptRes?.[0] || null;
+
+    // Build source content text
+    const sourceText = sourceContent.map((c: any) =>
+      `### ${c.title} (${c.type})\n${c.body?.substring(0, 3000) || '(empty)'}\nTags: ${(c.tags || []).join(', ')}`
+    ).join('\n\n---\n\n');
+
+    // Build existing problems reference
+    const problemsRef = problems.map((p: any) => {
+      const pid = p.metadata?.problem_id || '?';
+      const priority = p.metadata?.priority || '?';
+      const domain = p.metadata?.problem_domain || '?';
+      const excerpt = p.body?.substring(0, 500) || '';
+      return `#### ${pid}: ${p.title} [Priority: ${priority}, Domain: ${domain}]\n${excerpt}`;
+    }).join('\n\n');
+
+    // Build all problem IDs for quick reference
+    const allProblemIds = allProblems.map((p: any) =>
+      `${p.metadata?.problem_id || '?'}: ${p.title}`
+    ).join('\n');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          source_content: sourceContent.map((c: any) => ({ id: c.id, title: c.title, type: c.type })),
+          source_text: sourceText,
+          existing_problems_count: problems.length,
+          existing_problems_reference: problemsRef,
+          all_problem_ids: allProblemIds,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          prompt_version: prompt?.version || null,
+          instructions: 'Analyse the source content for problem-relevant evidence. For existing problems, identify new evidence, customer quotes, market data, or workflow gaps. For genuinely new problems, propose a new ID following the P-series (P19+) or PP-series convention. Then call problem_write with: problem_updates (existing problem enrichment), new_problems (new problem creation), content_links (links between source and problems), and a summary.',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'problem_write',
+  'Write problem extraction results back to the database. Call this after processing problem_extract data.',
+  {
+    date: z.string().describe('Date of extraction (YYYY-MM-DD)'),
+    source_content_ids: z.array(z.string()).optional().default([]).describe('UUIDs of source content that was analysed'),
+    review_data: z.object({
+      problem_updates: z.array(z.object({
+        problem_id: z.string().describe('Problem ID from metadata (e.g. "P1", "PP3")'),
+        update_text: z.string().describe('New evidence or observation to append'),
+        evidence_type: z.string().optional().describe('Type: customer_quote, workflow_gap, market_data, interview_insight'),
+        source_context: z.string().optional().describe('Where this evidence came from'),
+      })).optional().default([]),
+      new_problems: z.array(z.object({
+        title: z.string(),
+        body: z.string(),
+        problem_id: z.string().describe('New problem ID (e.g. "P19", "PP11")'),
+        priority: z.string().optional().default('Medium'),
+        category: z.string().optional(),
+        problem_domain: z.string().optional().default('domain'),
+        related_problems: z.array(z.string()).optional().default([]),
+        tags: z.array(z.string()).optional().default([]),
+      })).optional().default([]),
+      content_links: z.array(z.object({
+        source_id: z.string(),
+        target_id: z.string(),
+        link_type: z.enum(['evidence', 'related', 'derived_from', 'supports']),
+        context: z.string().optional(),
+      })).optional().default([]),
+      summary: z.string().optional().default(''),
+    }).describe('Structured problem extraction results'),
+  },
+  async ({ date, source_content_ids, review_data }) => {
+    const results = { problem_updates: 0, new_problems: 0, content_links: 0 };
+    const sourceRef = { extraction_date: date, source_content_ids };
+
+    // Process problem updates — append evidence to existing problems
+    for (const update of review_data.problem_updates) {
+      // Find the problem by problem_id in metadata
+      const problems = await supabaseGet(
+        `content?type=eq.problem&metadata->>problem_id=eq.${update.problem_id}&select=id,body,metadata&limit=1`
+      );
+      if (!problems.length) continue;
+
+      const problem = problems[0];
+      const timestamp = new Date().toISOString().split('T')[0];
+      const evidenceSection = `\n\n---\n### Evidence Added ${timestamp}${update.evidence_type ? ` (${update.evidence_type})` : ''}\n${update.source_context ? `*Source: ${update.source_context}*\n\n` : ''}${update.update_text}`;
+
+      await supabasePatch(`content?id=eq.${problem.id}`, {
+        body: (problem.body || '') + evidenceSection,
+        updated_at: new Date().toISOString(),
+      });
+
+      // Re-embed the updated problem
+      embedItem('content', problem.id).catch(() => {});
+      results.problem_updates++;
+    }
+
+    // Create new problems
+    for (const newProblem of review_data.new_problems) {
+      const cleanTags = ['problem', 'discovery', ...(newProblem.tags || [])]
+        .map(t => t.trim().toLowerCase())
+        .filter(Boolean);
+
+      const result = await supabasePost('content', {
+        type: 'problem',
+        title: newProblem.title,
+        body: newProblem.body,
+        tags: cleanTags,
+        status: 'active',
+        metadata: {
+          problem_id: newProblem.problem_id,
+          problem_domain: newProblem.problem_domain || 'domain',
+          priority: newProblem.priority || 'Medium',
+          category: newProblem.category || null,
+          related_problems: newProblem.related_problems || [],
+          created_from: sourceRef,
+        },
+      }, true);
+
+      if (result.ok && result.data?.[0]?.id) {
+        embedItem('content', result.data[0].id).catch(() => {});
+        results.new_problems++;
+      }
+    }
+
+    // Create content links
+    for (const link of review_data.content_links) {
+      const linkResult = await supabasePost('content_links', {
+        source_id: link.source_id,
+        target_id: link.target_id,
+        link_type: link.link_type,
+        context: link.context || null,
+      }, true);
+      if (linkResult.ok) results.content_links++;
+    }
+
+    // Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'problem_extraction',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary,
+      files_updated: results,
+      completed_at: new Date().toISOString(),
+    });
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ ok: true, writes: results, summary: review_data.summary }, null, 2),
+      }],
     };
   }
 );

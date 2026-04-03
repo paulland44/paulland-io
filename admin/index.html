@@ -3228,6 +3228,7 @@
             { view: 'assets', label: 'Assets', countKey: 'assets' },
         ]},
         knowledge: { tabs: [
+            { view: 'problems', label: 'Problems', countKey: 'problems' },
             { view: 'people', label: 'People', countKey: 'people' },
             { view: 'companies', label: 'Companies', countKey: 'companies' },
             { view: 'products', label: 'Products', countKey: 'products' },
@@ -3328,11 +3329,12 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, problemsCount, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'problem'),
             db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
@@ -3349,6 +3351,7 @@
             thoughts: thoughts.count || 0,
             signals: signals.count || 0,
             reflections: reflections.count || 0,
+            problems: problemsCount.count || 0,
             summaries: summaries.count || 0,
             feedItems: feedItems.count || 0,
             feeds: feeds.count || 0,
@@ -3404,6 +3407,7 @@
             case 'thoughts': await loadThoughts(); break;
             case 'signals': await loadSignals(); break;
             case 'reflections': await loadReflections(); break;
+            case 'problems': await loadProblems(); break;
             case 'summaries': await loadSummaries(); break;
             case 'feed-items': await loadFeedItems(); break;
             case 'feeds': await loadFeeds(); break;
@@ -5638,6 +5642,151 @@
                 btn.textContent = 'Save as Summary'; btn.disabled = false;
             }
         });
+    }
+
+    // ─── Problems ──────────────────────────────────────────────
+
+    async function loadProblems() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading problems</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, type, tags, status, captured_at, body, metadata')
+            .eq('type', 'problem')
+            .order('title')
+            .limit(200);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const allProblems = data || [];
+
+        // Collect unique domains for filter
+        const domains = new Set();
+        allProblems.forEach(p => {
+            const d = p.metadata?.problem_domain;
+            if (d) domains.add(d);
+        });
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Problems</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${allProblems.length} problems</span>
+            </div>
+            <div class="filters">
+                <select class="filter-select" id="problemDomainFilter">
+                    <option value="">All domains</option>
+                    <option value="domain">Domain (P1-P18)</option>
+                    <option value="phoenix">Phoenix (PP1-PP10)</option>
+                    <option value="index">Index</option>
+                    <option value="stack">Stack</option>
+                </select>
+                <div class="filter-group">
+                    <button class="filter-btn problem-priority-btn active" data-priority="">All</button>
+                    <button class="filter-btn problem-priority-btn" data-priority="High">High</button>
+                    <button class="filter-btn problem-priority-btn" data-priority="Medium-High">Med-High</button>
+                    <button class="filter-btn problem-priority-btn" data-priority="Medium">Medium</button>
+                </div>
+                <input type="text" class="search-input" placeholder="Search problems..." id="searchProblems">
+            </div>
+            <div class="signal-cards" id="problemCards"></div>
+        `;
+
+        function filterProblems() {
+            let filtered = allProblems;
+            const domain = document.getElementById('problemDomainFilter')?.value;
+            if (domain) filtered = filtered.filter(p => p.metadata?.problem_domain === domain);
+            const priority = document.querySelector('.problem-priority-btn.active')?.dataset?.priority;
+            if (priority) filtered = filtered.filter(p => p.metadata?.priority === priority);
+            const q = (document.getElementById('searchProblems')?.value || '').toLowerCase();
+            if (q) filtered = filtered.filter(p =>
+                (p.title || '').toLowerCase().includes(q) ||
+                (p.body || '').toLowerCase().includes(q) ||
+                (p.metadata?.problem_id || '').toLowerCase().includes(q)
+            );
+            return filtered;
+        }
+
+        function naturalSort(a, b) {
+            const idA = a.metadata?.problem_id || '';
+            const idB = b.metadata?.problem_id || '';
+            const prefixA = idA.replace(/\d+/, '');
+            const prefixB = idB.replace(/\d+/, '');
+            if (prefixA !== prefixB) return prefixA.localeCompare(prefixB);
+            const numA = parseInt(idA.replace(/\D+/, '')) || 999;
+            const numB = parseInt(idB.replace(/\D+/, '')) || 999;
+            return numA - numB;
+        }
+
+        function renderProblemCards() {
+            const container = document.getElementById('problemCards');
+            if (!container) return;
+            const filtered = filterProblems().sort(naturalSort);
+
+            if (!filtered.length) {
+                container.innerHTML = '<div class="empty">No problems match your filters.</div>';
+                return;
+            }
+
+            const priorityColors = {
+                'High': 'var(--accent)',
+                'Medium-High': '#e6a817',
+                'Medium': 'var(--text-muted)',
+                'Lower': 'var(--border)',
+            };
+
+            container.innerHTML = filtered.map(p => {
+                const pid = p.metadata?.problem_id || '';
+                const priority = p.metadata?.priority || '';
+                const category = p.metadata?.category || '';
+                const domain = p.metadata?.problem_domain || '';
+                const isIndex = p.metadata?.is_index;
+                const excerpt = (p.body || '').replace(/^#.*\n/gm, '').replace(/\*\*/g, '').substring(0, 200).trim() + ((p.body || '').length > 200 ? '...' : '');
+                const borderColor = priorityColors[priority] || 'var(--border)';
+
+                return `
+                    <div class="signal-card" data-id="${p.id}" style="border-left: 3px solid ${borderColor}">
+                        <div class="signal-card-header">
+                            ${pid ? `<span style="background:var(--surface-raised);padding:0.15rem 0.5rem;border-radius:var(--radius-sm);font-size:0.75rem;font-weight:600;font-family:var(--mono);color:${borderColor}">${esc(pid)}</span>` : ''}
+                            <div class="signal-card-title">${esc(p.title.replace(/^PP?\d+\s*[-–]\s*/, ''))}</div>
+                        </div>
+                        <div class="signal-card-body">${esc(excerpt)}</div>
+                        <div class="signal-card-meta">
+                            ${isIndex ? '<span class="tag" style="background:var(--accent);color:var(--void)">index</span>' : ''}
+                            ${category ? `<span class="tag">${esc(category)}</span>` : ''}
+                            ${domain && domain !== 'index' ? `<span class="tag">${esc(domain)}</span>` : ''}
+                            ${(p.tags || []).filter(t => t !== 'problem' && t !== 'discovery').map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+                            <span style="flex:1"></span>
+                            ${priority ? `<span style="font-size:0.7rem;color:${borderColor}">${esc(priority)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.querySelectorAll('.signal-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const item = allProblems.find(p => p.id === card.dataset.id);
+                    if (item) openContentModal(item);
+                });
+            });
+
+            refreshIcons();
+        }
+
+        renderProblemCards();
+
+        // Wire filters
+        document.getElementById('problemDomainFilter').addEventListener('change', renderProblemCards);
+        document.querySelectorAll('.problem-priority-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.problem-priority-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                renderProblemCards();
+            });
+        });
+        document.getElementById('searchProblems').addEventListener('input', renderProblemCards);
+
+        refreshIcons();
     }
 
     // ─── Reflections ──────────────────────────────────────────
@@ -10893,17 +11042,36 @@
         document.getElementById('contentModalMeta').innerHTML = meta.join('');
         wireTagEditor();
 
-        // Fetch linked products and companies for this content item
-        const [{ data: productLinks }, { data: companyLinks }] = await Promise.all([
+        // Fetch linked products, companies, and content links for this content item
+        const [{ data: productLinks }, { data: companyLinks }, { data: outboundLinks }, { data: inboundLinks }] = await Promise.all([
             db.from('product_content')
                 .select('id, product_id, products(id, name, companies(name, type))')
                 .eq('content_id', item.id),
             db.from('company_content')
                 .select('id, company_id, companies(id, name, type)')
                 .eq('content_id', item.id),
+            db.from('content_links')
+                .select('id, target_id, link_type, context')
+                .eq('source_id', item.id),
+            db.from('content_links')
+                .select('id, source_id, link_type, context')
+                .eq('target_id', item.id),
         ]);
         const linkedProducts = (productLinks || []).filter(pl => pl.products);
         const linkedCompanies = (companyLinks || []).filter(cl => cl.companies);
+
+        // Resolve content link targets/sources
+        const contentLinkIds = [
+            ...(outboundLinks || []).map(l => l.target_id),
+            ...(inboundLinks || []).map(l => l.source_id),
+        ].filter(Boolean);
+        let contentLinkItems = [];
+        if (contentLinkIds.length) {
+            const { data: clItems } = await db.from('content').select('id, title, type, metadata').in('id', [...new Set(contentLinkIds)]);
+            contentLinkItems = clItems || [];
+        }
+        const clMap = {};
+        contentLinkItems.forEach(c => { clMap[c.id] = c; });
 
         // Build linked items bar (products + competitors)
         const linkedBar = `
@@ -10956,10 +11124,35 @@
             }
         }
 
+        // Build content links section (signals↔problems, articles↔problems, etc.)
+        const allContentLinks = [
+            ...(outboundLinks || []).map(l => ({ ...l, direction: 'outbound', linked: clMap[l.target_id] })),
+            ...(inboundLinks || []).map(l => ({ ...l, direction: 'inbound', linked: clMap[l.source_id] })),
+        ].filter(l => l.linked);
+
+        let contentLinksBar = '';
+        if (allContentLinks.length) {
+            const linkTypeIcons = { evidence: 'flask-conical', related: 'link', derived_from: 'git-branch', supports: 'shield-check' };
+            contentLinksBar = `<div style="font-size:0.8rem;margin-bottom:0.75rem;padding:0.5rem 0.75rem;background:rgba(120,160,120,0.08);border-radius:var(--radius-sm);border-left:3px solid var(--accent)">
+                <div style="color:var(--text-muted);margin-bottom:0.35rem"><i class="icon" data-lucide="network" style="width:12px;height:12px"></i> Linked Content</div>
+                ${allContentLinks.map(l => {
+                    const pid = l.linked.metadata?.problem_id;
+                    const label = pid ? `${pid}: ${l.linked.title}` : l.linked.title;
+                    return `<div style="display:flex;align-items:center;gap:0.35rem;padding:0.15rem 0">
+                        <i class="icon" data-lucide="${linkTypeIcons[l.link_type] || 'link'}" style="width:11px;height:11px;color:var(--accent)"></i>
+                        <a href="#" class="source-backlink" data-id="${l.linked.id}" style="color:var(--accent)">${esc(label)}</a>
+                        <span class="tag" style="font-size:0.65rem;padding:0.05rem 0.3rem">${esc(l.link_type)}</span>
+                        ${l.direction === 'inbound' ? '<span style="font-size:0.65rem;color:var(--text-muted)">← inbound</span>' : ''}
+                        ${l.context ? `<span style="font-size:0.65rem;color:var(--text-muted)">${esc(l.context)}</span>` : ''}
+                    </div>`;
+                }).join('')}
+            </div>`;
+        }
+
         const heroImg = item.metadata?.image_url
             ? `<img src="${item.metadata.image_url}" class="article-hero-image" loading="lazy">`
             : '';
-        document.getElementById('contentModalBody').innerHTML = linkedBar + statusBar + sourceBar + heroImg + renderBody(item.body);
+        document.getElementById('contentModalBody').innerHTML = linkedBar + statusBar + sourceBar + contentLinksBar + heroImg + renderBody(item.body);
         // Signal extraction results container
         if (item.type === 'article') {
             document.getElementById('contentModalBody').insertAdjacentHTML('beforeend', '<div id="extractedSignalsContainer"></div>');
