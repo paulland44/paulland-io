@@ -3054,6 +3054,9 @@
                 <button class="nav-item" data-section="knowledge">
                     <i class="icon" data-lucide="database"></i> Knowledge
                 </button>
+                <button class="nav-item" data-section="strategy">
+                    <i class="icon" data-lucide="target"></i> Strategy
+                </button>
                 <button class="nav-item" data-section="sources">
                     <i class="icon" data-lucide="inbox"></i> Sources
                 </button>
@@ -3235,6 +3238,15 @@
             { view: 'projects', label: 'Projects', countKey: 'projects' },
             { view: 'competition', label: 'Competition' },
         ]},
+        strategy: { tabs: [
+            { view: 'strategy-overview', label: 'Overview' },
+            { view: 'strategy-core', label: 'Core', countKey: 'strategyCore' },
+            { view: 'strategy-goals', label: 'Goals', countKey: 'strategyGoals' },
+            { view: 'strategy-architecture', label: 'Architecture', countKey: 'strategyArch' },
+            { view: 'strategy-thought', label: 'Thought Leadership', countKey: 'strategyThought' },
+            { view: 'strategy-feedback', label: 'Feedback', countKey: 'strategyFeedback' },
+            { view: 'strategy-operational', label: 'Operational', countKey: 'strategyOps' },
+        ]},
         sources: { tabs: [
             { view: 'feed-items', label: 'Feed Items', countKey: 'feedItems' },
             { view: 'feeds', label: 'Feeds', countKey: 'feeds' },
@@ -3329,12 +3341,13 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, problemsCount, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'problem'),
+            db.from('content').select('id, metadata', { count: 'exact' }).eq('type', 'strategy'),
             db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
@@ -3352,6 +3365,12 @@
             signals: signals.count || 0,
             reflections: reflections.count || 0,
             problems: problemsCount.count || 0,
+            strategyCore: (strategiesResult.data || []).filter(s => ['core-strategy','product-strategy','ost'].includes(s.metadata?.strategy_type)).length,
+            strategyGoals: (strategiesResult.data || []).filter(s => ['goals','roadmap'].includes(s.metadata?.strategy_type)).length,
+            strategyArch: (strategiesResult.data || []).filter(s => s.metadata?.strategy_type === 'architecture').length,
+            strategyThought: (strategiesResult.data || []).filter(s => s.metadata?.strategy_type === 'thought-leadership').length,
+            strategyFeedback: (strategiesResult.data || []).filter(s => s.metadata?.strategy_type === 'customer-feedback').length,
+            strategyOps: (strategiesResult.data || []).filter(s => ['operational','reference'].includes(s.metadata?.strategy_type)).length,
             summaries: summaries.count || 0,
             feedItems: feedItems.count || 0,
             feeds: feeds.count || 0,
@@ -3408,6 +3427,13 @@
             case 'signals': await loadSignals(); break;
             case 'reflections': await loadReflections(); break;
             case 'problems': await loadProblems(); break;
+            case 'strategy-overview': await loadStrategyView(null); break;
+            case 'strategy-core': await loadStrategyView(['core-strategy','product-strategy','ost']); break;
+            case 'strategy-goals': await loadStrategyView(['goals','roadmap']); break;
+            case 'strategy-architecture': await loadStrategyView(['architecture']); break;
+            case 'strategy-thought': await loadStrategyView(['thought-leadership']); break;
+            case 'strategy-feedback': await loadStrategyView(['customer-feedback']); break;
+            case 'strategy-operational': await loadStrategyView(['operational','reference']); break;
             case 'summaries': await loadSummaries(); break;
             case 'feed-items': await loadFeedItems(); break;
             case 'feeds': await loadFeeds(); break;
@@ -5642,6 +5668,150 @@
                 btn.textContent = 'Save as Summary'; btn.disabled = false;
             }
         });
+    }
+
+    // ─── Strategy ──────────────────────────────────────────────
+
+    async function loadStrategyView(filterTypes) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading strategies</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, type, tags, status, captured_at, body, metadata')
+            .eq('type', 'strategy')
+            .order('title')
+            .limit(200);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        let allStrategies = data || [];
+
+        // Apply type filter if provided
+        if (filterTypes) {
+            allStrategies = allStrategies.filter(s => filterTypes.includes(s.metadata?.strategy_type));
+        }
+
+        const viewTitle = filterTypes ? {
+            'core-strategy,product-strategy,ost': 'Core Strategy',
+            'goals,roadmap': 'Goals & Planning',
+            'architecture': 'Architecture',
+            'thought-leadership': 'Thought Leadership',
+            'customer-feedback': 'Customer Feedback',
+            'operational,reference': 'Operational',
+        }[filterTypes.join(',')] || 'Strategy' : 'All Strategies';
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">${viewTitle}</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${allStrategies.length} documents</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search strategies..." id="searchStrategies">
+                ${!filterTypes ? `<select class="filter-select" id="strategyProductFilter">
+                    <option value="">All products</option>
+                    <option value="WCP">WCP</option>
+                    <option value="AE">AE</option>
+                    <option value="Phoenix">Phoenix</option>
+                    <option value="Domain">Domain</option>
+                </select>` : ''}
+            </div>
+            <div class="signal-cards" id="strategyCards"></div>
+        `;
+
+        const typeColors = {
+            'core-strategy': 'var(--accent)',
+            'product-strategy': '#4a90d9',
+            'goals': '#e6a817',
+            'roadmap': '#7c3aed',
+            'thought-leadership': '#059669',
+            'customer-feedback': '#dc2626',
+            'ost': '#ea580c',
+            'architecture': '#6366f1',
+            'operational': 'var(--text-muted)',
+            'reference': 'var(--border)',
+        };
+
+        const typeLabels = {
+            'core-strategy': 'Core',
+            'product-strategy': 'Product',
+            'goals': 'Goals',
+            'roadmap': 'Roadmap',
+            'thought-leadership': 'Thought Leadership',
+            'customer-feedback': 'Feedback',
+            'ost': 'OST',
+            'architecture': 'Architecture',
+            'operational': 'Operational',
+            'reference': 'Reference',
+        };
+
+        function filterStrategies() {
+            let filtered = allStrategies;
+            const q = (document.getElementById('searchStrategies')?.value || '').toLowerCase();
+            if (q) filtered = filtered.filter(s =>
+                (s.title || '').toLowerCase().includes(q) ||
+                (s.body || '').toLowerCase().includes(q) ||
+                (s.metadata?.product_area || '').toLowerCase().includes(q)
+            );
+            const product = document.getElementById('strategyProductFilter')?.value;
+            if (product) filtered = filtered.filter(s => (s.metadata?.product_area || '').includes(product));
+            return filtered;
+        }
+
+        function renderStrategyCards() {
+            const container = document.getElementById('strategyCards');
+            if (!container) return;
+            const filtered = filterStrategies();
+
+            if (!filtered.length) {
+                container.innerHTML = '<div class="empty">No strategies match your filters.</div>';
+                return;
+            }
+
+            container.innerHTML = filtered.map(s => {
+                const st = s.metadata?.strategy_type || 'reference';
+                const color = typeColors[st] || 'var(--border)';
+                const label = typeLabels[st] || st;
+                const productArea = s.metadata?.product_area || '';
+                const docStatus = s.metadata?.doc_status || '';
+                const version = s.metadata?.version || '';
+                const owner = s.metadata?.owner || '';
+                const excerpt = (s.body || '').replace(/^#.*\n/gm, '').replace(/\*\*/g, '').substring(0, 200).trim() + ((s.body || '').length > 200 ? '...' : '');
+
+                return `
+                    <div class="signal-card" data-id="${s.id}" style="border-left: 3px solid ${color}">
+                        <div class="signal-card-header">
+                            <span style="background:var(--surface-raised);padding:0.15rem 0.5rem;border-radius:var(--radius-sm);font-size:0.7rem;font-weight:600;color:${color}">${esc(label)}</span>
+                            <div class="signal-card-title">${esc(s.title)}</div>
+                        </div>
+                        <div class="signal-card-body">${esc(excerpt)}</div>
+                        <div class="signal-card-meta">
+                            ${productArea && productArea !== 'Domain' ? productArea.split(',').map(a => `<span class="tag">${esc(a)}</span>`).join('') : ''}
+                            ${(s.tags || []).filter(t => t !== 'strategy' && !['core-strategy','product-strategy','goals','roadmap','thought-leadership','customer-feedback','ost','architecture','operational','reference'].includes(t)).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
+                            <span style="flex:1"></span>
+                            ${docStatus ? `<span style="font-size:0.7rem;color:var(--text-muted)">${esc(docStatus)}${version ? ' ' + esc(version) : ''}</span>` : ''}
+                            ${owner ? `<span style="font-size:0.7rem;color:var(--text-muted);margin-left:0.5rem">${esc(owner)}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            container.querySelectorAll('.signal-card').forEach(card => {
+                card.addEventListener('click', () => {
+                    const item = (data || []).find(s => s.id === card.dataset.id);
+                    if (item) openContentModal(item);
+                });
+            });
+
+            refreshIcons();
+        }
+
+        renderStrategyCards();
+
+        document.getElementById('searchStrategies')?.addEventListener('input', renderStrategyCards);
+        document.getElementById('strategyProductFilter')?.addEventListener('change', renderStrategyCards);
+
+        refreshIcons();
     }
 
     // ─── Problems ──────────────────────────────────────────────

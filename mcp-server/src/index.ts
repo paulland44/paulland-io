@@ -176,10 +176,10 @@ function registerTools(server: McpServer) {
 
 server.tool(
   'list_content',
-  'List content items (articles, thoughts, signals, reflections, problems) with optional filters',
+  'List content items (articles, thoughts, signals, reflections, problems, strategies) with optional filters',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
       .optional()
       .describe('Filter by content type'),
     status: z.string().optional().describe('Filter by status (new, reviewed, archived)'),
@@ -524,10 +524,10 @@ server.tool(
 
 server.tool(
   'create_content',
-  'Create a new content item (article, thought, signal, reflection, problem)',
+  'Create a new content item (article, thought, signal, reflection, problem, strategy)',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'problem'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy'])
       .describe('Content type'),
     title: z.string().describe('Title'),
     body: z.string().describe('Body (markdown)'),
@@ -2319,6 +2319,7 @@ server.tool(
       signals,
       reflections,
       problems,
+      strategies,
       dailyNotes,
       people,
       companies,
@@ -2333,6 +2334,7 @@ server.tool(
       supabaseGet('content?type=eq.signal&select=id&limit=1000'),
       supabaseGet('content?type=eq.reflection&select=id&limit=1000'),
       supabaseGet('content?type=eq.problem&select=id&limit=1000'),
+      supabaseGet('content?type=eq.strategy&select=id&limit=1000'),
       supabaseGet('daily_notes?select=id&limit=1000'),
       supabaseGet('people?select=id&limit=1000'),
       supabaseGet('companies?select=id&limit=1000'),
@@ -2352,6 +2354,7 @@ server.tool(
         signals: signals.length,
         reflections: reflections.length,
         problems: problems.length,
+        strategies: strategies.length,
         summaries: summaries.length,
       },
       daily_notes: dailyNotes.length,

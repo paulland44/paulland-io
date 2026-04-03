@@ -139,7 +139,7 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Sources (Feed Items, Feeds), Library (Assets, Tags), Knowledge (Problems, People, Companies, Products, Projects, Competition), Tools (Ask AI)
+**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Feed Items, Feeds), Tools (Ask AI)
 
 **Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI
 
@@ -252,6 +252,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | `signal` | Strategic signals extracted from articles | source_content_id, source_ids |
 | `reflection` | Leadership and coaching reflections | — |
 | `problem` | Problem definitions (P1-P18 domain, PP1-PP10 Phoenix) | problem_id, problem_domain, priority, category, related_problems, affected_personas, is_index |
+| `strategy` | Internal strategy docs (domain/product strategies, goals, architecture, customer feedback) | strategy_type, product_area, owner, version, doc_status |
 
 ### Problem Metadata Schema
 
