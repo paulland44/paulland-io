@@ -1100,7 +1100,7 @@
         /* ─── Overview ─── */
         .overview-stats {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(5, 1fr);
             gap: 1rem;
             margin-bottom: 1.5rem;
         }
@@ -1274,52 +1274,104 @@
         .daily-note-pill.inactive { background: var(--void-lighter); color: var(--text-muted); }
         .daily-note-pill:hover { opacity: 0.85; }
 
-        .overview-system-stats {
-            display: grid;
-            grid-template-columns: repeat(5, 1fr);
-            gap: 0.75rem;
-            margin-bottom: 1.5rem;
-        }
-        .system-stat-card {
+        .today-panel {
             background: var(--void-lighter);
             border-radius: var(--radius-md);
-            padding: 0.8rem 1rem;
+            padding: 1.2rem 1.5rem;
             box-shadow: var(--shadow-sm);
-            cursor: pointer;
-            transition: box-shadow 0.2s, transform 0.2s;
+            margin-bottom: 1.5rem;
+            display: grid;
+            grid-template-columns: auto 1fr;
+            gap: 1.5rem;
+            align-items: start;
+        }
+        .today-panel-status {
             display: flex;
             align-items: center;
-            gap: 0.6rem;
-            border: none;
+            gap: 0.5rem;
+            white-space: nowrap;
         }
-        .system-stat-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
-        .system-stat-info { display: flex; flex-direction: column; }
-        .system-stat-value { font-size: 1.2rem; font-weight: 600; font-family: var(--mono); color: var(--text-body); line-height: 1; }
-        .system-stat-label { font-size: 0.75rem; color: var(--text-muted); font-weight: 500; margin-top: 0.15rem; }
-        .system-stat-card .icon svg { width: 18px; height: 18px; color: var(--accent); opacity: 0.7; }
+        .today-panel-status .icon svg { width: 16px; height: 16px; }
+        .today-panel-status.has-note { color: var(--accent); }
+        .today-panel-status.no-note { color: var(--text-muted); }
+        .today-panel-status span { font-size: 0.85rem; font-weight: 500; }
+        .today-panel-preview {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            line-height: 1.5;
+            overflow: hidden;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+        .today-panel-preview .task-line { display: block; }
+        .today-panel-empty {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
 
-        .overview-columns-3 {
+        .overview-columns-2 {
             display: grid;
-            grid-template-columns: 1.5fr 1fr 1fr;
+            grid-template-columns: 1.5fr 1fr;
             gap: 1.5rem;
             margin-bottom: 1.5rem;
         }
 
-        .knowledge-stat-row {
+        .health-group {
+            margin-bottom: 1rem;
+        }
+        .health-group:last-child { margin-bottom: 0; }
+        .health-group-title {
+            font-size: 0.75rem;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--accent);
+            margin-bottom: 0.5rem;
+        }
+        .health-row {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 0.6rem;
-            padding: 0.5rem 0.75rem;
+            padding: 0.4rem 0;
             border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
             cursor: pointer;
-            border-radius: var(--radius-sm);
             transition: background 0.15s;
+            border-radius: var(--radius-sm);
         }
-        .knowledge-stat-row:hover { background: var(--hover-subtle); }
-        .knowledge-stat-row:last-child { border-bottom: none; }
-        .knowledge-stat-row .icon svg { width: 16px; height: 16px; opacity: 0.6; }
-        .knowledge-stat-name { flex: 1; font-size: 0.85rem; font-weight: 500; }
-        .knowledge-stat-count { font-size: 0.85rem; font-family: var(--mono); color: var(--text-muted); }
+        .health-row:hover { background: var(--hover-subtle); }
+        .health-row:last-child { border-bottom: none; }
+        .health-row-label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--text-body);
+            font-weight: 500;
+        }
+        .health-row-label .icon svg { width: 14px; height: 14px; opacity: 0.6; }
+        .health-row-value {
+            font-family: var(--mono);
+            font-size: 0.82rem;
+            color: var(--text-muted);
+        }
+        .health-row-value.warn { color: var(--accent); font-weight: 600; }
+        .embed-bar {
+            width: 100%;
+            height: 6px;
+            background: var(--border);
+            border-radius: 3px;
+            margin-top: 0.4rem;
+            overflow: hidden;
+        }
+        .embed-bar-fill {
+            height: 100%;
+            background: var(--accent);
+            border-radius: 3px;
+            transition: width 0.3s;
+        }
 
         /* ── Competition view ─────────────────────────── */
         .competitor-grid {
@@ -2396,15 +2448,15 @@
 
         /* ─── Responsive ─── */
         @media (max-width: 1400px) {
-            .overview-stats { grid-template-columns: repeat(2, 1fr); }
-            .overview-system-stats { grid-template-columns: repeat(3, 1fr); }
-            .overview-columns-3 { grid-template-columns: 1.5fr 1fr; }
+            .overview-stats { grid-template-columns: repeat(3, 1fr); }
+            .overview-columns-2 { grid-template-columns: 1.5fr 1fr; }
         }
 
         @media (max-width: 1100px) {
             .overview-columns { grid-template-columns: 1fr; }
-            .overview-columns-3 { grid-template-columns: 1fr; }
+            .overview-columns-2 { grid-template-columns: 1fr; }
             .overview-bottom { grid-template-columns: 1fr; }
+            .today-panel { grid-template-columns: 1fr; }
         }
 
         @media (max-width: 768px) {
@@ -2433,7 +2485,6 @@
             .search-input { margin-left: 0; width: 100%; }
 
             .overview-stats { grid-template-columns: repeat(2, 1fr); }
-            .overview-system-stats { grid-template-columns: repeat(2, 1fr); }
             .overview-greeting { flex-direction: column; align-items: flex-start; }
 
             .content-modal {
@@ -3416,60 +3467,57 @@
         const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
         const todayDateStr = now.toISOString().split('T')[0];
 
+        // Targeted count queries instead of fetching all content
         const [
-            allContent,
-            recentContent,
-            feedItemCount,
-            uncapturedCount,
-            peopleCount,
-            companiesCount,
-            productsCount,
-            projectsCount,
-            assetsCount,
-            dailyNoteToday,
+            articleCount, articleWeekCount,
+            thoughtCount, thoughtWeekCount,
+            signalCount, signalWeekCount,
+            reflectionCount, reflectionWeekCount,
             summariesCount,
+            recentContent,
+            feedItemCount, uncapturedFeedCount,
+            dailyNoteToday,
+            unembeddedCount,
+            untaggedArticles,
+            tagData, sourceData,
         ] = await Promise.all([
-            db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata'),
-            db.from('content').select('id, title, type, tags, source, body, status, captured_at, url, author, metadata')
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article').gte('captured_at', weekAgo),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought').gte('captured_at', weekAgo),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal').gte('captured_at', weekAgo),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection').gte('captured_at', weekAgo),
+            db.from('summaries').select('id', { count: 'exact', head: true }),
+            db.from('content').select('id, title, type, tags, source, captured_at, url, metadata')
                 .order('captured_at', { ascending: false }).limit(15),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
-            db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false),
-            db.from('people').select('id', { count: 'exact', head: true }),
-            db.from('companies').select('id', { count: 'exact', head: true }),
-            db.from('products').select('id', { count: 'exact', head: true }),
-            db.from('projects').select('id', { count: 'exact', head: true }),
-            db.from('assets').select('id', { count: 'exact', head: true }),
-            db.from('daily_notes').select('id').eq('note_date', todayDateStr).maybeSingle(),
-            db.from('summaries').select('id', { count: 'exact', head: true }),
+            db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false).eq('dismissed', false),
+            db.from('daily_notes').select('id, tasks, meetings, notes').eq('note_date', todayDateStr).maybeSingle(),
+            db.from('content').select('id', { count: 'exact', head: true }).is('embedded_at', null),
+            db.from('content').select('id, title', { count: 'exact' }).eq('type', 'article').filter('tags', 'eq', '{}').limit(8),
+            db.from('content').select('tags').not('tags', 'is', null).limit(500),
+            db.from('content').select('source').eq('type', 'article').not('source', 'is', null).limit(500),
         ]);
 
-        const content = allContent.data || [];
         const recent = recentContent.data || [];
-        const hasDailyNote = !!dailyNoteToday.data;
+        const dailyNote = dailyNoteToday.data;
+        const hasDailyNote = !!dailyNote;
 
-        // Counts
-        const articles = content.filter(c => c.type === 'article');
-        const articlesThisWeek = articles.filter(c => c.captured_at >= weekAgo);
-        const thoughtsSignals = content.filter(c => c.type === 'thought' || c.type === 'signal');
-        const reflections = content.filter(c => c.type === 'reflection');
+        const totalContent = (articleCount.count || 0) + (thoughtCount.count || 0) + (signalCount.count || 0) + (reflectionCount.count || 0);
+        const embeddedCount = totalContent - (unembeddedCount.count || 0);
+        const embedPct = totalContent > 0 ? Math.round((embeddedCount / totalContent) * 100) : 0;
 
-        // Tags
+        // Tags from limited dataset
         const tagCounts = {};
-        content.forEach(c => (c.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
+        (tagData.data || []).forEach(c => (c.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
         const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
 
-        // Sources
+        // Sources from limited dataset
         const sourceCounts = {};
-        articles.forEach(a => { if (a.source) sourceCounts[a.source] = (sourceCounts[a.source] || 0) + 1; });
+        (sourceData.data || []).forEach(a => { if (a.source) sourceCounts[a.source] = (sourceCounts[a.source] || 0) + 1; });
         const topSources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
-
-        // Needs attention
-        const STUB = '*Article content could not be extracted';
-        const needsAttention = [];
-        articles.forEach(a => {
-            if (!a.tags || a.tags.length === 0) needsAttention.push({ ...a, reason: 'No tags' });
-            else if (a.body && a.body.startsWith(STUB)) needsAttention.push({ ...a, reason: 'No content' });
-        });
 
         // Greeting
         const hour = now.getHours();
@@ -3477,11 +3525,28 @@
         const dateOptions = { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' };
         const formattedDate = now.toLocaleDateString('en-GB', dateOptions);
 
+        // Today panel preview
+        let todayPreviewHtml = '';
+        if (dailyNote) {
+            const parts = [];
+            if (dailyNote.tasks) {
+                const lines = dailyNote.tasks.split('\n').filter(l => l.trim()).slice(0, 4);
+                parts.push(lines.map(l => `<span class="task-line">${esc(l)}</span>`).join(''));
+            }
+            if (dailyNote.meetings && !dailyNote.tasks) {
+                const lines = dailyNote.meetings.split('\n').filter(l => l.trim()).slice(0, 3);
+                parts.push(lines.map(l => `<span class="task-line">${esc(l)}</span>`).join(''));
+            }
+            todayPreviewHtml = parts.length > 0 ? parts.join('') : '<span class="today-panel-empty">Note started, no tasks yet</span>';
+        } else {
+            todayPreviewHtml = '<span class="today-panel-empty">No daily note yet — click to start one</span>';
+        }
+
         // Group recent by date
         function dateGroup(iso) {
             if (iso >= todayStart) return 'Today';
             if (iso >= yesterdayStart) return 'Yesterday';
-            return 'Earlier this week';
+            return 'Earlier';
         }
 
         let activityHtml = '';
@@ -3506,13 +3571,15 @@
             `;
         }
 
-        const attentionHtml = needsAttention.length === 0
+        // Needs attention items (untagged articles)
+        const attentionItems = untaggedArticles.data || [];
+        const attentionHtml = attentionItems.length === 0
             ? '<div class="empty-attention">All clear — nothing needs attention</div>'
-            : needsAttention.slice(0, 8).map(a => `
+            : attentionItems.map(a => `
                 <div class="attention-item" data-id="${a.id}">
-                    <span class="attention-icon">${a.reason === 'No tags' ? icon('tag') : icon('file')}</span>
+                    <span class="attention-icon">${icon('tag')}</span>
                     <span class="attention-title">${esc(a.title)}</span>
-                    <span class="attention-reason">${a.reason}</span>
+                    <span class="attention-reason">No tags</span>
                 </div>
             `).join('');
 
@@ -3528,89 +3595,70 @@
                 </button>
             </div>
 
+            <div class="today-panel" id="todayPanel" style="cursor:pointer">
+                <div class="today-panel-status ${hasDailyNote ? 'has-note' : 'no-note'}">
+                    ${hasDailyNote ? icon('notebook-pen') : icon('notebook')}
+                    <span>${hasDailyNote ? 'Today' : 'No note'}</span>
+                </div>
+                <div class="today-panel-preview">${todayPreviewHtml}</div>
+            </div>
+
             <div class="overview-stats">
-                <div class="stat-card">
-                    <div class="stat-card-value">${articles.length}</div>
+                <div class="stat-card" style="cursor:pointer" data-nav="articles">
+                    <div class="stat-card-value">${articleCount.count || 0}</div>
                     <div class="stat-card-label">Articles</div>
-                    <div class="stat-card-sub">${articlesThisWeek.length} this week</div>
+                    <div class="stat-card-sub">${articleWeekCount.count || 0} this week</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-card-value">${thoughtsSignals.length}</div>
-                    <div class="stat-card-label">Thoughts & Signals</div>
-                    <div class="stat-card-sub">${reflections.length} reflections</div>
+                <div class="stat-card" style="cursor:pointer" data-nav="thoughts">
+                    <div class="stat-card-value">${thoughtCount.count || 0}</div>
+                    <div class="stat-card-label">Thoughts</div>
+                    <div class="stat-card-sub">${thoughtWeekCount.count || 0} this week</div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-card-value">${feedItemCount.count || 0}</div>
-                    <div class="stat-card-label">Feed Items</div>
-                    <div class="stat-card-sub">${uncapturedCount.count || 0} uncaptured</div>
+                <div class="stat-card" style="cursor:pointer" data-nav="signals">
+                    <div class="stat-card-value">${signalCount.count || 0}</div>
+                    <div class="stat-card-label">Signals</div>
+                    <div class="stat-card-sub">${signalWeekCount.count || 0} this week</div>
                 </div>
-                <div class="stat-card">
+                <div class="stat-card" style="cursor:pointer" data-nav="reflections">
+                    <div class="stat-card-value">${reflectionCount.count || 0}</div>
+                    <div class="stat-card-label">Reflections</div>
+                    <div class="stat-card-sub">${reflectionWeekCount.count || 0} this week</div>
+                </div>
+                <div class="stat-card" style="cursor:pointer" data-nav="summaries">
                     <div class="stat-card-value">${summariesCount.count || 0}</div>
                     <div class="stat-card-label">Summaries</div>
-                    <div class="stat-card-sub">${Object.keys(tagCounts).length} tags</div>
+                    <div class="stat-card-sub">${Object.keys(tagCounts).length} unique tags</div>
                 </div>
             </div>
 
-            <div class="overview-system-stats">
-                <div class="system-stat-card" data-nav="people">
-                    ${icon('users')}
-                    <div class="system-stat-info">
-                        <div class="system-stat-value">${peopleCount.count || 0}</div>
-                        <div class="system-stat-label">People</div>
-                    </div>
-                </div>
-                <div class="system-stat-card" data-nav="companies">
-                    ${icon('building-2')}
-                    <div class="system-stat-info">
-                        <div class="system-stat-value">${companiesCount.count || 0}</div>
-                        <div class="system-stat-label">Companies</div>
-                    </div>
-                </div>
-                <div class="system-stat-card" data-nav="products">
-                    ${icon('box')}
-                    <div class="system-stat-info">
-                        <div class="system-stat-value">${productsCount.count || 0}</div>
-                        <div class="system-stat-label">Products</div>
-                    </div>
-                </div>
-                <div class="system-stat-card" data-nav="projects">
-                    ${icon('kanban')}
-                    <div class="system-stat-info">
-                        <div class="system-stat-value">${projectsCount.count || 0}</div>
-                        <div class="system-stat-label">Projects</div>
-                    </div>
-                </div>
-                <div class="system-stat-card" data-nav="assets">
-                    ${icon('folder-open')}
-                    <div class="system-stat-info">
-                        <div class="system-stat-value">${assetsCount.count || 0}</div>
-                        <div class="system-stat-label">Assets</div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="overview-columns-3">
+            <div class="overview-columns-2">
                 <div class="overview-section">
                     <div class="overview-section-title">Recent Activity</div>
                     ${activityHtml || '<div class="empty-attention">No recent activity</div>'}
                 </div>
                 <div class="overview-section">
-                    <div class="overview-section-title">Needs Attention (${needsAttention.length})</div>
-                    ${attentionHtml}
-                </div>
-                <div class="overview-section">
-                    <div class="overview-section-title">Knowledge</div>
-                    <div class="knowledge-stat-row" data-nav="people">
-                        ${icon('users')} <span class="knowledge-stat-name">People</span> <span class="knowledge-stat-count">${peopleCount.count || 0}</span>
+                    <div class="health-group">
+                        <div class="health-group-title">Inbox</div>
+                        <div class="health-row" data-nav="feed-items">
+                            <span class="health-row-label">${icon('inbox')} Pending feed items</span>
+                            <span class="health-row-value${(uncapturedFeedCount.count || 0) > 50 ? ' warn' : ''}">${uncapturedFeedCount.count || 0}</span>
+                        </div>
                     </div>
-                    <div class="knowledge-stat-row" data-nav="companies">
-                        ${icon('building-2')} <span class="knowledge-stat-name">Companies</span> <span class="knowledge-stat-count">${companiesCount.count || 0}</span>
+                    <div class="health-group">
+                        <div class="health-group-title">Content Health</div>
+                        <div class="health-row">
+                            <span class="health-row-label">${icon('cpu')} Embedding coverage</span>
+                            <span class="health-row-value${embedPct < 50 ? ' warn' : ''}">${embedPct}%</span>
+                        </div>
+                        <div class="embed-bar"><div class="embed-bar-fill" style="width:${embedPct}%"></div></div>
+                        <div class="health-row" data-nav="articles">
+                            <span class="health-row-label">${icon('tag')} Untagged articles</span>
+                            <span class="health-row-value${(untaggedArticles.count || 0) > 0 ? ' warn' : ''}">${untaggedArticles.count || 0}</span>
+                        </div>
                     </div>
-                    <div class="knowledge-stat-row" data-nav="products">
-                        ${icon('box')} <span class="knowledge-stat-name">Products</span> <span class="knowledge-stat-count">${productsCount.count || 0}</span>
-                    </div>
-                    <div class="knowledge-stat-row" data-nav="projects">
-                        ${icon('kanban')} <span class="knowledge-stat-name">Projects</span> <span class="knowledge-stat-count">${projectsCount.count || 0}</span>
+                    <div class="health-group">
+                        <div class="health-group-title">Needs Attention</div>
+                        ${attentionHtml}
                     </div>
                 </div>
             </div>
@@ -3635,16 +3683,17 @@
             </div>
         `;
 
-        // Wire up daily note pill
+        // Wire up daily note pill + today panel
         document.getElementById('dailyNotePill')?.addEventListener('click', () => navigateToView('daily-note'));
+        document.getElementById('todayPanel')?.addEventListener('click', () => navigateToView('daily-note'));
 
-        // Wire up system stat card clicks
-        main.querySelectorAll('.system-stat-card[data-nav]').forEach(el => {
+        // Wire up stat card clicks
+        main.querySelectorAll('.stat-card[data-nav]').forEach(el => {
             el.addEventListener('click', () => navigateToView(el.dataset.nav));
         });
 
-        // Wire up knowledge row clicks
-        main.querySelectorAll('.knowledge-stat-row[data-nav]').forEach(el => {
+        // Wire up health row clicks
+        main.querySelectorAll('.health-row[data-nav]').forEach(el => {
             el.addEventListener('click', () => navigateToView(el.dataset.nav));
         });
 
@@ -3658,9 +3707,9 @@
 
         // Wire up attention item clicks
         main.querySelectorAll('.attention-item').forEach(el => {
-            el.addEventListener('click', () => {
-                const item = content.find(c => c.id === el.dataset.id);
-                if (item) openContentModal(item);
+            el.addEventListener('click', async () => {
+                const { data } = await db.from('content').select('*').eq('id', el.dataset.id).maybeSingle();
+                if (data) openContentModal(data);
             });
         });
 
@@ -3672,6 +3721,8 @@
                 navigateToView('articles');
             });
         });
+
+        refreshIcons();
     }
 
     // ─── Daily Note ─────────────────────────────────────────────
