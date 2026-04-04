@@ -3045,6 +3045,180 @@ server.tool(
   }
 );
 
+// ─── Group 11: Strategy Intelligence ──────────────────────
+
+server.tool(
+  'strategy_extract',
+  'Fetch context for extracting/updating strategies from source content (articles, signals, meeting notes). Returns source content, existing strategies, and prompt for Claude to analyse.',
+  {
+    content_ids: z.array(z.string()).describe('UUIDs of source content items to analyse'),
+    strategy_types: z.array(z.string()).optional().describe('Filter to specific strategy types (e.g. ["product-strategy", "goals"])'),
+  },
+  async ({ content_ids, strategy_types }) => {
+    const sourceContent = await supabaseGet(
+      `content?id=in.(${content_ids.join(',')})&select=id,title,type,body,tags,metadata`
+    );
+    if (!sourceContent.length) {
+      return { content: [{ type: 'text' as const, text: 'No source content found for the given IDs' }] };
+    }
+
+    let strategyQuery = 'content?type=eq.strategy&select=id,title,body,tags,metadata&order=title&limit=100';
+    const allStrategies = await supabaseGet(strategyQuery);
+
+    let strategies = allStrategies;
+    if (strategy_types?.length) {
+      strategies = allStrategies.filter((s: any) =>
+        strategy_types.includes(s.metadata?.strategy_type)
+      );
+    }
+
+    const promptRes = await supabaseGet('prompts?slug=eq.extract-strategies&limit=1');
+    const prompt = promptRes?.[0] || null;
+
+    const sourceText = sourceContent.map((c: any) =>
+      `### ${c.title} (${c.type})\n${c.body?.substring(0, 3000) || '(empty)'}\nTags: ${(c.tags || []).join(', ')}`
+    ).join('\n\n---\n\n');
+
+    const strategiesRef = strategies.map((s: any) => {
+      const st = s.metadata?.strategy_type || '?';
+      const pa = s.metadata?.product_area || '?';
+      const excerpt = s.body?.substring(0, 400) || '';
+      return `#### ${s.title} [Type: ${st}, Area: ${pa}] (ID: ${s.id})\n${excerpt}`;
+    }).join('\n\n');
+
+    const allStrategyList = allStrategies.map((s: any) =>
+      `${s.metadata?.strategy_type || '?'}: ${s.title} (${s.id})`
+    ).join('\n');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          source_content: sourceContent.map((c: any) => ({ id: c.id, title: c.title, type: c.type })),
+          source_text: sourceText,
+          existing_strategies_count: strategies.length,
+          existing_strategies_reference: strategiesRef,
+          all_strategies_list: allStrategyList,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          prompt_version: prompt?.version || null,
+          instructions: 'Analyse the source content for strategy-relevant insights. For existing strategies, identify market trends, competitive intelligence, customer signals, or strategic shifts that should be captured. For genuinely new strategic directions, propose a new strategy record. Then call strategy_write with: strategy_updates (existing strategy enrichment), new_strategies (new strategy creation), content_links (links between source and strategies), and a summary.',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'strategy_write',
+  'Write strategy extraction results back to the database. Call this after processing strategy_extract data.',
+  {
+    date: z.string().describe('Date of extraction (YYYY-MM-DD)'),
+    source_content_ids: z.array(z.string()).optional().default([]).describe('UUIDs of source content that was analysed'),
+    review_data: z.object({
+      strategy_updates: z.array(z.object({
+        strategy_id: z.string().describe('UUID of the strategy to update'),
+        update_text: z.string().describe('New insight or evidence to append'),
+        insight_type: z.string().optional().describe('Type: market_trend, competitive_intel, customer_signal, strategic_shift'),
+        source_context: z.string().optional().describe('Where this insight came from'),
+      })).optional().default([]),
+      new_strategies: z.array(z.object({
+        title: z.string(),
+        body: z.string(),
+        strategy_type: z.string().optional().default('reference'),
+        product_area: z.string().optional().default('Domain'),
+        owner: z.string().optional(),
+        tags: z.array(z.string()).optional().default([]),
+      })).optional().default([]),
+      content_links: z.array(z.object({
+        source_id: z.string(),
+        target_id: z.string(),
+        link_type: z.enum(['evidence', 'related', 'derived_from', 'supports']),
+        context: z.string().optional(),
+      })).optional().default([]),
+      summary: z.string().optional().default(''),
+    }).describe('Structured strategy extraction results'),
+  },
+  async ({ date, source_content_ids, review_data }) => {
+    const results = { strategy_updates: 0, new_strategies: 0, content_links: 0 };
+
+    // Process strategy updates — append insights to existing strategies
+    for (const update of review_data.strategy_updates) {
+      const strategies = await supabaseGet(
+        `content?id=eq.${update.strategy_id}&type=eq.strategy&select=id,body&limit=1`
+      );
+      if (!strategies.length) continue;
+
+      const strategy = strategies[0];
+      const timestamp = new Date().toISOString().split('T')[0];
+      const insightSection = `\n\n---\n### Insight Added ${timestamp}${update.insight_type ? ` (${update.insight_type})` : ''}\n${update.source_context ? `*Source: ${update.source_context}*\n\n` : ''}${update.update_text}`;
+
+      await supabasePatch(`content?id=eq.${strategy.id}`, {
+        body: (strategy.body || '') + insightSection,
+        updated_at: new Date().toISOString(),
+      });
+
+      embedItem('content', strategy.id).catch(() => {});
+      results.strategy_updates++;
+    }
+
+    // Create new strategies
+    for (const newStrategy of review_data.new_strategies) {
+      const cleanTags = ['strategy', newStrategy.strategy_type || 'reference', ...(newStrategy.tags || [])]
+        .map(t => t.trim().toLowerCase())
+        .filter(Boolean);
+
+      const result = await supabasePost('content', {
+        type: 'strategy',
+        title: newStrategy.title,
+        body: newStrategy.body,
+        tags: cleanTags,
+        status: 'active',
+        metadata: {
+          strategy_type: newStrategy.strategy_type || 'reference',
+          product_area: newStrategy.product_area || 'Domain',
+          owner: newStrategy.owner || null,
+          doc_status: 'draft',
+          created_from: { extraction_date: date, source_content_ids },
+        },
+      }, true);
+
+      if (result.ok && result.data?.[0]?.id) {
+        embedItem('content', result.data[0].id).catch(() => {});
+        results.new_strategies++;
+      }
+    }
+
+    // Create content links
+    for (const link of review_data.content_links) {
+      const linkResult = await supabasePost('content_links', {
+        source_id: link.source_id,
+        target_id: link.target_id,
+        link_type: link.link_type,
+        context: link.context || null,
+      }, true);
+      if (linkResult.ok) results.content_links++;
+    }
+
+    // Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'strategy_extraction',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary,
+      files_updated: results,
+      completed_at: new Date().toISOString(),
+    });
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({ ok: true, writes: results, summary: review_data.summary }, null, 2),
+      }],
+    };
+  }
+);
+
 } // end registerTools
 
 function registerResources(server: McpServer) {

@@ -227,7 +227,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (44 tools)
+### Tool Groups (48 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -238,6 +238,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_process | 9 |
 | Content Linking | link_content, get_content_links | 2 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
+| Strategy Intelligence | strategy_extract, strategy_write | 2 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |
@@ -269,11 +270,23 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 }
 ```
 
+### Strategy Metadata Schema
+
+```json
+{
+  "strategy_type": "core-strategy|product-strategy|goals|roadmap|thought-leadership|customer-feedback|ost|architecture|operational|reference",
+  "product_area": "WCP|AE|Phoenix|Domain",
+  "owner": "Paul Land",
+  "version": "v0.10",
+  "doc_status": "draft|active|archived|superseded"
+}
+```
+
 ### Content Links
 
 The `content_links` table enables linking any content item to any other (signal→problem, article→problem, problem→problem). Link types: `evidence`, `related`, `derived_from`, `supports`.
 
-### Skills (7 skills, defined in `.claude/skills/`)
+### Skills (8 skills, defined in `.claude/skills/`)
 
 | Skill | Prompt Slug | Tools Used |
 |-------|-------------|------------|
@@ -283,13 +296,14 @@ The `content_links` table enables linking any content item to any other (signal�
 | Monthly Review | `monthly-summary` | get_prompt, monthly_review_extract, monthly_review_write |
 | Show & Tell Review | `show-and-tell` | get_prompt, show_and_tell_extract, show_and_tell_write |
 | Extract Problems | `extract-problems` | get_prompt, problem_extract, problem_write, list_content, get_content, link_content |
+| Extract Strategies | `extract-strategies` | get_prompt, strategy_extract, strategy_write, list_content, link_content |
 | Support Review | `support-review` | get_prompt, support_review_process |
 
-### Prompt Templates (9 prompts, stored in Supabase `prompts` table)
+### Prompt Templates (10 prompts, stored in Supabase `prompts` table)
 
 Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
 
-Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
 
 ### Worker Secrets (set via `wrangler secret put`)
 

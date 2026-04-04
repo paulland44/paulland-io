@@ -5704,8 +5704,36 @@
             <div class="page-header">
                 <h2 class="page-title">${viewTitle}</h2>
                 <span style="flex:1"></span>
-                <span style="font-size:0.8rem;color:var(--text-muted)">${allStrategies.length} documents</span>
+                ${!filterTypes ? '<button class="btn" id="toggleNewStrategy"><i class="icon" data-lucide="plus"></i> New Strategy</button>' : `<span style="font-size:0.8rem;color:var(--text-muted)">${allStrategies.length} documents</span>`}
             </div>
+            ${!filterTypes ? `<div class="new-signal-form" id="newStrategyForm">
+                <input type="text" id="newStrategyTitle" placeholder="Strategy title..." class="input">
+                <textarea id="newStrategyBody" placeholder="Describe the strategy or insight..." class="input" rows="4"></textarea>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                    <select id="newStrategyType" class="filter-select" style="width:auto">
+                        <option value="reference">Reference</option>
+                        <option value="core-strategy">Core Strategy</option>
+                        <option value="product-strategy">Product Strategy</option>
+                        <option value="goals">Goals</option>
+                        <option value="roadmap">Roadmap</option>
+                        <option value="thought-leadership">Thought Leadership</option>
+                        <option value="customer-feedback">Customer Feedback</option>
+                        <option value="architecture">Architecture</option>
+                        <option value="operational">Operational</option>
+                    </select>
+                    <select id="newStrategyArea" class="filter-select" style="width:auto">
+                        <option value="Domain">Domain</option>
+                        <option value="WCP">WCP</option>
+                        <option value="AE">AE</option>
+                        <option value="Phoenix">Phoenix</option>
+                    </select>
+                    <input type="text" id="newStrategyOwner" placeholder="Owner..." class="input" style="width:10rem">
+                </div>
+                <div class="form-actions">
+                    <button class="btn" id="cancelNewStrategy">Cancel</button>
+                    <button class="btn btn-primary" id="saveNewStrategy">Save Strategy</button>
+                </div>
+            </div>` : ''}
             <div class="filters">
                 <input type="text" class="search-input" placeholder="Search strategies..." id="searchStrategies">
                 ${!filterTypes ? `<select class="filter-select" id="strategyProductFilter">
@@ -5811,6 +5839,39 @@
         document.getElementById('searchStrategies')?.addEventListener('input', renderStrategyCards);
         document.getElementById('strategyProductFilter')?.addEventListener('change', renderStrategyCards);
 
+        // Wire new strategy form (only in overview)
+        document.getElementById('toggleNewStrategy')?.addEventListener('click', () => {
+            document.getElementById('newStrategyForm').classList.toggle('open');
+        });
+        document.getElementById('cancelNewStrategy')?.addEventListener('click', () => {
+            document.getElementById('newStrategyForm').classList.remove('open');
+        });
+        document.getElementById('saveNewStrategy')?.addEventListener('click', async () => {
+            const title = document.getElementById('newStrategyTitle').value.trim();
+            const body = document.getElementById('newStrategyBody').value.trim();
+            if (!title) return;
+            const btn = document.getElementById('saveNewStrategy');
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', data: {
+                        type: 'strategy', title, body: body || title, status: 'active',
+                        tags: ['strategy', document.getElementById('newStrategyType').value],
+                        metadata: {
+                            strategy_type: document.getElementById('newStrategyType').value,
+                            product_area: document.getElementById('newStrategyArea').value,
+                            owner: document.getElementById('newStrategyOwner').value.trim() || null,
+                            doc_status: 'draft',
+                        }
+                    }}),
+                });
+                if (res.ok) { loadStrategyView(null); loadCounts(); }
+                else { btn.textContent = 'Save Strategy'; btn.disabled = false; }
+            } catch { btn.textContent = 'Save Strategy'; btn.disabled = false; }
+        });
+
         refreshIcons();
     }
 
@@ -5841,7 +5902,23 @@
             <div class="page-header">
                 <h2 class="page-title">Problems</h2>
                 <span style="flex:1"></span>
-                <span style="font-size:0.8rem;color:var(--text-muted)">${allProblems.length} problems</span>
+                <button class="btn" id="toggleNewProblem"><i class="icon" data-lucide="plus"></i> New Problem</button>
+            </div>
+            <div class="new-signal-form" id="newProblemForm">
+                <div style="display:flex;gap:0.5rem">
+                    <input type="text" id="newProblemId" placeholder="P19" class="input" style="width:5rem">
+                    <input type="text" id="newProblemTitle" placeholder="Problem title..." class="input" style="flex:1">
+                </div>
+                <textarea id="newProblemBody" placeholder="Describe the problem — what pain point does this capture?" class="input" rows="4"></textarea>
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+                    <select id="newProblemDomain" class="filter-select" style="width:auto"><option value="domain">Domain</option><option value="phoenix">Phoenix</option></select>
+                    <select id="newProblemPriority" class="filter-select" style="width:auto"><option value="High">High</option><option value="Medium-High">Medium-High</option><option value="Medium">Medium</option><option value="Lower">Lower</option></select>
+                    <select id="newProblemCategory" class="filter-select" style="width:auto"><option value="">Category...</option><option value="Operational Efficiency">Operational Efficiency</option><option value="Strategic/Competitive">Strategic/Competitive</option><option value="Compliance & Risk">Compliance & Risk</option><option value="Foundational/Enabler">Foundational/Enabler</option></select>
+                </div>
+                <div class="form-actions">
+                    <button class="btn" id="cancelNewProblem">Cancel</button>
+                    <button class="btn btn-primary" id="saveNewProblem">Save Problem</button>
+                </div>
             </div>
             <div class="filters">
                 <select class="filter-select" id="problemDomainFilter">
@@ -5955,6 +6032,42 @@
             });
         });
         document.getElementById('searchProblems').addEventListener('input', renderProblemCards);
+
+        // Wire new problem form
+        document.getElementById('toggleNewProblem').addEventListener('click', () => {
+            document.getElementById('newProblemForm').classList.toggle('open');
+        });
+        document.getElementById('cancelNewProblem').addEventListener('click', () => {
+            document.getElementById('newProblemForm').classList.remove('open');
+        });
+        document.getElementById('saveNewProblem').addEventListener('click', async () => {
+            const problemId = document.getElementById('newProblemId').value.trim();
+            const title = document.getElementById('newProblemTitle').value.trim();
+            const body = document.getElementById('newProblemBody').value.trim();
+            if (!title) return;
+            const fullTitle = problemId ? `${problemId} - ${title}` : title;
+            const btn = document.getElementById('saveNewProblem');
+            btn.textContent = 'Saving...'; btn.disabled = true;
+            try {
+                const res = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'content', data: {
+                        type: 'problem', title: fullTitle, body: body || `## Problem Statement\n\n${title}`, status: 'active',
+                        tags: ['problem', 'discovery'],
+                        metadata: {
+                            problem_id: problemId || null,
+                            problem_domain: document.getElementById('newProblemDomain').value,
+                            priority: document.getElementById('newProblemPriority').value,
+                            category: document.getElementById('newProblemCategory').value || null,
+                            related_problems: [], affected_personas: [], is_index: false,
+                        }
+                    }}),
+                });
+                if (res.ok) { loadProblems(); loadCounts(); }
+                else { btn.textContent = 'Save Problem'; btn.disabled = false; }
+            } catch { btn.textContent = 'Save Problem'; btn.disabled = false; }
+        });
 
         refreshIcons();
     }
@@ -11195,7 +11308,7 @@
 
     async function openContentModal(item) {
         currentModalItem = item;
-        const editableTypes = ['thought', 'signal', 'reflection'];
+        const editableTypes = ['thought', 'signal', 'reflection', 'problem', 'strategy'];
         const titleEl = document.getElementById('contentModalTitle');
         titleEl.textContent = item.title || 'Untitled';
         if (editableTypes.includes(item.type)) {
