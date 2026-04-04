@@ -9039,6 +9039,10 @@
                 <input type="file" id="assetFileInput" multiple accept=".pdf,.png,.jpg,.jpeg,.gif,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.csv,.txt,.zip">
                 <div class="asset-upload-progress" id="assetUploadProgress"></div>
             </div>
+            <div style="margin-bottom: 1rem;">
+                <div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.35rem;">Tags for uploaded files</div>
+                ${buildEntityTagEditor([], 'upload')}
+            </div>
 
             <div class="filters" style="margin-bottom: 1rem;">
                 <button class="filter-btn ${!assetFilter.type ? 'active' : ''}" data-asset-type="">All</button>
@@ -9192,11 +9196,18 @@
     }
 
     function wireAssetEvents() {
+        // Upload tag editor
+        wireEntityTagEditor('upload');
+
         // Upload zone click
         const dropZone = document.getElementById('assetDropZone');
         const fileInput = document.getElementById('assetFileInput');
 
-        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('click', (e) => {
+            // Don't open file picker if clicking the tag editor
+            if (e.target.closest('.tag-editor')) return;
+            fileInput.click();
+        });
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length) uploadAssetFiles(e.target.files);
@@ -9276,12 +9287,14 @@
         const progress = document.getElementById('assetUploadProgress');
         const total = files.length;
         let done = 0;
+        const uploadTags = getEntityTags('upload');
 
         for (const file of files) {
             progress.innerHTML = `<span style="color: var(--accent);">Uploading ${done + 1}/${total}: ${esc(file.name)}...</span>`;
 
             const formData = new FormData();
             formData.append('file', file);
+            if (uploadTags.length) formData.append('tags', uploadTags.join(','));
 
             try {
                 const res = await fetch('/api/assets/upload', {
