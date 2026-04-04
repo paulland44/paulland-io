@@ -9632,6 +9632,13 @@
             { name: 'asset_id', type: 'string?', desc: 'Source asset UUID' },
             { name: 'review_data', type: 'object', desc: 'summary, overview_metrics, aging_cases, support_patterns, feature_gaps, customer_entries' },
         ]},
+        { name: 'list_assets', desc: 'List assets with optional tag, type, and filename filters', group: 'Assets', params: 5, paramDetails: [
+            { name: 'tags', type: 'string[]?', desc: 'Filter by tags (asset must have all)' },
+            { name: 'mime_type', type: 'string?', desc: 'Filter by MIME type prefix, e.g. "image/", "application/pdf"' },
+            { name: 'search', type: 'string?', desc: 'Search by filename' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default 20)' },
+            { name: 'offset', type: 'number?', desc: 'Pagination offset' },
+        ]},
         { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
             { name: 'source_table', type: 'string', desc: 'Table name (e.g. content, daily_notes)' },
             { name: 'source_id', type: 'string', desc: 'Row UUID' },
