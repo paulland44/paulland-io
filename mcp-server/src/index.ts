@@ -1952,6 +1952,42 @@ server.tool(
   }
 );
 
+// ─── Asset Tools ─────────────────────────────────────────────
+
+server.tool(
+  'list_assets',
+  'List assets in the knowledge base asset library with optional tag and type filters',
+  {
+    tags: z.array(z.string()).optional().describe('Filter by tags (asset must have all specified tags)'),
+    mime_type: z.string().optional().describe('Filter by MIME type prefix, e.g. "image/", "application/pdf", "application/vnd"'),
+    search: z.string().optional().describe('Search by filename'),
+    limit: z.number().optional().default(20).describe('Max items to return'),
+    offset: z.number().optional().default(0).describe('Offset for pagination'),
+  },
+  async ({ tags, mime_type, search, limit, offset }) => {
+    let path = `assets?select=id,filename,mime_type,file_size,tags,description,uploaded_at&order=uploaded_at.desc&limit=${limit}&offset=${offset}`;
+    if (tags?.length) {
+      path += `&tags=cs.{${tags.join(',')}}`;
+    }
+    if (mime_type) {
+      path += `&mime_type=like.${mime_type}*`;
+    }
+    if (search) {
+      path += `&filename=ilike.*${search}*`;
+    }
+    const rows = await supabaseGet(path);
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          total: rows.length,
+          assets: rows,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
 // ─── Support Review Tools (Extract / Write) ─────────────────
 
 server.tool(
