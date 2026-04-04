@@ -12,6 +12,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
     <!-- Apply theme immediately to prevent flash -->
     <script>
         (function() {
@@ -2683,6 +2684,44 @@
             margin-top: 0.25rem;
         }
 
+        /* ─── Support Dashboard ─── */
+        .support-dashboard-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1.25rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (max-width: 900px) {
+            .support-dashboard-grid { grid-template-columns: 1fr; }
+        }
+        .support-chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+        }
+        .support-chart-card h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-heading);
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .support-chart-card canvas {
+            max-height: 280px;
+        }
+        .gap-occurrences {
+            display: inline-block;
+            background: var(--accent-dim);
+            color: var(--accent);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.1rem 0.45rem;
+            border-radius: var(--radius-pill);
+        }
+
         .btn-action {
             padding: 0.5rem 1.2rem;
             background: var(--accent);
@@ -3179,6 +3218,9 @@
                 <button class="nav-item" data-section="mis">
                     <i class="icon" data-lucide="factory"></i> MIS
                 </button>
+                <button class="nav-item" data-section="support">
+                    <i class="icon" data-lucide="headset"></i> Support
+                </button>
             </div>
             <div class="sidebar-footer">
                 <button class="nav-item" data-section="settings" style="padding: 0.4rem 0.75rem; font-size: 0.8rem; opacity: 0.6;">
@@ -3376,6 +3418,9 @@
             { view: 'mis-monitor', label: 'Job Monitor' },
             { view: 'mis-json', label: 'JSON Builder' },
         ]},
+        support: { tabs: [
+            { view: 'support-dashboard', label: 'Dashboard' },
+        ]},
         settings: { tabs: [
             { view: 'settings-appearance', label: 'Appearance' },
             { view: 'settings-connections', label: 'Connections' },
@@ -3570,6 +3615,7 @@
             case 'mis-create': await loadMisCreate(); break;
             case 'mis-monitor': await loadMisMonitor(); break;
             case 'mis-json': await loadMisJson(); break;
+            case 'support-dashboard': await loadSupportDashboard(); break;
             case 'settings-appearance': await loadSettingsView(); break;
             case 'settings-connections': await loadSettingsConnections(); break;
             case 'settings-system': await loadSettingsSystem(); break;
@@ -8545,6 +8591,286 @@
         document.getElementById('btnSummaryCancel').addEventListener('click', () => {
             openSummaryDetail(item);
         });
+    }
+
+    // ─── Support Dashboard ─────────────────────────────────────
+
+    let supportCharts = [];
+
+    function destroySupportCharts() {
+        supportCharts.forEach(c => c.destroy());
+        supportCharts = [];
+    }
+
+    function aggregateSupportData(summaries) {
+        const sorted = [...summaries].sort((a, b) => (a.period_start || '').localeCompare(b.period_start || ''));
+        const latest = sorted.length ? sorted[sorted.length - 1]?.metadata?.review_data : null;
+
+        // Time series
+        const timeSeries = sorted.map(s => {
+            const rd = s.metadata?.review_data;
+            return {
+                date: s.period_start,
+                total: rd?.overview_metrics?.total || 0,
+                open: rd?.overview_metrics?.open || 0,
+                closed: rd?.overview_metrics?.closed || 0,
+                avg_age: rd?.overview_metrics?.avg_age || 0,
+            };
+        });
+
+        // Pattern counts merged across all reviews
+        const patternMap = {};
+        sorted.forEach(s => {
+            (s.metadata?.review_data?.support_patterns || []).forEach(p => {
+                const key = p.pattern;
+                if (!patternMap[key]) patternMap[key] = { pattern: key, count: 0, severity: p.severity };
+                patternMap[key].count += (p.case_count || 1);
+                if (p.severity === 'critical' || (p.severity === 'high' && patternMap[key].severity !== 'critical')) {
+                    patternMap[key].severity = p.severity;
+                }
+            });
+        });
+        const patterns = Object.values(patternMap).sort((a, b) => b.count - a.count);
+
+        // Aging buckets from latest review
+        const agingBuckets = { '30-59': 0, '60-89': 0, '90-119': 0, '120+': 0 };
+        (latest?.aging_cases || []).forEach(c => {
+            if (c.days_open >= 120) agingBuckets['120+']++;
+            else if (c.days_open >= 90) agingBuckets['90-119']++;
+            else if (c.days_open >= 60) agingBuckets['60-89']++;
+            else agingBuckets['30-59']++;
+        });
+
+        // Customer counts across all reviews
+        const customerMap = {};
+        sorted.forEach(s => {
+            (s.metadata?.review_data?.customer_entries || []).forEach(c => {
+                const key = c.customer_name;
+                if (!customerMap[key]) customerMap[key] = 0;
+                customerMap[key] += (c.notable_cases?.length || 1);
+            });
+        });
+        const customers = Object.entries(customerMap)
+            .map(([name, count]) => ({ name, count }))
+            .sort((a, b) => b.count - a.count);
+
+        // Feature gaps deduplicated
+        const gapMap = {};
+        sorted.forEach(s => {
+            (s.metadata?.review_data?.feature_gaps || []).forEach(g => {
+                const key = g.gap;
+                if (!gapMap[key]) gapMap[key] = { gap: g.gap, evidence: g.evidence, priority: g.priority, product: g.product_name, occurrences: 0 };
+                gapMap[key].occurrences++;
+                if (g.priority === 'high') gapMap[key].priority = 'high';
+            });
+        });
+        const featureGaps = Object.values(gapMap).sort((a, b) => b.occurrences - a.occurrences);
+
+        return { latest, timeSeries, patterns, agingBuckets, customers, featureGaps, reviewCount: sorted.length };
+    }
+
+    function initSupportCharts(agg) {
+        destroySupportCharts();
+        const style = getComputedStyle(document.documentElement);
+        const accent = style.getPropertyValue('--accent').trim();
+        const muted = style.getPropertyValue('--text-muted').trim();
+        const border = style.getPropertyValue('--border').trim();
+        const textBody = style.getPropertyValue('--text-body').trim();
+
+        const chartDefaults = {
+            color: muted,
+            borderColor: border,
+        };
+        Object.assign(Chart.defaults, chartDefaults);
+
+        // Trend Line
+        const trendCtx = document.getElementById('supportTrendChart');
+        if (trendCtx && agg.timeSeries.length) {
+            supportCharts.push(new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: agg.timeSeries.map(t => t.date),
+                    datasets: [
+                        { label: 'Total', data: agg.timeSeries.map(t => t.total), borderColor: accent, backgroundColor: accent + '22', fill: true, tension: 0.3 },
+                        { label: 'Open', data: agg.timeSeries.map(t => t.open), borderColor: '#dc783c', backgroundColor: 'transparent', borderDash: [5, 3], tension: 0.3 },
+                        { label: 'Closed', data: agg.timeSeries.map(t => t.closed), borderColor: '#1d6f42', backgroundColor: 'transparent', tension: 0.3 },
+                    ],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle' } } },
+                    scales: {
+                        x: { ticks: { color: muted }, grid: { color: border } },
+                        y: { ticks: { color: muted }, grid: { color: border }, beginAtZero: true },
+                    },
+                },
+            }));
+        }
+
+        // Pattern Doughnut
+        const patternCtx = document.getElementById('supportPatternChart');
+        if (patternCtx && agg.patterns.length) {
+            const top8 = agg.patterns.slice(0, 8);
+            const palette = [accent, '#dc783c', '#1d6f42', '#2b579a', '#d04423', '#6b5b95', '#88b04b', '#f7cac9'];
+            supportCharts.push(new Chart(patternCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: top8.map(p => p.pattern),
+                    datasets: [{ data: top8.map(p => p.count), backgroundColor: palette.slice(0, top8.length), borderColor: 'transparent' }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right', labels: { color: muted, padding: 12, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } } },
+                },
+            }));
+        }
+
+        // Aging Bar
+        const agingCtx = document.getElementById('supportAgingChart');
+        if (agingCtx) {
+            const labels = Object.keys(agg.agingBuckets);
+            const data = Object.values(agg.agingBuckets);
+            const barColors = ['rgba(196,168,80,0.7)', 'rgba(220,120,60,0.7)', 'rgba(220,60,60,0.7)', 'rgba(180,30,30,0.8)'];
+            supportCharts.push(new Chart(agingCtx, {
+                type: 'bar',
+                data: {
+                    labels: labels.map(l => l + ' days'),
+                    datasets: [{ label: 'Cases', data, backgroundColor: barColors, borderRadius: 4 }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: muted }, grid: { display: false } },
+                        y: { ticks: { color: muted, stepSize: 1 }, grid: { color: border }, beginAtZero: true },
+                    },
+                },
+            }));
+        }
+
+        // Customer Bar (horizontal)
+        const custCtx = document.getElementById('supportCustomerChart');
+        if (custCtx && agg.customers.length) {
+            const top10 = agg.customers.slice(0, 10);
+            supportCharts.push(new Chart(custCtx, {
+                type: 'bar',
+                data: {
+                    labels: top10.map(c => c.name),
+                    datasets: [{ label: 'Cases', data: top10.map(c => c.count), backgroundColor: accent + '99', borderRadius: 4 }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { ticks: { color: muted, stepSize: 1 }, grid: { color: border }, beginAtZero: true },
+                        y: { ticks: { color: muted, font: { size: 11 } }, grid: { display: false } },
+                    },
+                },
+            }));
+        }
+    }
+
+    async function loadSupportDashboard() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading support data...</div>';
+
+        const { data, error } = await db
+            .from('summaries')
+            .select('id, type, period_start, period_end, content, metadata')
+            .eq('type', 'support')
+            .order('period_start', { ascending: true });
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const summaries = data || [];
+        if (!summaries.length) {
+            main.innerHTML = `<div class="empty" style="padding: 3rem; text-align: center;">
+                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">No support reviews yet</div>
+                <div style="color: var(--text-muted);">Upload a Salesforce export to Assets (tagged "support") and ask Claude to run a support review.</div>
+            </div>`;
+            return;
+        }
+
+        const agg = aggregateSupportData(summaries);
+        const lm = agg.latest?.overview_metrics || {};
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Support Dashboard</h2>
+                <div style="font-size: 0.8rem; color: var(--text-muted);">${agg.reviewCount} review${agg.reviewCount !== 1 ? 's' : ''} · Latest: ${summaries[summaries.length - 1]?.period_start || '—'}</div>
+            </div>
+
+            <div class="support-metrics">
+                <div class="support-metric-card"><div class="metric-value">${lm.total || 0}</div><div class="metric-label">Total Cases</div></div>
+                <div class="support-metric-card"><div class="metric-value">${lm.open || 0}</div><div class="metric-label">Open</div></div>
+                <div class="support-metric-card"><div class="metric-value">${lm.closed || 0}</div><div class="metric-label">Closed</div></div>
+                <div class="support-metric-card"><div class="metric-value">${lm.avg_age != null ? lm.avg_age : '—'}</div><div class="metric-label">Avg Age (days)</div></div>
+                <div class="support-metric-card"><div class="metric-value">${agg.reviewCount}</div><div class="metric-label">Reviews</div></div>
+            </div>
+
+            <div class="support-dashboard-grid">
+                <div class="support-chart-card">
+                    <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Cases Over Time</h3>
+                    <div style="height:250px;"><canvas id="supportTrendChart"></canvas></div>
+                </div>
+                <div class="support-chart-card">
+                    <h3><i data-lucide="pie-chart" style="width:16px;height:16px;"></i> Pattern Breakdown</h3>
+                    <div style="height:250px;"><canvas id="supportPatternChart"></canvas></div>
+                </div>
+                <div class="support-chart-card">
+                    <h3><i data-lucide="clock" style="width:16px;height:16px;"></i> Case Aging Distribution</h3>
+                    <div style="height:250px;"><canvas id="supportAgingChart"></canvas></div>
+                </div>
+                <div class="support-chart-card">
+                    <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Top Customers</h3>
+                    <div style="height:250px;"><canvas id="supportCustomerChart"></canvas></div>
+                </div>
+            </div>
+
+            ${agg.featureGaps.length ? `
+                <div class="support-section">
+                    <h3><i data-lucide="puzzle" style="width:16px;height:16px;"></i> Feature Gaps Tracker (${agg.featureGaps.length})</h3>
+                    <table class="support-table">
+                        <thead><tr><th>Gap</th><th>Evidence</th><th>Priority</th><th>Seen</th><th>Product</th></tr></thead>
+                        <tbody>
+                            ${agg.featureGaps.map(g => `
+                                <tr>
+                                    <td style="font-weight:500;">${esc(g.gap)}</td>
+                                    <td>${esc(g.evidence || '')}</td>
+                                    <td>${g.priority ? `<span class="priority-badge priority-${g.priority}">${g.priority}</span>` : '—'}</td>
+                                    <td><span class="gap-occurrences">${g.occurrences}×</span></td>
+                                    <td style="color:var(--text-muted);">${esc(g.product || '')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+
+            ${(agg.latest?.aging_cases || []).length ? `
+                <div class="support-section">
+                    <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Aging Cases — Latest Review (${agg.latest.aging_cases.length})</h3>
+                    <table class="support-table">
+                        <thead><tr><th>Case</th><th>Subject</th><th>Days Open</th><th>Customer</th><th>Status</th></tr></thead>
+                        <tbody>
+                            ${agg.latest.aging_cases.map(c => {
+                                const daysClass = c.days_open >= 60 ? 'days-critical' : c.days_open >= 30 ? 'days-warning' : '';
+                                return `<tr>
+                                    <td>${esc(c.case_number)}</td>
+                                    <td>${esc(c.subject)}</td>
+                                    <td class="${daysClass}">${c.days_open}</td>
+                                    <td>${esc(c.customer_name || '—')}</td>
+                                    <td>${esc(c.status || '—')}</td>
+                                </tr>`;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            ` : ''}
+        `;
+
+        refreshIcons();
+        initSupportCharts(agg);
     }
 
     // ─── Generate Summary ────────────────────────────────────
