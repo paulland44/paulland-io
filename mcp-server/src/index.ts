@@ -10,6 +10,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
+import * as XLSX from 'xlsx';
 
 import {
   supabaseGet,
@@ -1986,16 +1987,36 @@ server.tool(
     const headers: Record<string, string> = {};
     if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
 
-    let fileContent: any = null;
+    // 3. Fetch file content via API and parse if needed
+    let fileText = '';
+    let parseError = '';
     try {
       const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
-      if (resp.ok) {
-        fileContent = await resp.json();
+      if (!resp.ok) {
+        parseError = `Failed to fetch file: ${resp.status}`;
       } else {
-        fileContent = { error: `Failed to fetch file: ${resp.status}` };
+        const fileData = await resp.json();
+        if (fileData.encoding === 'text') {
+          // CSV/TSV — use directly
+          fileText = fileData.content;
+        } else if (fileData.encoding === 'base64') {
+          // Binary (XLSX) — parse with SheetJS
+          try {
+            const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+            const workbook = XLSX.read(binary, { type: 'array' });
+            const sheetName = workbook.SheetNames[0];
+            if (sheetName) {
+              fileText = XLSX.utils.sheet_to_csv(workbook.Sheets[sheetName]);
+            } else {
+              parseError = 'XLSX file has no sheets';
+            }
+          } catch (xlsErr: any) {
+            parseError = `XLSX parse error: ${xlsErr.message}`;
+          }
+        }
       }
     } catch (err: any) {
-      fileContent = { error: `Fetch error: ${err.message}` };
+      parseError = `Fetch error: ${err.message}`;
     }
 
     // 4. Fetch known entities for matching
@@ -2003,6 +2024,10 @@ server.tool(
       supabaseGet('people?select=id,name&order=name'),
       supabaseGet('products?select=id,name&order=name'),
     ]);
+
+    // 5. Count rows for the prompt template
+    const rows = fileText.split('\n').filter(r => r.trim());
+    const totalCases = rows.length > 1 ? rows.length - 1 : 0; // exclude header
 
     return {
       content: [{
@@ -2012,7 +2037,9 @@ server.tool(
           asset_id: asset.id,
           file_name: asset.filename,
           mime_type: asset.mime_type,
-          file_content: fileContent,
+          total_cases: totalCases,
+          file_content: fileText || null,
+          parse_error: parseError || undefined,
           system_prompt: prompt?.system_prompt || null,
           user_prompt_template: prompt?.user_prompt_template || null,
           known_products: products?.map((p: any) => ({ id: p.id, name: p.name })) || [],
