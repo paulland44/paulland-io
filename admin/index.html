@@ -9334,6 +9334,9 @@
         const companyList = companyOptions || [];
         const assetCompanyId = asset.metadata?.company_id || '';
 
+        const isOffice = /spreadsheet|excel|\.sheet|word|\.document|presentation|powerpoint|\.presentation/.test(asset.mime_type || '');
+        const officeViewerUrl = isOffice ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(location.origin + fileUrl)}` : '';
+
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">
@@ -9346,9 +9349,18 @@
                 <div class="asset-detail-preview">
                     ${isImage ? `<img src="${fileUrl}" alt="${esc(asset.filename)}">` :
                       isPdf ? `<iframe src="${fileUrl}"></iframe>` :
-                      `<div style="text-align: center; padding: 2rem;">
-                          <div style="font-size: 4rem; margin-bottom: 1rem;">${icon}</div>
-                          <a href="${fileUrl}" target="_blank" style="color: var(--accent);">Download file</a>
+                      isOffice ? `<iframe src="${officeViewerUrl}" style="width:100%;height:100%;border:none;" id="officePreviewFrame"></iframe>
+                          <div id="officePreviewFallback" style="display:none; text-align:center; padding:3rem;">
+                              <div style="margin-bottom:1rem;">${icon}</div>
+                              <div style="font-size:1.1rem; font-weight:600; color:var(--text-heading); margin-bottom:0.5rem;">${esc(asset.filename)}</div>
+                              <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.5rem;">${formatFileSize(asset.file_size)} — Office document preview unavailable (file is access-protected)</div>
+                              <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration:none;">Download to view</a>
+                          </div>` :
+                      `<div style="text-align: center; padding: 3rem;">
+                          <div style="margin-bottom: 1rem;">${icon}</div>
+                          <div style="font-size: 1.1rem; font-weight: 600; color: var(--text-heading); margin-bottom: 0.5rem;">${esc(asset.filename)}</div>
+                          <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">${formatFileSize(asset.file_size)}</div>
+                          <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration: none;">Download file</a>
                        </div>`
                     }
                 </div>
@@ -9442,6 +9454,22 @@
                 });
             }, 1000);
         });
+
+        // Office preview fallback — if iframe fails to load, show download prompt
+        const officeFrame = document.getElementById('officePreviewFrame');
+        if (officeFrame) {
+            officeFrame.addEventListener('error', () => {
+                officeFrame.style.display = 'none';
+                document.getElementById('officePreviewFallback').style.display = 'block';
+            });
+            // Also fallback after timeout if iframe stays blank
+            setTimeout(() => {
+                try {
+                    // If we can't access the iframe content, assume it loaded
+                    // The viewer will show its own error if the file is inaccessible
+                } catch {}
+            }, 5000);
+        }
 
         // Wire tag editor
         wireTagEditor('asset', async (newTags) => {
@@ -12128,7 +12156,14 @@
         let activeIdx = -1;
 
         // For asset tag editors, we track tags locally
+        // Initialise from rendered pills so getCurrentTags works on first add
         let localTags = null;
+        if (onSave) {
+            const editor = input.closest('.tag-editor');
+            if (editor) {
+                localTags = [...editor.querySelectorAll('.tag-remove')].map(el => el.dataset.tag).filter(Boolean);
+            }
+        }
 
         function getCurrentTags() {
             if (onSave && localTags !== null) return localTags;
