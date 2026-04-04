@@ -227,7 +227,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (48 tools)
+### Tool Groups (44 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
