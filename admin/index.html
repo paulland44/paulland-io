@@ -9244,8 +9244,8 @@
     // ─── MCP Overview Dashboard ─────────────────────────────────
 
     const MCP_TOOLS = [
-        { name: 'list_content', desc: 'List articles, thoughts, signals, reflections', group: 'Content', params: 5, paramDetails: [
-            { name: 'type', type: 'string?', desc: 'article, thought, signal, reflection, summary' },
+        { name: 'list_content', desc: 'List articles, thoughts, signals, reflections, problems, strategies', group: 'Content', params: 5, paramDetails: [
+            { name: 'type', type: 'string?', desc: 'article, thought, signal, reflection, problem, strategy, summary' },
             { name: 'status', type: 'string?', desc: 'new, reviewed, archived' },
             { name: 'tags', type: 'string[]?', desc: 'Filter by tags (must have all)' },
             { name: 'search', type: 'string?', desc: 'Text search in title' },
@@ -9253,6 +9253,9 @@
         ]},
         { name: 'get_content', desc: 'Get full content item by ID', group: 'Content', params: 1, paramDetails: [
             { name: 'id', type: 'string', desc: 'Content item UUID' },
+        ]},
+        { name: 'get_summary', desc: 'Get full summary by ID', group: 'Content', params: 1, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Summary UUID' },
         ]},
         { name: 'list_daily_notes', desc: 'List daily notes for date range', group: 'Content', params: 3, paramDetails: [
             { name: 'date_from', type: 'string?', desc: 'Start date (YYYY-MM-DD)' },
@@ -9283,8 +9286,8 @@
             { name: 'date_to', type: 'string?', desc: 'Filter to date' },
             { name: 'tags', type: 'string[]?', desc: 'Filter by tags' },
         ]},
-        { name: 'create_content', desc: 'Create article, thought, signal, or reflection', group: 'Write', params: 7, paramDetails: [
-            { name: 'type', type: 'string', desc: 'article, thought, signal, reflection' },
+        { name: 'create_content', desc: 'Create article, thought, signal, reflection, problem, or strategy', group: 'Write', params: 8, paramDetails: [
+            { name: 'type', type: 'string', desc: 'article, thought, signal, reflection, problem, strategy' },
             { name: 'title', type: 'string', desc: 'Title' },
             { name: 'body', type: 'string', desc: 'Body (markdown)' },
             { name: 'tags', type: 'string[]?', desc: 'Content tags' },
@@ -9394,6 +9397,34 @@
         { name: 'list_task_templates', desc: 'List task templates from WCP', group: 'MIS', params: 1, paramDetails: [
             { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
         ]},
+        { name: 'link_content', desc: 'Create a link between two content items', group: 'Content Linking', params: 4, paramDetails: [
+            { name: 'source_id', type: 'string', desc: 'Source content UUID' },
+            { name: 'target_id', type: 'string', desc: 'Target content UUID' },
+            { name: 'link_type', type: 'string', desc: 'evidence, related, derived_from, supports' },
+            { name: 'context', type: 'string?', desc: 'Brief note on why linked' },
+        ]},
+        { name: 'get_content_links', desc: 'Get all links for a content item', group: 'Content Linking', params: 2, paramDetails: [
+            { name: 'content_id', type: 'string', desc: 'Content item UUID' },
+            { name: 'direction', type: 'string?', desc: 'inbound, outbound, or both (default)' },
+        ]},
+        { name: 'problem_extract', desc: 'Fetch context for extracting problems from source content', group: 'Problem Intelligence', params: 2, paramDetails: [
+            { name: 'content_ids', type: 'string[]', desc: 'Source content UUIDs to analyse' },
+            { name: 'problem_ids', type: 'string[]?', desc: 'Focus on specific problems (e.g. ["P1", "P3"])' },
+        ]},
+        { name: 'problem_write', desc: 'Write problem extraction results to database', group: 'Problem Intelligence', params: 3, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Extraction date YYYY-MM-DD' },
+            { name: 'source_content_ids', type: 'string[]?', desc: 'Source content UUIDs' },
+            { name: 'review_data', type: 'object', desc: 'problem_updates, new_problems, content_links, summary' },
+        ]},
+        { name: 'strategy_extract', desc: 'Fetch context for extracting strategy insights from source content', group: 'Strategy Intelligence', params: 2, paramDetails: [
+            { name: 'content_ids', type: 'string[]', desc: 'Source content UUIDs to analyse' },
+            { name: 'strategy_types', type: 'string[]?', desc: 'Filter to specific strategy types' },
+        ]},
+        { name: 'strategy_write', desc: 'Write strategy extraction results to database', group: 'Strategy Intelligence', params: 3, paramDetails: [
+            { name: 'date', type: 'string', desc: 'Extraction date YYYY-MM-DD' },
+            { name: 'source_content_ids', type: 'string[]?', desc: 'Source content UUIDs' },
+            { name: 'review_data', type: 'object', desc: 'strategy_updates, new_strategies, content_links, summary' },
+        ]},
     ];
 
     const MCP_SKILLS = [
@@ -9481,15 +9512,46 @@
                 'Report analysis summary',
             ],
         },
+        {
+            name: 'Extract Problems',
+            slug: 'extract-problems',
+            desc: 'Extract and update problem definitions from articles, meeting notes, and customer interviews.',
+            tools: ['get_prompt', 'problem_extract', 'problem_write', 'list_content', 'get_content', 'link_content'],
+            prompt: 'extract-problems',
+            steps: [
+                'Identify source content to analyse',
+                'Call problem_extract with content IDs',
+                'Analyse for problem-relevant evidence',
+                'Call problem_write with structured results',
+                'Mark sources as processed',
+                'Report extraction summary',
+            ],
+        },
+        {
+            name: 'Extract Strategies',
+            slug: 'extract-strategies',
+            desc: 'Extract and update strategy documents from articles, signals, and market intelligence.',
+            tools: ['get_prompt', 'strategy_extract', 'strategy_write', 'list_content', 'link_content'],
+            prompt: 'extract-strategies',
+            steps: [
+                'Identify source content to analyse',
+                'Call strategy_extract with content IDs',
+                'Analyse for strategy-relevant insights',
+                'Call strategy_write with structured results',
+                'Mark sources as processed',
+                'Report extraction summary',
+            ],
+        },
     ];
 
     const GROUP_ICONS = {
         'Content': 'book-open', 'Search': 'search', 'Write': 'pencil', 'Feed': 'rss',
-        'AI Workflows': 'brain', 'Embeddings': 'layers', 'Utility': 'activity',
+        'AI Workflows': 'brain', 'Content Linking': 'link', 'Problem Intelligence': 'alert-triangle',
+        'Strategy Intelligence': 'target', 'Embeddings': 'layers', 'Utility': 'activity',
         'Prompts': 'file-text', 'MIS': 'factory',
     };
 
-    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
+    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Content Linking', 'Problem Intelligence', 'Strategy Intelligence', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
 
     async function loadMcpOverview() {
         const main = document.getElementById('mainContent');
