@@ -9186,6 +9186,41 @@
         return icon('file');
     }
 
+    function getFileIconName(mimeType) {
+        if (!mimeType) return 'file';
+        if (mimeType.startsWith('image/')) return 'image';
+        if (mimeType === 'application/pdf') return 'file-text';
+        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return 'table';
+        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return 'presentation';
+        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return 'file-text';
+        if (mimeType.startsWith('text/')) return 'file-type';
+        if (mimeType.includes('zip') || mimeType.includes('compressed')) return 'archive';
+        return 'file';
+    }
+
+    function getFileIconColor(mimeType) {
+        if (!mimeType) return 'var(--text-muted)';
+        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return '#1d6f42';
+        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return '#d04423';
+        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return '#2b579a';
+        if (mimeType === 'application/pdf') return '#dc3c3c';
+        if (mimeType.startsWith('text/')) return 'var(--accent)';
+        return 'var(--text-muted)';
+    }
+
+    function getFileTypeLabel(mimeType, filename) {
+        if (!mimeType) return 'File';
+        if (mimeType.includes('spreadsheet') || mimeType.includes('excel') || mimeType.includes('.sheet')) return 'Excel Spreadsheet';
+        if (mimeType.includes('presentation') || mimeType.includes('powerpoint') || mimeType.includes('.presentation')) return 'PowerPoint Presentation';
+        if (mimeType.includes('document') || mimeType.includes('word') || mimeType.includes('.document')) return 'Word Document';
+        if (mimeType === 'application/pdf') return 'PDF Document';
+        if (mimeType === 'text/csv') return 'CSV File';
+        if (mimeType.startsWith('text/')) return 'Text File';
+        if (mimeType.includes('zip') || mimeType.includes('compressed')) return 'Archive';
+        const ext = (filename || '').split('.').pop()?.toUpperCase();
+        return ext ? `${ext} File` : 'File';
+    }
+
     function formatFileSize(bytes) {
         if (!bytes) return '0 B';
         const units = ['B', 'KB', 'MB', 'GB'];
@@ -9334,8 +9369,7 @@
         const companyList = companyOptions || [];
         const assetCompanyId = asset.metadata?.company_id || '';
 
-        const isOffice = /spreadsheet|excel|\.sheet|word|\.document|presentation|powerpoint|\.presentation/.test(asset.mime_type || '');
-        const officeViewerUrl = isOffice ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(location.origin + fileUrl)}` : '';
+        const fileTypeLabel = getFileTypeLabel(asset.mime_type, asset.filename);
 
         main.innerHTML = `
             <div class="page-header">
@@ -9349,18 +9383,15 @@
                 <div class="asset-detail-preview">
                     ${isImage ? `<img src="${fileUrl}" alt="${esc(asset.filename)}">` :
                       isPdf ? `<iframe src="${fileUrl}"></iframe>` :
-                      isOffice ? `<iframe src="${officeViewerUrl}" style="width:100%;height:100%;border:none;" id="officePreviewFrame"></iframe>
-                          <div id="officePreviewFallback" style="display:none; text-align:center; padding:3rem;">
-                              <div style="margin-bottom:1rem;">${icon}</div>
-                              <div style="font-size:1.1rem; font-weight:600; color:var(--text-heading); margin-bottom:0.5rem;">${esc(asset.filename)}</div>
-                              <div style="font-size:0.85rem; color:var(--text-muted); margin-bottom:1.5rem;">${formatFileSize(asset.file_size)} — Office document preview unavailable (file is access-protected)</div>
-                              <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration:none;">Download to view</a>
-                          </div>` :
-                      `<div style="text-align: center; padding: 3rem;">
-                          <div style="margin-bottom: 1rem;">${icon}</div>
-                          <div style="font-size: 1.1rem; font-weight: 600; color: var(--text-heading); margin-bottom: 0.5rem;">${esc(asset.filename)}</div>
-                          <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1.5rem;">${formatFileSize(asset.file_size)}</div>
-                          <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration: none;">Download file</a>
+                      `<div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; min-height:300px; gap:1rem;">
+                          <div style="width:80px; height:80px; border-radius:var(--radius-lg); background:var(--surface); border:1px solid var(--border); display:flex; align-items:center; justify-content:center;">
+                              <i data-lucide="${getFileIconName(asset.mime_type)}" style="width:40px; height:40px; color:${getFileIconColor(asset.mime_type)};"></i>
+                          </div>
+                          <div style="text-align:center;">
+                              <div style="font-size:0.9rem; font-weight:600; color:var(--text-heading);">${esc(fileTypeLabel)}</div>
+                              <div style="font-size:0.8rem; color:var(--text-muted); margin-top:0.25rem;">${formatFileSize(asset.file_size)}</div>
+                          </div>
+                          <a href="${fileUrl}" target="_blank" class="btn-action" style="text-decoration:none; margin-top:0.5rem;">Download file</a>
                        </div>`
                     }
                 </div>
@@ -9455,21 +9486,8 @@
             }, 1000);
         });
 
-        // Office preview fallback — if iframe fails to load, show download prompt
-        const officeFrame = document.getElementById('officePreviewFrame');
-        if (officeFrame) {
-            officeFrame.addEventListener('error', () => {
-                officeFrame.style.display = 'none';
-                document.getElementById('officePreviewFallback').style.display = 'block';
-            });
-            // Also fallback after timeout if iframe stays blank
-            setTimeout(() => {
-                try {
-                    // If we can't access the iframe content, assume it loaded
-                    // The viewer will show its own error if the file is inaccessible
-                } catch {}
-            }, 5000);
-        }
+        // Refresh icons for file type preview
+        refreshIcons();
 
         // Wire tag editor
         wireTagEditor('asset', async (newTags) => {
