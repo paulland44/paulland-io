@@ -3219,6 +3219,121 @@ server.tool(
   }
 );
 
+// ─── Group 12: Content–Entity Linking ─────────────────────
+
+server.tool(
+  'link_content_to_entity',
+  'Link a content item to an entity (company, product, project, or person). Idempotent — duplicate links are ignored.',
+  {
+    content_id: z.string().describe('UUID of the content item'),
+    entity_id: z.string().describe('UUID of the entity'),
+    entity_table: z.enum(['companies', 'products', 'projects', 'people']).describe('Which entity table'),
+    relationship_type: z.string().optional().default('mentions').describe('e.g. mentions, about, evidence, competitive-intel'),
+  },
+  async ({ content_id, entity_id, entity_table, relationship_type }) => {
+    // Map entity table to junction table
+    const junctionMap: Record<string, { table: string; entityCol: string }> = {
+      companies: { table: 'company_content', entityCol: 'company_id' },
+      products: { table: 'product_content', entityCol: 'product_id' },
+    };
+
+    const junction = junctionMap[entity_table];
+
+    if (!junction) {
+      // For people and projects, no junction table exists — store as metadata note
+      // Verify the entity exists
+      const entity = await supabaseGet(`${entity_table}?id=eq.${entity_id}&select=id,name&limit=1`);
+      if (!entity.length) {
+        return { content: [{ type: 'text' as const, text: `Entity not found in ${entity_table}` }], isError: true };
+      }
+
+      // For people: add a people_log entry noting the link
+      if (entity_table === 'people') {
+        const contentItem = await supabaseGet(`content?id=eq.${content_id}&select=id,title,type&limit=1`);
+        const title = contentItem.length ? contentItem[0].title : content_id;
+        const contentType = contentItem.length ? contentItem[0].type : 'content';
+        await supabasePost('people_log', {
+          person_id: entity_id,
+          note_date: new Date().toISOString().split('T')[0],
+          entry: `Linked ${contentType}: "${title}" (${relationship_type})`,
+          source: 'link_content_to_entity',
+          source_ref: { content_id, relationship_type },
+        });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            ok: true, method: 'people_log', entity_table, entity_name: entity[0].name,
+            content_id, relationship_type,
+          }, null, 2) }],
+        };
+      }
+
+      // For projects: add a project_updates entry
+      if (entity_table === 'projects') {
+        const contentItem = await supabaseGet(`content?id=eq.${content_id}&select=id,title,type&limit=1`);
+        const title = contentItem.length ? contentItem[0].title : content_id;
+        const contentType = contentItem.length ? contentItem[0].type : 'content';
+        await supabasePost('project_updates', {
+          project_id: entity_id,
+          note_date: new Date().toISOString().split('T')[0],
+          update_text: `Linked ${contentType}: "${title}" (${relationship_type})`,
+          source_ref: { content_id, relationship_type },
+        });
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            ok: true, method: 'project_updates', entity_table, entity_name: entity[0].name,
+            content_id, relationship_type,
+          }, null, 2) }],
+        };
+      }
+
+      return { content: [{ type: 'text' as const, text: `No junction table for ${entity_table}` }], isError: true };
+    }
+
+    // Verify both exist
+    const [contentRows, entityRows] = await Promise.all([
+      supabaseGet(`content?id=eq.${content_id}&select=id,title&limit=1`),
+      supabaseGet(`${entity_table}?id=eq.${entity_id}&select=id,name&limit=1`),
+    ]);
+    if (!contentRows.length) {
+      return { content: [{ type: 'text' as const, text: 'Content item not found' }], isError: true };
+    }
+    if (!entityRows.length) {
+      return { content: [{ type: 'text' as const, text: `Entity not found in ${entity_table}` }], isError: true };
+    }
+
+    // Check if link already exists (idempotent)
+    const existing = await supabaseGet(
+      `${junction.table}?content_id=eq.${content_id}&${junction.entityCol}=eq.${entity_id}&select=id&limit=1`
+    );
+    if (existing.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          ok: true, already_existed: true, junction_id: existing[0].id,
+          entity_name: entityRows[0].name, content_title: contentRows[0].title,
+        }, null, 2) }],
+      };
+    }
+
+    // Create the link
+    const result = await supabasePost(junction.table, {
+      content_id,
+      [junction.entityCol]: entity_id,
+    }, true);
+
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: `Failed to create link: ${result.error}` }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({
+        ok: true, junction_table: junction.table, junction_id: result.data?.[0]?.id,
+        entity_table, entity_name: entityRows[0].name,
+        content_title: contentRows[0].title, relationship_type,
+      }, null, 2) }],
+    };
+  }
+);
+
 } // end registerTools
 
 function registerResources(server: McpServer) {

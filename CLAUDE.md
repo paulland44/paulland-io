@@ -227,7 +227,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (44 tools)
+### Tool Groups (45 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -236,7 +236,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
 | Feed | capture_feed_item, dismiss_feed_item | 2 |
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_process | 9 |
-| Content Linking | link_content, get_content_links | 2 |
+| Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
 | Embeddings | generate_embedding, batch_embed | 2 |

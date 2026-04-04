@@ -9425,6 +9425,12 @@
             { name: 'source_content_ids', type: 'string[]?', desc: 'Source content UUIDs' },
             { name: 'review_data', type: 'object', desc: 'strategy_updates, new_strategies, content_links, summary' },
         ]},
+        { name: 'link_content_to_entity', desc: 'Link content to a company, product, project, or person', group: 'Content Linking', params: 4, paramDetails: [
+            { name: 'content_id', type: 'string', desc: 'Content item UUID' },
+            { name: 'entity_id', type: 'string', desc: 'Entity UUID' },
+            { name: 'entity_table', type: 'string', desc: 'companies, products, projects, people' },
+            { name: 'relationship_type', type: 'string?', desc: 'mentions, about, evidence, competitive-intel (default: mentions)' },
+        ]},
     ];
 
     const MCP_SKILLS = [
