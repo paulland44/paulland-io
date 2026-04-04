@@ -2570,6 +2570,119 @@
         .summary-type-monthly { background: var(--accent-dim); color: var(--accent); }
         .summary-type-support { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
 
+        /* ─── Support Review Detail ─── */
+        .support-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .support-metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1rem;
+            text-align: center;
+        }
+        .support-metric-card .metric-value {
+            font-size: 1.8rem;
+            font-weight: 700;
+            color: var(--text-heading);
+            line-height: 1.2;
+        }
+        .support-metric-card .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.25rem;
+        }
+        .support-section {
+            margin-bottom: 1.5rem;
+        }
+        .support-section h3 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--text-heading);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .support-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 0.75rem;
+        }
+        .support-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 0.875rem;
+        }
+        .support-card .card-title {
+            font-weight: 600;
+            font-size: 0.875rem;
+            color: var(--text-heading);
+            margin-bottom: 0.35rem;
+        }
+        .support-card .card-body {
+            font-size: 0.8rem;
+            color: var(--text-body);
+            line-height: 1.5;
+        }
+        .support-card .card-meta {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .severity-badge, .priority-badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-pill);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .severity-critical { background: rgba(220, 60, 60, 0.15); color: #dc3c3c; }
+        .severity-high { background: rgba(220, 120, 60, 0.15); color: #dc783c; }
+        .severity-medium { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .severity-low { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .priority-high { background: rgba(220, 60, 60, 0.15); color: #dc3c3c; }
+        .priority-medium { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .priority-low { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
+        .support-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+        }
+        .support-table th {
+            text-align: left;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .support-table td {
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-body);
+        }
+        .support-table tr:hover td {
+            background: var(--surface);
+        }
+        .days-critical { color: #dc3c3c; font-weight: 600; }
+        .days-warning { color: var(--yellow); font-weight: 600; }
+        .customer-notable {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.25rem;
+        }
+
         .btn-action {
             padding: 0.5rem 1.2rem;
             background: var(--accent);
@@ -8236,7 +8349,11 @@
             const d = new Date(s.period_start + 'T12:00:00');
             return d.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
         }
-        // Weekly / support
+        if (s.type === 'support') {
+            const d = new Date(s.period_start + 'T12:00:00');
+            return `Support Review — ${d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        }
+        // Weekly
         const start = new Date(s.period_start + 'T12:00:00');
         const end = new Date(s.period_end + 'T12:00:00');
         const startDay = start.getDate();
@@ -8254,8 +8371,101 @@
         return first.replace(/\*\*/g, '').replace(/^- /, '').substring(0, 100);
     }
 
+    function renderSupportDetailView(item) {
+        const rd = item.metadata?.review_data;
+        if (!rd) return renderBody(item.content);
+
+        let html = '';
+
+        // Metrics bar
+        if (rd.overview_metrics) {
+            const m = rd.overview_metrics;
+            html += `<div class="support-metrics">
+                <div class="support-metric-card"><div class="metric-value">${m.total}</div><div class="metric-label">Total Cases</div></div>
+                <div class="support-metric-card"><div class="metric-value">${m.open}</div><div class="metric-label">Open</div></div>
+                <div class="support-metric-card"><div class="metric-value">${m.closed}</div><div class="metric-label">Closed</div></div>
+                ${m.avg_age != null ? `<div class="support-metric-card"><div class="metric-value">${m.avg_age}</div><div class="metric-label">Avg Age (days)</div></div>` : ''}
+                ${m.oldest_days != null ? `<div class="support-metric-card"><div class="metric-value">${m.oldest_days}</div><div class="metric-label">Oldest (days)</div></div>` : ''}
+            </div>`;
+        }
+
+        // Summary
+        if (rd.summary) {
+            html += `<div class="support-section"><h3><i data-lucide="file-text" style="width:16px;height:16px;"></i> Summary</h3><div style="font-size:0.875rem;color:var(--text-body);line-height:1.6;">${renderBody(rd.summary)}</div></div>`;
+        }
+
+        // Aging cases table
+        if (rd.aging_cases?.length) {
+            html += `<div class="support-section"><h3><i data-lucide="clock" style="width:16px;height:16px;"></i> Aging Cases (${rd.aging_cases.length})</h3>`;
+            html += `<table class="support-table"><thead><tr><th>Case</th><th>Subject</th><th>Days Open</th><th>Customer</th><th>Status</th></tr></thead><tbody>`;
+            html += rd.aging_cases.map(c => {
+                const daysClass = c.days_open >= 60 ? 'days-critical' : c.days_open >= 30 ? 'days-warning' : '';
+                return `<tr><td>${esc(c.case_number)}</td><td>${esc(c.subject)}</td><td class="${daysClass}">${c.days_open}</td><td>${esc(c.customer_name || '—')}</td><td>${esc(c.status || '—')}</td></tr>`;
+            }).join('');
+            html += `</tbody></table></div>`;
+        }
+
+        // Support patterns
+        if (rd.support_patterns?.length) {
+            html += `<div class="support-section"><h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Support Patterns (${rd.support_patterns.length})</h3>`;
+            html += `<div class="support-cards">`;
+            html += rd.support_patterns.map(p => `
+                <div class="support-card">
+                    <div class="card-title">${esc(p.pattern)}</div>
+                    <div class="card-meta">
+                        ${p.case_count ? `<span style="font-size:0.75rem;color:var(--text-muted);">${p.case_count} cases</span>` : ''}
+                        ${p.severity ? `<span class="severity-badge severity-${p.severity}">${p.severity}</span>` : ''}
+                        ${p.product_name ? `<span style="font-size:0.75rem;color:var(--text-muted);">${esc(p.product_name)}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+            html += `</div></div>`;
+        }
+
+        // Feature gaps
+        if (rd.feature_gaps?.length) {
+            html += `<div class="support-section"><h3><i data-lucide="puzzle" style="width:16px;height:16px;"></i> Feature Gaps (${rd.feature_gaps.length})</h3>`;
+            html += `<div class="support-cards">`;
+            html += rd.feature_gaps.map(g => `
+                <div class="support-card">
+                    <div class="card-title">${esc(g.gap)}</div>
+                    <div class="card-body">${esc(g.evidence)}</div>
+                    <div class="card-meta">
+                        ${g.priority ? `<span class="priority-badge priority-${g.priority}">${g.priority}</span>` : ''}
+                        ${g.product_name ? `<span style="font-size:0.75rem;color:var(--text-muted);">${esc(g.product_name)}</span>` : ''}
+                    </div>
+                </div>
+            `).join('');
+            html += `</div></div>`;
+        }
+
+        // Customer distribution
+        if (rd.customer_entries?.length) {
+            html += `<div class="support-section"><h3><i data-lucide="users" style="width:16px;height:16px;"></i> Customer Distribution (${rd.customer_entries.length})</h3>`;
+            html += `<div class="support-cards">`;
+            html += rd.customer_entries.map(c => `
+                <div class="support-card">
+                    <div class="card-title">${esc(c.customer_name)}</div>
+                    <div class="card-body">${esc(c.summary)}</div>
+                    ${c.notable_cases?.length ? `<div class="customer-notable">Notable: ${c.notable_cases.map(n => esc(n)).join(', ')}</div>` : ''}
+                </div>
+            `).join('');
+            html += `</div></div>`;
+        }
+
+        // Source file link
+        if (item.metadata?.asset_id) {
+            html += `<div style="font-size:0.8rem;color:var(--text-muted);margin-top:1rem;padding-top:0.75rem;border-top:1px solid var(--border);">Source asset: <code>${item.metadata.asset_id}</code></div>`;
+        }
+
+        return html;
+    }
+
     function openSummaryDetail(item) {
         const main = document.getElementById('mainContent');
+        const isSupport = item.type === 'support' && item.metadata?.review_data;
+        const contentHtml = isSupport ? renderSupportDetailView(item) : renderBody(item.content);
+
         main.innerHTML = `
             <div class="page-header">
                 <div style="display: flex; align-items: center; gap: 1rem;">
@@ -8269,7 +8479,7 @@
                 </div>
             </div>
             ${item.metadata?.generated_at ? `<div style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 1rem;">Generated: ${new Date(item.metadata.generated_at).toLocaleString()}</div>` : ''}
-            <div class="summary-content" id="summaryContent">${renderBody(item.content)}</div>
+            <div class="summary-content" id="summaryContent">${contentHtml}</div>
             <div id="summaryEditor" style="display:none;"></div>
         `;
 
@@ -8285,6 +8495,8 @@
                 showGenerateForm(null, item.type, item.period_start, item.period_end);
             });
         }
+
+        if (isSupport) refreshIcons();
     }
 
     function enterSummaryEditMode(item) {
@@ -9352,10 +9564,13 @@
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
             { name: 'review_data', type: 'object', desc: 'demos, decisions, follow_ups, attendee_observations, summary' },
         ]},
-        { name: 'support_review_process', desc: 'Upload support export to R2 + write analysis to KB', group: 'AI Workflows', params: 4, paramDetails: [
-            { name: 'file_data', type: 'string?', desc: 'Base64-encoded file for R2 upload' },
-            { name: 'file_name', type: 'string?', desc: 'Original filename' },
+        { name: 'support_review_extract', desc: 'Fetch support export file + prompt from asset library for analysis', group: 'AI Workflows', params: 2, paramDetails: [
+            { name: 'asset_id', type: 'string?', desc: 'Asset UUID (defaults to most recent tagged "support")' },
+            { name: 'date', type: 'string?', desc: 'Review date YYYY-MM-DD (defaults to today)' },
+        ]},
+        { name: 'support_review_write', desc: 'Write structured support review analysis to KB', group: 'AI Workflows', params: 3, paramDetails: [
             { name: 'date', type: 'string', desc: 'Review date YYYY-MM-DD' },
+            { name: 'asset_id', type: 'string?', desc: 'Source asset UUID' },
             { name: 'review_data', type: 'object', desc: 'summary, overview_metrics, aging_cases, support_patterns, feature_gaps, customer_entries' },
         ]},
         { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
@@ -9507,14 +9722,14 @@
         {
             name: 'Support Review',
             slug: 'support-review',
-            desc: 'Process Salesforce support export — upload to asset library, analyse cases, write patterns and feature gaps to KB.',
-            tools: ['get_prompt', 'support_review_process'],
+            desc: 'Analyse a support case export from the asset library — extract file, analyse cases, write patterns and feature gaps to KB.',
+            tools: ['get_prompt', 'support_review_extract', 'support_review_write'],
             prompt: 'support-review',
             steps: [
                 'Fetch support-review prompt template',
-                'User uploads Excel to chat, Claude reads it',
+                'Extract file content + entity context from asset library',
                 'Analyse cases using prompt instructions',
-                'Call tool to upload file + write results',
+                'Write structured results to knowledge base',
                 'Report analysis summary',
             ],
         },

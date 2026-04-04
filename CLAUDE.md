@@ -67,6 +67,7 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 | `calendar-events` | `handleCalendarEvents` | Fetch from Outlook ICS feed |
 | `assets/r2-list` | `handleR2List` | List R2 bucket objects |
 | `assets/file/:key` | `handleAssetServe` | Serve file from R2 |
+| `assets/:id/content` | `handleAssetContent` | Fetch asset content (text or base64) |
 
 **POST:**
 | Route | Handler | Purpose |
@@ -227,7 +228,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (45 tools)
+### Tool Groups (46 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -235,7 +236,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Search | search_knowledge_base | 1 |
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
 | Feed | capture_feed_item, dismiss_feed_item | 2 |
-| AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_process | 9 |
+| AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write | 10 |
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
@@ -297,7 +298,7 @@ The `content_links` table enables linking any content item to any other (signal�
 | Show & Tell Review | `show-and-tell` | get_prompt, show_and_tell_extract, show_and_tell_write |
 | Extract Problems | `extract-problems` | get_prompt, problem_extract, problem_write, list_content, get_content, link_content |
 | Extract Strategies | `extract-strategies` | get_prompt, strategy_extract, strategy_write, list_content, link_content |
-| Support Review | `support-review` | get_prompt, support_review_process |
+| Support Review | `support-review` | get_prompt, support_review_extract, support_review_write |
 
 ### Prompt Templates (10 prompts, stored in Supabase `prompts` table)
 
@@ -321,7 +322,7 @@ Tools run inside a Cloudflare Worker. They **cannot**:
 - Spawn processes (`child_process` unavailable)
 - Use Node.js-specific APIs not in the Workers runtime
 
-Tools that need file content (e.g. `support_review_process`) should accept file data as a base64 string parameter rather than a file path. For R2 uploads, use the `uploadAssetToR2` helper which POSTs to the Pages API.
+Tools that need file content (e.g. `support_review_extract`) fetch it from the asset library via `GET /api/assets/:id/content`. Files should be uploaded to the asset library first, then referenced by asset ID.
 
 ## Key Patterns & Conventions
 

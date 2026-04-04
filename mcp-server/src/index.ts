@@ -1951,15 +1951,84 @@ server.tool(
   }
 );
 
-// ─── Support Review Tool ─────────────────────────────────────
+// ─── Support Review Tools (Extract / Write) ─────────────────
 
 server.tool(
-  'support_review_process',
-  'Upload a Salesforce support export to R2 and write structured analysis to the knowledge base. Claude should read and analyse the Excel first, then call this tool with the structured results and the file as base64.',
+  'support_review_extract',
+  'Fetch a support export file from the asset library and the review prompt template so Claude can analyse the cases in-context. Returns file content, prompt, and entity context.',
   {
-    file_data: z.string().optional().describe('Base64-encoded file content for R2 upload (Claude encodes the uploaded file)'),
-    file_name: z.string().optional().describe('Original filename, e.g. "Support Cases 2026-03-28.xlsx"'),
+    asset_id: z.string().optional().describe('UUID of the uploaded support asset. If omitted, uses the most recent asset tagged "support"'),
+    date: z.string().optional().describe('Review date in YYYY-MM-DD format (defaults to today)'),
+  },
+  async ({ asset_id, date }) => {
+    const reviewDate = date || new Date().toISOString().split('T')[0];
+
+    // 1. Find the asset
+    let asset: any;
+    if (asset_id) {
+      const rows = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type,r2_key,tags`);
+      asset = rows?.[0];
+    } else {
+      const rows = await supabaseGet('assets?tags=cs.{support}&order=uploaded_at.desc&limit=1&select=id,filename,mime_type,r2_key,tags');
+      asset = rows?.[0];
+    }
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No support asset found. Upload a support export file to the asset library first and tag it "support".' }) }] };
+    }
+
+    // 2. Fetch prompt template
+    const prompts = await supabaseGet('prompts?slug=eq.support-review&select=system_prompt,user_prompt_template');
+    const prompt = prompts?.[0];
+
+    // 3. Fetch file content via API
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    let fileContent: any = null;
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      if (resp.ok) {
+        fileContent = await resp.json();
+      } else {
+        fileContent = { error: `Failed to fetch file: ${resp.status}` };
+      }
+    } catch (err: any) {
+      fileContent = { error: `Fetch error: ${err.message}` };
+    }
+
+    // 4. Fetch known entities for matching
+    const [people, products] = await Promise.all([
+      supabaseGet('people?select=id,name&order=name'),
+      supabaseGet('products?select=id,name&order=name'),
+    ]);
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          date: reviewDate,
+          asset_id: asset.id,
+          file_name: asset.filename,
+          mime_type: asset.mime_type,
+          file_content: fileContent,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          known_products: products?.map((p: any) => ({ id: p.id, name: p.name })) || [],
+          known_people: people?.map((p: any) => ({ id: p.id, name: p.name })) || [],
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'support_review_write',
+  'Write the structured results of a support case review back to the database. Call this after analysing the support export with support_review_extract data.',
+  {
     date: z.string().describe('Review date in YYYY-MM-DD format'),
+    asset_id: z.string().optional().describe('UUID of the source support asset'),
     review_data: z.object({
       summary: z.string().optional().default(''),
       overview_metrics: z.object({
@@ -1995,44 +2064,8 @@ server.tool(
       })).optional().default([]),
     }).describe('Structured support review analysis'),
   },
-  async ({ file_data, file_name, date, review_data }) => {
-    // 1. Upload file to R2 (if base64 file data provided)
-    let assetId: string | undefined;
-    let uploadError: string | undefined;
-    if (file_data) {
-      try {
-        const buffer = Buffer.from(file_data, 'base64');
-        const filename = file_name || `support-export-${date}.xlsx`;
-        const ext = filename.split('.').pop()?.toLowerCase() || 'xlsx';
-        const mimeType = ext === 'xlsx'
-          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-          : ext === 'xls' ? 'application/vnd.ms-excel'
-          : ext === 'csv' ? 'text/csv'
-          : 'application/octet-stream';
-
-        // Find WebCenter Pack product for linking
-        const wcpProducts = await supabaseGet('products?name=ilike.*webcenter*pack*&select=id&limit=1');
-        const productId = wcpProducts?.[0]?.id;
-
-        const uploadResult = await uploadAssetToR2(
-          buffer,
-          filename,
-          mimeType,
-          ['support', 'support-review', 'salesforce-export'],
-          `Support case export for ${date}`,
-          productId
-        );
-        if (uploadResult.ok) {
-          assetId = uploadResult.asset_id;
-        } else {
-          uploadError = uploadResult.error;
-        }
-      } catch (err: any) {
-        uploadError = `File upload error: ${err.message}`;
-      }
-    }
-
-    // 2. Fetch entity maps
+  async ({ date, asset_id, review_data }) => {
+    // 1. Fetch entity maps
     const [people, products] = await Promise.all([
       supabaseGet('people?select=id,name&order=name'),
       supabaseGet('products?select=id,name&order=name'),
@@ -2043,10 +2076,10 @@ server.tool(
     const productMap: Record<string, string> = {};
     products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
 
-    const sourceRef = { support_review_date: date, asset_id: assetId };
+    const sourceRef = { support_review_date: date, asset_id };
     const results = { patterns: 0, feature_gaps: 0, customer_entries: 0 };
 
-    // 3. Build markdown body
+    // 2. Build markdown body
     let body = `# Support Review — ${date}\n\n`;
     if (review_data.summary) body += `## Summary\n${review_data.summary}\n\n`;
 
@@ -2095,10 +2128,9 @@ server.tool(
       body += '\n\n';
     }
 
-    if (assetId) body += `\n---\n*Source file: asset ${assetId}*\n`;
-    if (uploadError) body += `\n---\n*File upload warning: ${uploadError}*\n`;
+    if (asset_id) body += `\n---\n*Source file: asset ${asset_id}*\n`;
 
-    // 4. Create/update in summaries table
+    // 3. Create/update in summaries table
     const existing = await supabaseGet(`summaries?type=eq.support&metadata->>date=eq.${date}&limit=1`);
 
     let summaryId: string;
@@ -2106,7 +2138,7 @@ server.tool(
       summaryId = existing[0].id;
       await supabasePatch(`summaries?id=eq.${summaryId}`, {
         content: body,
-        metadata: { date, asset_id: assetId, updated_at: new Date().toISOString(), review_data },
+        metadata: { date, asset_id, updated_at: new Date().toISOString(), review_data },
       });
     } else {
       const created = await supabasePost('summaries', {
@@ -2114,15 +2146,14 @@ server.tool(
         period_start: date,
         period_end: date,
         content: body,
-        metadata: { date, asset_id: assetId, review_data },
+        metadata: { date, asset_id, review_data },
       }, true);
       summaryId = created.data?.[0]?.id || 'unknown';
     }
 
-    // 5. Write product evidence for patterns
+    // 4. Write product evidence for patterns
     for (const pattern of review_data.support_patterns) {
       const productId = pattern.product_name ? productMap[pattern.product_name.toLowerCase()] : null;
-      // Default to first product matching "webcenter" if no specific product
       const wcpId = productId || Object.entries(productMap).find(([k]) => k.includes('webcenter'))?.[1] || null;
       if (!wcpId) continue;
       await supabasePost('product_evidence', {
@@ -2135,7 +2166,7 @@ server.tool(
       results.patterns++;
     }
 
-    // 6. Write product evidence for feature gaps
+    // 5. Write product evidence for feature gaps
     for (const gap of review_data.feature_gaps) {
       const productId = gap.product_name ? productMap[gap.product_name.toLowerCase()] : null;
       const wcpId = productId || Object.entries(productMap).find(([k]) => k.includes('webcenter'))?.[1] || null;
@@ -2150,9 +2181,8 @@ server.tool(
       results.feature_gaps++;
     }
 
-    // 7. Write people log for customer entries
+    // 6. Write people log for customer entries
     for (const entry of review_data.customer_entries) {
-      // Try matching customer name to known people (including "Customer - Name" pattern)
       const personId = peopleMap[entry.customer_name?.toLowerCase()]
         || peopleMap[`customer - ${entry.customer_name?.toLowerCase()}`]
         || null;
@@ -2167,17 +2197,17 @@ server.tool(
       results.customer_entries++;
     }
 
-    // 8. Create audit record
+    // 7. Create audit record
     await supabasePost('ai_reviews', {
       review_type: 'support_review',
       source_date: date,
       status: 'completed',
       output_summary: review_data.summary,
-      files_updated: { summary_id: summaryId, asset_id: assetId, ...results },
+      files_updated: { summary_id: summaryId, asset_id, ...results },
       completed_at: new Date().toISOString(),
     });
 
-    // 9. Embed the summary
+    // 8. Embed the summary
     if (summaryId && summaryId !== 'unknown') {
       embedItem('summaries', summaryId).catch(() => {});
     }
@@ -2188,8 +2218,7 @@ server.tool(
         text: JSON.stringify({
           ok: true,
           summary_id: summaryId,
-          asset_id: assetId,
-          asset_upload: uploadError ? { error: uploadError } : { ok: true },
+          asset_id,
           date,
           writes: results,
           action: existing.length ? 'updated' : 'created',

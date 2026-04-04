@@ -15,6 +15,7 @@
  *   POST /api/generate-summary — AI weekly/monthly summary generation
  *   POST /api/assets/upload    — Upload file to R2 + create metadata in Supabase
  *   GET  /api/assets/file/:key — Serve file from R2
+ *   GET  /api/assets/:id/content — Fetch asset content (text or base64)
  *   DELETE /api/assets/:id     — Delete asset from R2 + Supabase
  *   POST /api/embed            — Embed a single item (source_table, source_id)
  *   POST /api/embed-batch      — Batch embed unembedded content
@@ -62,6 +63,12 @@ export async function onRequest(ctx) {
   if (request.method === 'GET' && path.startsWith('assets/file/')) {
     const r2Key = path.replace('assets/file/', '');
     return handleAssetServe(r2Key, env);
+  }
+
+  // Asset content retrieval — GET /api/assets/:id/content
+  if (request.method === 'GET' && path.match(/^assets\/[0-9a-f-]+\/content$/)) {
+    const assetId = path.split('/')[1];
+    return handleAssetContent(assetId, env);
   }
 
   // Link deletion — DELETE /api/product-link?table=...&id=...
@@ -1734,6 +1741,40 @@ async function handleAssetServe(r2Key, env) {
   }
 
   return new Response(object.body, { headers });
+}
+
+async function handleAssetContent(assetId, env) {
+  const bucket = env.ASSETS_BUCKET;
+  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Look up asset record
+  const assets = await supabaseGet(supabaseUrl, serviceKey, `assets?id=eq.${assetId}&select=id,filename,r2_key,mime_type`);
+  if (!assets.length) return json({ error: 'Asset not found' }, 404);
+
+  const asset = assets[0];
+  const object = await bucket.get(asset.r2_key);
+  if (!object) return json({ error: 'File not found in R2' }, 404);
+
+  const mime = asset.mime_type || 'application/octet-stream';
+  const isText = mime === 'text/csv' || mime === 'text/tab-separated-values' || mime === 'text/plain';
+
+  if (isText) {
+    const text = await object.text();
+    return json({ filename: asset.filename, mime_type: mime, encoding: 'text', content: text });
+  }
+
+  // Binary files (xlsx etc) — return as base64
+  const buf = await object.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  const b64 = btoa(binary);
+  return json({ filename: asset.filename, mime_type: mime, encoding: 'base64', content: b64 });
 }
 
 async function handleAssetDelete(assetId, env) {
