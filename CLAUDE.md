@@ -228,7 +228,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (47 tools)
+### Tool Groups (49 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -240,7 +240,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
-| Assets | list_assets | 1 |
+| Assets | list_assets, upload_asset, get_asset_content | 3 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |

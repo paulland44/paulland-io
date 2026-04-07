@@ -1988,6 +1988,151 @@ server.tool(
   }
 );
 
+// ─── Asset Upload & Read Tools ─────────────────────────────
+
+const MIME_BY_EXT: Record<string, string> = {
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.xls': 'application/vnd.ms-excel',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.doc': 'application/msword',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.ppt': 'application/vnd.ms-powerpoint',
+  '.pdf': 'application/pdf',
+  '.csv': 'text/csv',
+  '.tsv': 'text/tab-separated-values',
+  '.txt': 'text/plain',
+  '.md': 'text/markdown',
+  '.json': 'application/json',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+};
+
+function guessMimeType(filename: string): string {
+  const dot = filename.lastIndexOf('.');
+  if (dot === -1) return 'application/octet-stream';
+  const ext = filename.slice(dot).toLowerCase();
+  return MIME_BY_EXT[ext] || 'application/octet-stream';
+}
+
+server.tool(
+  'upload_asset',
+  'Upload a file to the knowledge base asset library. Accepts base64-encoded file content. Use this to save documents (Word, Excel, PPT, PDF, images, etc.) from the conversation into the asset library for future reference and analysis.',
+  {
+    file_content: z.string().describe('Base64-encoded file content'),
+    filename: z.string().describe('Original filename with extension (e.g. "report.xlsx", "notes.docx")'),
+    mime_type: z.string().optional().describe('MIME type. Auto-detected from extension if omitted.'),
+    tags: z.array(z.string()).optional().default([]).describe('Tags for organizing the asset'),
+    description: z.string().optional().default('').describe('Description of the file'),
+    product_id: z.string().optional().describe('Optional product UUID to link the asset to'),
+  },
+  async ({ file_content, filename, mime_type, tags, description, product_id }) => {
+    try {
+      const binary = Uint8Array.from(atob(file_content), c => c.charCodeAt(0));
+      const buffer = binary.buffer as ArrayBuffer;
+      const resolvedMime = mime_type || guessMimeType(filename);
+
+      const result = await uploadAssetToR2(buffer, filename, resolvedMime, tags, description, product_id);
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify(result, null, 2) }],
+        isError: !result.ok,
+      };
+    } catch (err: any) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `Base64 decode or upload failed: ${err.message}` }) }],
+        isError: true,
+      };
+    }
+  }
+);
+
+server.tool(
+  'get_asset_content',
+  'Read the content of a file from the asset library. Returns text content directly for text-based files (CSV, TSV, TXT, Markdown). Parses XLSX to CSV. Returns base64 for binary files (DOCX, PPTX, PDF, images) which Claude can interpret natively.',
+  {
+    asset_id: z.string().describe('UUID of the asset to read'),
+  },
+  async ({ asset_id }) => {
+    // 1. Look up asset metadata
+    const rows = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type,r2_key,tags,description`);
+    const asset = rows?.[0];
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Asset not found' }) }], isError: true };
+    }
+
+    // 2. Fetch file content via Pages API
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      if (!resp.ok) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to fetch file: ${resp.status}` }) }], isError: true };
+      }
+
+      const fileData = await resp.json() as any;
+
+      // 3. Text files — return directly
+      if (fileData.encoding === 'text') {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({
+            filename: asset.filename,
+            mime_type: asset.mime_type,
+            tags: asset.tags,
+            description: asset.description,
+            encoding: 'text',
+            content: fileData.content,
+          }, null, 2) }],
+        };
+      }
+
+      // 4. XLSX — parse to CSV with SheetJS
+      const mime = asset.mime_type || '';
+      if (mime.includes('spreadsheet') || mime.includes('excel') || asset.filename?.endsWith('.xlsx') || asset.filename?.endsWith('.xls')) {
+        try {
+          const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+          const workbook = XLSX.read(binary, { type: 'array' });
+          const sheets: Record<string, string> = {};
+          for (const name of workbook.SheetNames) {
+            sheets[name] = XLSX.utils.sheet_to_csv(workbook.Sheets[name]);
+          }
+          return {
+            content: [{ type: 'text' as const, text: JSON.stringify({
+              filename: asset.filename,
+              mime_type: asset.mime_type,
+              tags: asset.tags,
+              description: asset.description,
+              encoding: 'text',
+              sheets,
+            }, null, 2) }],
+          };
+        } catch (xlsErr: any) {
+          return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `XLSX parse error: ${xlsErr.message}` }) }], isError: true };
+        }
+      }
+
+      // 5. Other binary files (PDF, DOCX, PPTX, images) — return base64
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          filename: asset.filename,
+          mime_type: asset.mime_type,
+          tags: asset.tags,
+          description: asset.description,
+          encoding: 'base64',
+          content: fileData.content,
+        }, null, 2) }],
+      };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Fetch error: ${err.message}` }) }], isError: true };
+    }
+  }
+);
+
 // ─── Support Review Tools (Extract / Write) ─────────────────
 
 server.tool(
@@ -2061,9 +2206,21 @@ server.tool(
       supabaseGet('products?select=id,name&order=name'),
     ]);
 
-    // 5. Count rows for the prompt template
-    const rows = fileText.split('\n').filter(r => r.trim());
-    const totalCases = rows.length > 1 ? rows.length - 1 : 0; // exclude header
+    // 5. Count actual case data rows (skip metadata/headers/footer)
+    const allRows = fileText.split('\n');
+    let totalCases = 0;
+    const headerIdx = allRows.findIndex(r => r.includes('Case Number'));
+    if (headerIdx >= 0) {
+      const headerCols = allRows[headerIdx].split(',').map(c => c.trim().replace(/^"|"$/g, ''));
+      const caseNumCol = headerCols.findIndex(c => c === 'Case Number');
+      if (caseNumCol >= 0) {
+        for (let i = headerIdx + 1; i < allRows.length; i++) {
+          const cols = allRows[i].split(',');
+          const val = (cols[caseNumCol] || '').trim().replace(/^"|"$/g, '');
+          if (/^\d{8}$/.test(val)) totalCases++;
+        }
+      }
+    }
 
     return {
       content: [{
