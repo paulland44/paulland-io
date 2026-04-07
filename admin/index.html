@@ -3161,6 +3161,30 @@
         .mis-badge-created { border-color: var(--accent); color: var(--accent); }
         .mis-badge-failed { border-color: var(--red, #ef4444); color: var(--red, #ef4444); }
         .mis-badge-completed { border-color: #22c55e; color: #22c55e; }
+        .mis-badge-draft { border-color: #eab308; color: #eab308; }
+        #misConnDropdown.open { display: block !important; }
+
+        .mis-job-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 500; }
+        .mis-job-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 510; width: min(660px, 92vw); max-height: 85vh; background: var(--void-light); border: 1px solid var(--border-hover); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; }
+        .mis-job-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+        .mis-job-modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+        .mis-job-modal-body { overflow-y: auto; padding: 1.5rem; flex: 1; min-height: 0; }
+        .mis-job-modal-footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); }
+        .mis-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
+        .mis-detail-field label { display: block; font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-muted); margin-bottom: 0.3rem; }
+        .mis-detail-field .val { font-size: 0.85rem; color: var(--text-body); }
+        .mis-detail-desc { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; font-size: 0.82rem; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
+        .mis-detail-json { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; font-family: var(--mono); font-size: 0.75rem; line-height: 1.5; max-height: 250px; overflow: auto; white-space: pre; }
+
+        /* MIS Drawer */
+        .mis-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 500; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
+        .mis-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+        .mis-drawer { position: fixed; top: 0; right: -720px; width: min(700px, 95vw); height: 100vh; background: var(--void-light); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 510; display: flex; flex-direction: column; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .mis-drawer.open { right: 0; }
+        .mis-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+        .mis-drawer-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+        .mis-drawer-body { overflow-y: auto; padding: 1.5rem; flex: 1; min-height: 0; }
+        .mis-drawer-footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); flex-shrink: 0; }
 
         .mis-checkbox { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
         .mis-row-selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -3413,9 +3437,7 @@
             { view: 'prompts', label: 'Prompts' },
         ]},
         mis: { tabs: [
-            { view: 'mis-overview', label: 'Overview' },
-            { view: 'mis-create', label: 'Create Job' },
-            { view: 'mis-monitor', label: 'Job Monitor' },
+            { view: 'mis-monitor', label: 'Jobs' },
             { view: 'mis-json', label: 'JSON Builder' },
         ]},
         support: { tabs: [
@@ -3611,8 +3633,8 @@
             case 'ask': await loadAsk(); break;
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
-            case 'mis-overview': await loadMisOverview(); break;
-            case 'mis-create': await loadMisCreate(); break;
+            case 'mis-overview': await loadMisMonitor(); break; // redirected to Jobs
+            case 'mis-create': await loadMisMonitor(); misOpenJobDrawer('create'); break;
             case 'mis-monitor': await loadMisMonitor(); break;
             case 'mis-json': await loadMisJson(); break;
             case 'support-dashboard': await loadSupportDashboard(); break;
@@ -9965,6 +9987,17 @@
             { name: 'limit', type: 'number?', desc: 'Max items (default 20)' },
             { name: 'offset', type: 'number?', desc: 'Pagination offset' },
         ]},
+        { name: 'upload_asset', desc: 'Upload a file (base64) to the asset library with auto MIME detection', group: 'Assets', params: 6, paramDetails: [
+            { name: 'file_content', type: 'string', desc: 'Base64-encoded file content' },
+            { name: 'filename', type: 'string', desc: 'Original filename with extension' },
+            { name: 'mime_type', type: 'string?', desc: 'MIME type (auto-detected from extension if omitted)' },
+            { name: 'tags', type: 'string[]?', desc: 'Tags for organizing the asset' },
+            { name: 'description', type: 'string?', desc: 'Description of the file' },
+            { name: 'product_id', type: 'string?', desc: 'Product UUID to link the asset to' },
+        ]},
+        { name: 'get_asset_content', desc: 'Read file content from asset library (text, XLSX→CSV, or base64)', group: 'Assets', params: 1, paramDetails: [
+            { name: 'asset_id', type: 'string', desc: 'UUID of the asset to read' },
+        ]},
         { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
             { name: 'source_table', type: 'string', desc: 'Table name (e.g. content, daily_notes)' },
             { name: 'source_id', type: 'string', desc: 'Row UUID' },
@@ -11216,6 +11249,24 @@
     }
 
     function misBuildPayload() {
+        const overrideSolution = window._misDrawerJobSolution;
+        const ap = getMisActiveProfile();
+        const isAe = overrideSolution ? overrideSolution === 'ae' : ap?.type === 'ae';
+
+        if (isAe) {
+            // AE payload — simpler, no tasks
+            return {
+                jobName: document.getElementById('misJobName')?.value || '',
+                jobId: document.getElementById('misJobId')?.value || '',
+                jobPartId: document.getElementById('aeJobPartId')?.value || '',
+                customerCode: document.getElementById('misJobCustomerCode')?.value || '',
+                description: document.getElementById('misJobDescription')?.value || '',
+                category: document.getElementById('aeCategory')?.value || '',
+                customField1: document.getElementById('aeCustomField1')?.value || '',
+            };
+        }
+
+        // WCP payload
         const dueDate = document.getElementById('misJobDueDate')?.value;
         const prods = document.getElementById('misJobProducts');
         const selProds = prods ? Array.from(prods.selectedOptions).map(o => o.value) : [];
@@ -11286,12 +11337,14 @@
 
     window.misSubmitJob = async function() {
         const btn = document.getElementById('misSubmitBtn');
+        const ap = getMisActiveProfile();
+        const isWcp = ap?.type !== 'ae';
         const payload = misBuildPayload();
-        if (!payload.customerCode) return showToast('Select a customer', 'error');
         if (!payload.jobName) return showToast('Enter a job name', 'error');
         if (!payload.jobId) return showToast('Enter a job ID', 'error');
-        if (!payload.tasks.length) return showToast('Add at least one task', 'error');
-        for (const t of payload.tasks) {
+        if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
+        if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+        if (isWcp) for (const t of payload.tasks) {
             if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
             if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
         }
@@ -11308,31 +11361,402 @@
                 cluster: ap?.cluster || '', payload, wcp_response: result,
             });
             showToast(`Job "${payload.jobId}" created!`, 'success');
-            // Navigate to monitor tab
-            const monTab = document.querySelector('.sub-tab[data-view="mis-monitor"]');
-            if (monTab) monTab.click();
+            misCloseJobDrawer();
+            _cachedMisJobs = null;
+            await loadMisMonitor();
         } catch (e) { showToast(`Failed: ${e.message}`, 'error'); }
         finally { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="send"></i> Create Job'; refreshIcons(); }
     };
 
+    // ─── MIS: Job Drawer (Create / Edit) ──────────────────────
+
+    window.misOpenJobDrawer = async function(mode, jobId) {
+        misCloseJobDrawer();
+        const ap = getMisActiveProfile();
+        const isEdit = mode === 'edit';
+        const isView = mode === 'view';
+        const isCreate = mode === 'create';
+        let job = null;
+
+        if (isEdit || isView) {
+            job = (_cachedMisJobs || []).find(x => x.id === jobId);
+            if (!job) { showToast('Job not found', 'error'); return; }
+        }
+
+        // Load reference data for WCP
+        if (ap?.type !== 'ae') {
+            await misLoadRefData();
+        }
+        const customers = cachedCustomers?.data || [];
+        const taskTemplates = getTaskTemplateList();
+        const productTemplates = getProductTemplateList();
+        const preflightProfiles = cachedPreflightProfiles || [];
+
+        // Reset task state
+        jobTasks = []; taskCounter = 0;
+
+        // Defaults
+        const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
+        const editDue = (isEdit || isView) && job?.due_date ? new Date(job.due_date).toISOString().slice(0, 16) : defaultDue;
+        const title = isView ? esc(job.job_name) : isEdit ? `Edit: ${esc(job.job_name)}` : 'New Job';
+        const icon = isView ? 'eye' : isEdit ? 'edit-3' : 'plus';
+
+        // Create overlay
+        const overlay = document.createElement('div');
+        overlay.className = 'mis-drawer-overlay';
+        overlay.id = 'misDrawerOverlay';
+        overlay.onclick = misCloseJobDrawer;
+        document.body.appendChild(overlay);
+
+        // Create drawer
+        const drawer = document.createElement('div');
+        drawer.className = 'mis-drawer';
+        drawer.id = 'misDrawer';
+        drawer.onclick = (e) => e.stopPropagation();
+        drawer.innerHTML = `
+            <div class="mis-drawer-header">
+                <h3><i class="icon" data-lucide="${icon}" style="width:16px;height:16px;margin-right:0.4rem;"></i> ${title}</h3>
+                <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDrawer()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
+            </div>
+            <div class="mis-drawer-body">
+                ${ap?.type === 'ae' ? misDrawerAeForm(job, isEdit, isView) : misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles)}
+                <div class="mis-card" style="margin-top:1rem;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <pre class="json-preview" id="misJsonPreview" style="max-height:300px;">${(isEdit || isView) && job?.payload ? JSON.stringify(job.payload, null, 2) : '{}'}</pre>
+                            <button class="mis-btn mis-btn-sm" style="margin-top:0.5rem;" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="mis-drawer-footer">
+                ${isEdit ? `
+                    <button class="mis-btn" onclick="misSaveDrawerDraft('${jobId}')" id="misDrawerSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Draft</button>
+                    <button class="mis-btn mis-btn-primary" onclick="misSubmitDrawerJob('${jobId}')" id="misDrawerSubmitBtn"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job</button>
+                ` : isCreate ? `
+                    <button class="mis-btn mis-btn-primary" onclick="misSubmitJob()" id="misSubmitBtn"><i class="icon" data-lucide="send"></i> Create Job</button>
+                ` : ''}
+                <button class="mis-btn" onclick="misCloseJobDrawer()">${isView ? 'Close' : 'Cancel'}</button>
+            </div>
+        `;
+        document.body.appendChild(drawer);
+
+        // Wire up searchable selects and events
+        window._misTaskTemplateOpts = taskTemplates;
+        if (ap?.type !== 'ae' && customers.length) {
+            window._misCustomerSS = createSearchableSelect('misJobCustomer',
+                customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+                { placeholder: 'Search customers...', onchange: () => { if (!isEdit) misUpdateJobId(); misUpdatePreview(); } }
+            );
+        }
+
+        // Wire up live preview on form fields
+        ['misJobName','misJobId','misJobDueDate','misJobDescription'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) { el.addEventListener('input', misUpdatePreview); el.addEventListener('change', misUpdatePreview); }
+        });
+
+        // Populate fields for edit/view mode
+        if ((isEdit || isView) && job) {
+            if (ap?.type !== 'ae') {
+                // Set customer
+                const custEl = document.getElementById('misJobCustomer');
+                if (custEl?._ss && job.customer_code) custEl._ss.setValue(job.customer_code);
+                // Set basic fields
+                document.getElementById('misJobName').value = job.job_name || '';
+                document.getElementById('misJobId').value = job.job_id || '';
+                document.getElementById('misJobDescription').value = job.description || '';
+                // Populate tasks from payload
+                if (job.payload?.tasks?.length) {
+                    for (const t of job.payload.tasks) {
+                        misAddTask();
+                        const lastTask = jobTasks[jobTasks.length - 1];
+                        if (lastTask) {
+                            lastTask.templateId = t.taskTemplateNodeId || '';
+                            lastTask.assignees = (t.assignee || []).map(a => a.id || '');
+                            if (t.properties?.dueDate) {
+                                lastTask.dueDate = new Date(t.properties.dueDate).toISOString().slice(0, 16);
+                            }
+                            // Update the DOM elements for this task
+                            const taskCard = document.getElementById(`mis-task-${lastTask.idx}`);
+                            if (taskCard) {
+                                const tplEl = document.getElementById(`misTaskTpl-${lastTask.idx}`);
+                                if (tplEl?._ss && lastTask.templateId) tplEl._ss.setValue(lastTask.templateId);
+                                const assigneeInput = taskCard.querySelector('input[placeholder="user@company.com"]');
+                                if (assigneeInput && lastTask.assignees[0]) assigneeInput.value = lastTask.assignees[0];
+                                const dueDateInput = taskCard.querySelector('input[type="datetime-local"]');
+                                if (dueDateInput && lastTask.dueDate) dueDateInput.value = lastTask.dueDate;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Animate open
+        requestAnimationFrame(() => {
+            overlay.classList.add('open');
+            drawer.classList.add('open');
+        });
+        refreshIcons();
+        misUpdatePreview();
+        document.addEventListener('keydown', _misDrawerEsc);
+    };
+
+    function misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles) {
+        const dis = isView ? 'disabled' : '';
+        const hasJob = isEdit || isView;
+        return `
+            <div class="mis-card">
+                <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
+                <div class="mis-form-group">
+                    <div class="mis-form-label">Customer *</div>
+                    <div id="misJobCustomer"></div>
+                </div>
+                <div class="mis-form-row">
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Job Name *</div>
+                        <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label" value="${hasJob ? esc(job?.job_name || '') : ''}" ${dis}>
+                    </div>
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Job ID *</div>
+                        <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;" value="${hasJob ? esc(job?.job_id || '') : ''}" ${dis}>
+                    </div>
+                </div>
+                <div class="mis-form-row">
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Due Date *</div>
+                        <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${editDue}" ${dis}>
+                    </div>
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Site</div>
+                        <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
+                    </div>
+                </div>
+                <div class="mis-form-group">
+                    <div class="mis-form-label">Description</div>
+                    <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
+                </div>
+                ${isView && job ? `<div style="margin-top:0.75rem;"><span class="mis-badge ${misStatusBadge(job.status).match(/mis-badge-\w+/)?.[0] || ''}">${esc(job.status)}</span> ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''} <span style="font-size:0.78rem;color:var(--text-muted);margin-left:0.5rem;">${esc(job.connection_name || '')} ${esc((job.solution || 'wcp').toUpperCase())}</span></div>` : ''}
+            </div>
+            <div class="mis-card">
+                <div class="mis-card-title"><i class="icon" data-lucide="list-checks"></i> Tasks</div>
+                <div id="misTasksContainer"><div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;">${isView ? 'No tasks.' : 'No tasks added. Click below to add one.'}</div></div>
+                ${!isView ? `<button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>` : ''}
+            </div>
+            <div class="mis-card">
+                <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                    <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight</div>
+                    <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                </div>
+                <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                    <div style="padding-top:1rem;">
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Product Templates</div>
+                            <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;">
+                                ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Preflight Profile</div>
+                            <select class="modal-edit-select" id="misJobPreflight">
+                                <option value="">Default (none)</option>
+                                ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>`;
+    }
+
+    function misDrawerAeForm(job, isEdit) {
+        return `
+            <div class="mis-card">
+                <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details (AE)</div>
+                <div class="mis-form-group"><div class="mis-form-label">Job Name *</div><input class="modal-edit-input" id="misJobName" value="${isEdit ? esc(job?.job_name || '') : ''}"></div>
+                <div class="mis-form-row">
+                    <div class="mis-form-group"><div class="mis-form-label">Job ID *</div><input class="modal-edit-input" id="misJobId" value="${isEdit ? esc(job?.job_id || '') : ''}" style="font-family:var(--mono);font-size:0.78rem;"></div>
+                    <div class="mis-form-group"><div class="mis-form-label">Job Part ID</div><input class="modal-edit-input" id="aeJobPartId" value="${isEdit ? esc(job?.payload?.jobPartId || '') : ''}"></div>
+                </div>
+                <div class="mis-form-group"><div class="mis-form-label">Customer ID</div><input class="modal-edit-input" id="misJobCustomerCode" value="${isEdit ? esc(job?.customer_code || '') : ''}"></div>
+                <div class="mis-form-group"><div class="mis-form-label">Description</div><textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional...">${isEdit ? esc(job?.description || '') : ''}</textarea></div>
+                <div class="mis-form-row">
+                    <div class="mis-form-group"><div class="mis-form-label">Category</div><select class="modal-edit-select" id="aeCategory"><option value="">None</option><option value="Production">Production</option><option value="Prepress">Prepress</option></select></div>
+                    <div class="mis-form-group"><div class="mis-form-label">Custom Field 1</div><input class="modal-edit-input" id="aeCustomField1" value="${isEdit ? esc(job?.payload?.customField1 || '') : ''}"></div>
+                </div>
+            </div>`;
+    }
+
+    window.misOpenJob = function(id, status) {
+        if (status === 'Draft') misOpenJobDrawer('edit', id);
+        else misOpenJobDrawer('view', id);
+    };
+
+    window.misCloseJobDrawer = function() {
+        const overlay = document.getElementById('misDrawerOverlay');
+        const drawer = document.getElementById('misDrawer');
+        if (overlay) { overlay.classList.remove('open'); }
+        if (drawer) { drawer.classList.remove('open'); }
+        setTimeout(() => { overlay?.remove(); drawer?.remove(); }, 300);
+        document.removeEventListener('keydown', _misDrawerEsc);
+    };
+
+    function _misDrawerEsc(e) { if (e.key === 'Escape') misCloseJobDrawer(); }
+
+    window.misSaveDrawerDraft = async function(jobId) {
+        const payload = misBuildPayload();
+        const btn = document.getElementById('misDrawerSaveBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Saving...'; }
+
+        const updates = {
+            job_name: payload.jobName,
+            customer_code: payload.customerCode,
+            customer_name: document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '',
+            due_date: payload.dueDate || null,
+            description: payload.description,
+            payload: payload,
+        };
+
+        try {
+            await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(updates),
+            });
+            _cachedMisJobs = null;
+            showToast('Draft saved', 'success');
+            misCloseJobDrawer();
+            await loadMisMonitor();
+        } catch (e) {
+            showToast('Failed to save: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Draft'; refreshIcons(); }
+        }
+    };
+
+    window.misSubmitDrawerJob = async function(jobId) {
+        const j = (_cachedMisJobs || []).find(x => x.id === jobId);
+        if (!j) { showToast('Job not found in cache', 'error'); return; }
+        const isAe = j.solution === 'ae';
+        const isWcp = !isAe;
+
+        // Build payload using job's connection type, not the active profile
+        window._misDrawerJobSolution = j.solution; // temp flag for misBuildPayload
+        const payload = misBuildPayload();
+        window._misDrawerJobSolution = null;
+
+        if (!payload.jobName) return showToast('Enter a job name', 'error');
+        if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
+        if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+        if (isWcp) for (const t of payload.tasks) {
+            if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
+            if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+        }
+
+        const btn = document.getElementById('misDrawerSubmitBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Submitting...'; }
+
+        // First save the draft with updated payload
+        const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '';
+        try {
+            await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ job_name: payload.jobName, customer_code: payload.customerCode || payload.customerCode, customer_name: custDisplay, due_date: payload.dueDate || null, description: payload.description, payload }),
+            });
+        } catch (e) {
+            showToast('Failed to save draft: ' + e.message, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job'; refreshIcons(); }
+            return;
+        }
+
+        // Then submit to WCP/AE
+        const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+        if (j.connection_id) headers['X-MIS-Connection-Id'] = j.connection_id;
+        else { const active = misGetCreds(); if (active.connectionId) headers['X-MIS-Connection-Id'] = active.connectionId; }
+
+        try {
+            const resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            const text = await resp.text().catch(() => '');
+            let data; try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+            if (!resp.ok) { const detail = data.error || data.message || `HTTP ${resp.status}`; throw new Error(typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)); }
+
+            await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ status: 'Created', wcp_response: data }),
+            });
+            _cachedMisJobs = null;
+            showToast(`Job submitted successfully!`, 'success');
+            misCloseJobDrawer();
+            await loadMisMonitor();
+        } catch (e) {
+            showToast(`Failed to submit: ${e.message}`, 'error');
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job'; refreshIcons(); }
+        }
+    };
+
     // ─── MIS: Job Monitor ─────────────────────────────────────
+
+    function misStatusBadge(s) {
+        const cls = s === 'Draft' ? 'mis-badge-draft' : s === 'Created' ? 'mis-badge-created' : s === 'Active' ? 'mis-badge-active' : s === 'Completed' ? 'mis-badge-completed' : s === 'Failed' ? 'mis-badge-failed' : '';
+        return `<span class="mis-badge ${cls}">${esc(s || '-')}</span>`;
+    }
 
     async function loadMisMonitor() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading jobs...</div>';
-        const jobs = await getMisStoredJobs(true);
+        const [jobs, profiles] = await Promise.all([getMisStoredJobs(true), fetchMisProfiles()]);
+        const ap = getMisActiveProfile();
 
-        function statusBadge(s) {
-            const cls = s === 'Created' ? 'mis-badge-created' : s === 'Active' ? 'mis-badge-active' : s === 'Completed' ? 'mis-badge-completed' : s === 'Failed' ? 'mis-badge-failed' : '';
-            return `<span class="mis-badge ${cls}">${esc(s || '-')}</span>`;
-        }
+        const statusBadge = misStatusBadge;
+
+        // Stats
+        const draftCount = jobs.filter(j => j.status === 'Draft').length;
+        const createdCount = jobs.filter(j => j.status === 'Created').length;
+        const activeCount = jobs.filter(j => j.status === 'Active').length;
+
+        // Connection dropdown options
+        const connOptions = (profiles || []).map(p => `
+            <div onclick="misQuickSwitchConn('${p.id}')" style="padding:0.5rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;${p.is_active ? 'background:var(--accent-dim);' : ''}" onmouseenter="this.style.background='var(--hover-subtle)'" onmouseleave="this.style.background='${p.is_active ? 'var(--accent-dim)' : ''}'">
+                <span style="width:6px;height:6px;border-radius:50%;background:${p.is_active ? 'var(--accent)' : 'var(--border)'};"></span>
+                <span style="font-size:0.82rem;">${esc(p.name)}</span>
+                <span class="type-badge" style="margin-left:auto;">${esc((p.type || 'wcp').toUpperCase())}</span>
+            </div>
+        `).join('');
 
         main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Job Monitor</h2>
-                <button class="mis-btn mis-btn-sm" id="misRefreshBtn" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> <span id="misRefreshLabel">Refresh</span></button>
+            <!-- Stats Bar -->
+            <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.25rem;flex-wrap:wrap;">
+                <div style="position:relative;" id="misConnSwitcher">
+                    <button class="mis-btn mis-btn-sm" onclick="document.getElementById('misConnDropdown').classList.toggle('open')" style="display:flex;align-items:center;gap:0.4rem;">
+                        <span style="width:7px;height:7px;border-radius:50%;background:${ap ? 'var(--green)' : 'var(--red)'};"></span>
+                        ${ap ? `${esc(ap.name)} <span class="type-badge">${esc((ap.type || 'wcp').toUpperCase())}</span>` : 'No Connection'}
+                        <i class="icon" data-lucide="chevron-down" style="width:12px;height:12px;"></i>
+                    </button>
+                    <div id="misConnDropdown" style="position:absolute;top:100%;left:0;margin-top:0.3rem;min-width:220px;background:var(--void-light);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-lg);z-index:100;overflow:hidden;display:none;">
+                        ${connOptions || '<div style="padding:0.75rem;font-size:0.82rem;color:var(--text-muted);">No connections configured</div>'}
+                    </div>
+                </div>
+                <div style="display:flex;gap:0.75rem;font-size:0.78rem;color:var(--text-muted);">
+                    <span>${misStatusBadge('Draft')} ${draftCount}</span>
+                    <span>${misStatusBadge('Created')} ${createdCount}</span>
+                    <span>${misStatusBadge('Active')} ${activeCount}</span>
+                    <span style="color:var(--text-muted);">${jobs.length} total</span>
+                </div>
+                <div style="margin-left:auto;display:flex;gap:0.5rem;">
+                    <button class="mis-btn mis-btn-sm mis-btn-primary" onclick="misOpenJobDrawer('create')"><i class="icon" data-lucide="plus" style="width:14px;height:14px;"></i> New Job</button>
+                    <button class="mis-btn mis-btn-sm" id="misRefreshBtn" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> <span id="misRefreshLabel">Refresh</span></button>
+                </div>
             </div>
-            ${!jobs.length ? '<div style="padding:2rem;text-align:center;color:var(--text-muted);">No jobs tracked. Create a job to see it here.</div>' : `
+            ${!jobs.length ? '<div style="padding:2rem;text-align:center;color:var(--text-muted);">No jobs yet. Click <strong>+ New Job</strong> to create one, or send an email to <code>jobs@paulland.io</code>.</div>' : `
             <div class="table-wrap">
                 <table>
                     <thead><tr>
@@ -11343,13 +11767,14 @@
                         <tr data-job-row="${j.id}">
                             <td><input type="checkbox" class="mis-checkbox mis-job-select" value="${j.id}" data-jobid="${esc(j.job_id || '')}" onchange="misUpdateSelection()"></td>
                             <td><code style="font-size:0.78rem;">${esc(j.job_id || '')}</code></td>
-                            <td class="title-text">${esc(j.job_name || '-')}</td>
+                            <td class="title-text"><a href="#" onclick="event.preventDefault();misOpenJob('${j.id}','${j.status}')" style="color:var(--accent);text-decoration:none;">${esc(j.job_name || '-')}</a></td>
                             <td style="font-size:0.85rem;">${esc(j.customer_name || j.customer_code || '-')}</td>
                             <td><span class="type-badge">${esc((j.solution || 'wcp').toUpperCase())}</span></td>
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','status','${esc(j.status || '')}')" title="Click to edit">${statusBadge(j.status)}</span></td>
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
-                            <td style="text-align:right;">
+                            <td style="text-align:right;white-space:nowrap;">
+                                ${j.status === 'Draft' ? `<button class="action-btn" onclick="misSubmitDraftJob('${j.id}')" title="Submit job" style="color:var(--accent);"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i></button>` : ''}
                                 <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
                             </td>
                         </tr>`).join('')}
@@ -11366,6 +11791,13 @@
                 misUpdateSelection();
             });
         }
+
+        // Close connection dropdown on click outside
+        document.addEventListener('click', function _closeConnDd(e) {
+            const dd = document.getElementById('misConnDropdown');
+            const sw = document.getElementById('misConnSwitcher');
+            if (dd && sw && !sw.contains(e.target)) dd.classList.remove('open');
+        }, { once: false });
     }
 
     window.misUpdateSelection = function() {
@@ -11471,6 +11903,203 @@
             loadMisMonitor();
             showToast('Job removed', 'success');
         } catch (e) { showToast('Failed to delete: ' + e.message, 'error'); }
+    };
+
+    // ─── MIS: Job Detail Modal ──────────────────────────────────
+
+    window.misShowJobDetail = function(id) {
+        const j = (_cachedMisJobs || []).find(x => x.id === id);
+        if (!j) { showToast('Job not found', 'error'); return; }
+        misCloseJobDetail();
+
+        const isDraft = j.status === 'Draft';
+        const created = j.created_at ? new Date(j.created_at).toLocaleString() : '-';
+        const due = j.due_date ? new Date(j.due_date).toLocaleDateString() : '-';
+
+        function jsonHighlight(str) {
+            return esc(str).replace(
+                /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+                (m) => { let c = 'color:#60a5fa'; if (/^"/.test(m)) c = /:$/.test(m) ? 'color:var(--accent)' : 'color:#eab308'; else if (/true|false/.test(m)) c = 'color:#ef4444'; return `<span style="${c}">${m}</span>`; }
+            );
+        }
+
+        const overlay = document.createElement('div');
+        overlay.className = 'mis-job-modal-overlay';
+        overlay.id = 'misJobOverlay';
+        overlay.onclick = misCloseJobDetail;
+
+        const modal = document.createElement('div');
+        modal.className = 'mis-job-modal';
+        modal.id = 'misJobModal';
+        modal.onclick = (e) => e.stopPropagation();
+        const dueVal = j.due_date ? new Date(j.due_date).toISOString().slice(0, 10) : '';
+
+        modal.innerHTML = `
+            <div class="mis-job-modal-header">
+                <h3>${isDraft ? '<i class="icon" data-lucide="edit-3" style="width:16px;height:16px;margin-right:0.4rem;"></i>' : ''}${esc(j.job_name || 'Untitled Job')}</h3>
+                <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDetail()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
+            </div>
+            <div class="mis-job-modal-body">
+                <div class="mis-detail-grid">
+                    <div class="mis-detail-field">
+                        <label>Job Name</label>
+                        ${isDraft ? `<input type="text" id="misEditJobName" value="${esc(j.job_name || '')}" style="width:100%;padding:0.4rem 0.5rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);font-size:0.85rem;">` : `<div class="val">${esc(j.job_name || '-')}</div>`}
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Job ID</label>
+                        <div class="val" style="font-family:var(--mono);font-size:0.78rem;">${esc(j.job_id || '')}</div>
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Customer Name</label>
+                        ${isDraft ? `<input type="text" id="misEditCustomerName" value="${esc(j.customer_name || '')}" style="width:100%;padding:0.4rem 0.5rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);font-size:0.85rem;">` : `<div class="val">${esc(j.customer_name || j.customer_code || '-')}</div>`}
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Customer Code</label>
+                        ${isDraft ? `<input type="text" id="misEditCustomerCode" value="${esc(j.customer_code || '')}" style="width:100%;padding:0.4rem 0.5rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);font-family:var(--mono);font-size:0.78rem;">` : `<div class="val" style="font-family:var(--mono);font-size:0.78rem;">${esc(j.customer_code || '-')}</div>`}
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Status</label>
+                        <div class="val">${misStatusBadge(j.status)} ${j.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(j.phase)}</span>` : ''}</div>
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Due Date</label>
+                        ${isDraft ? `<input type="date" id="misEditDueDate" value="${dueVal}" style="width:100%;padding:0.4rem 0.5rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);font-size:0.85rem;">` : `<div class="val">${due}</div>`}
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Connection</label>
+                        <div class="val">${esc(j.connection_name || '-')} <span class="type-badge">${esc((j.solution || 'wcp').toUpperCase())}</span></div>
+                    </div>
+                    <div class="mis-detail-field">
+                        <label>Created</label>
+                        <div class="val">${created}</div>
+                    </div>
+                </div>
+                <div class="mis-detail-field" style="margin-bottom:1rem;">
+                    <label>Description</label>
+                    ${isDraft ? `<textarea id="misEditDescription" rows="6" style="width:100%;padding:0.6rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-body);font-size:0.82rem;line-height:1.6;resize:vertical;">${esc(j.description || '')}</textarea>` : (j.description ? `<div class="mis-detail-desc">${esc(j.description)}</div>` : '<div class="val" style="color:var(--text-muted);">-</div>')}
+                </div>
+                ${j.payload ? `<div class="mis-detail-field"><label>Payload</label><div class="mis-detail-json">${jsonHighlight(JSON.stringify(j.payload, null, 2))}</div></div>` : ''}
+            </div>
+            <div class="mis-job-modal-footer">
+                ${isDraft ? `<button class="mis-btn" onclick="misSaveJobEdits('${j.id}')" id="misSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Changes</button>` : ''}
+                ${isDraft ? `<button class="mis-btn mis-btn-primary" onclick="misCloseJobDetail();misSubmitDraftJob('${j.id}')"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job</button>` : ''}
+                <button class="mis-btn" onclick="misCloseJobDetail()">Close</button>
+            </div>
+        `;
+
+        document.body.appendChild(overlay);
+        document.body.appendChild(modal);
+        refreshIcons();
+        document.addEventListener('keydown', _misModalEsc);
+    };
+
+    window.misCloseJobDetail = function() {
+        document.getElementById('misJobOverlay')?.remove();
+        document.getElementById('misJobModal')?.remove();
+        document.removeEventListener('keydown', _misModalEsc);
+    };
+
+    function _misModalEsc(e) { if (e.key === 'Escape') misCloseJobDetail(); }
+
+    window.misSaveJobEdits = async function(id) {
+        const j = (_cachedMisJobs || []).find(x => x.id === id);
+        if (!j) { showToast('Job not found', 'error'); return; }
+
+        const jobName = document.getElementById('misEditJobName')?.value || j.job_name;
+        const customerCode = document.getElementById('misEditCustomerCode')?.value || '';
+        const customerName = document.getElementById('misEditCustomerName')?.value || '';
+        const dueDateInput = document.getElementById('misEditDueDate')?.value;
+        const dueDate = dueDateInput ? new Date(dueDateInput + 'T17:00:00.000Z').toISOString() : null;
+        const description = document.getElementById('misEditDescription')?.value || '';
+
+        // Update payload to match edited fields
+        const updatedPayload = { ...(j.payload || {}) };
+        updatedPayload.jobName = jobName;
+        updatedPayload.customerCode = customerCode;
+        if (dueDate) {
+            updatedPayload.dueDate = dueDate;
+            // Also update task due dates (epoch ms)
+            if (updatedPayload.tasks?.length) {
+                const dueDateMs = new Date(dueDate).getTime();
+                updatedPayload.tasks.forEach(t => { if (t.properties) t.properties.dueDate = dueDateMs; });
+            }
+        }
+        if (description) updatedPayload.description = description;
+
+        const updates = {
+            job_name: jobName,
+            customer_code: customerCode,
+            customer_name: customerName,
+            due_date: dueDate,
+            description: description,
+            payload: updatedPayload,
+        };
+
+        const btn = document.getElementById('misSaveBtn');
+        if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Saving...'; }
+
+        try {
+            await fetch(`${MIS_API_BASE}/jobs/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify(updates),
+            });
+            _cachedMisJobs = null;
+            showToast('Job updated', 'success');
+            // Refresh cache and reopen modal with updated data
+            await getMisStoredJobs(true);
+            misCloseJobDetail();
+            misShowJobDetail(id);
+            loadMisMonitor();
+        } catch (e) {
+            showToast('Failed to save: ' + e.message, 'error');
+        } finally {
+            if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Changes'; refreshIcons(); }
+        }
+    };
+
+    window.misSubmitDraftJob = async function(id) {
+        const j = (_cachedMisJobs || []).find(x => x.id === id);
+        if (!j) { showToast('Job not found', 'error'); return; }
+        if (!j.payload) { showToast('Job has no payload — cannot submit', 'error'); return; }
+
+        // Build headers: use the job's connection_id, fall back to active connection
+        const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
+        if (j.connection_id) {
+            headers['X-MIS-Connection-Id'] = j.connection_id;
+        } else {
+            const active = misGetCreds();
+            if (active.connectionId) headers['X-MIS-Connection-Id'] = active.connectionId;
+        }
+
+        try {
+            const resp = await fetch(`${MIS_API_BASE}/create-job`, {
+                method: 'PUT',
+                headers,
+                credentials: 'same-origin',
+                body: JSON.stringify(j.payload),
+            });
+            const text = await resp.text().catch(() => '');
+            let data;
+            try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
+            if (!resp.ok) {
+                const detail = data.error || data.message || `HTTP ${resp.status}`;
+                throw new Error(typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300));
+            }
+
+            await fetch(`${MIS_API_BASE}/jobs/${id}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ status: 'Created', wcp_response: data }),
+            });
+            _cachedMisJobs = null;
+            showToast(`Job "${j.job_id}" submitted successfully!`, 'success');
+            loadMisMonitor();
+        } catch (e) {
+            showToast(`Failed to submit: ${e.message}`, 'error');
+        }
     };
 
     // ─── MIS: JSON Builder ────────────────────────────────────
@@ -11656,8 +12285,25 @@
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_active: true }),
         });
+        _misProfilesCache = null;
         await fetchMisProfiles();
-        loadSettingsConnections();
+        // Reload current view if it's settings, otherwise just update cache
+        if (currentView === 'settings-connections') loadSettingsConnections();
+    };
+
+    window.misQuickSwitchConn = async function(id) {
+        document.getElementById('misConnDropdown')?.classList.remove('open');
+        await fetch(`/api/mis/connections/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_active: true }),
+        });
+        _misProfilesCache = null;
+        _cachedMisJobs = null;
+        await fetchMisProfiles();
+        const p = getMisActiveProfile();
+        showToast(`Switched to ${p?.name || 'connection'}`, 'success');
+        loadMisMonitor();
     };
 
     window.editMisConn = function(id) {
