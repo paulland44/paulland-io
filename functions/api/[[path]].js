@@ -357,7 +357,8 @@ async function handleMisJobs(path, request, env) {
 
     // Only copy allowed fields
     for (const field of ['job_name', 'customer_code', 'customer_name', 'status', 'phase',
-                         'due_date', 'description', 'payload', 'wcp_response']) {
+                         'due_date', 'description', 'payload', 'wcp_response',
+                         'solution', 'connection_id', 'connection_name', 'cluster']) {
       if (body[field] !== undefined) updates[field] = body[field];
     }
 

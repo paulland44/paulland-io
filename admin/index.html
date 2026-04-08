@@ -11017,226 +11017,7 @@
         else { body.style.maxHeight = '0'; body.classList.add('collapsed'); }
     }
 
-    // ─── MIS: Create Job ──────────────────────────────────────
-
-    async function loadMisCreate() {
-        const main = document.getElementById('mainContent');
-        main.innerHTML = '<div class="loading">Loading reference data...</div>';
-        await fetchMisProfiles();
-        const ap = getMisActiveProfile();
-
-        // Branch to AE form if active connection is Automation Engine
-        if (ap?.type === 'ae') return loadAeCreate(ap);
-
-        await misLoadRefData();
-
-        const customers = cachedCustomers?.data || [];
-        const taskTemplates = getTaskTemplateList();
-        const productTemplates = getProductTemplateList();
-        const preflightProfiles = cachedPreflightProfiles || [];
-        jobTasks = []; taskCounter = 0;
-        const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
-
-        main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Create Job</h2>
-                ${ap ? `<div><span class="type-badge" style="border-color:var(--accent);color:var(--accent);">${esc(ap.name)}</span> <span class="type-badge">${esc((ap.type||'wcp').toUpperCase())}</span></div>` : ''}
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start;">
-                <div>
-                    <div class="mis-card">
-                        <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Customer *</div>
-                            <div id="misJobCustomer"></div>
-                        </div>
-                        <div class="mis-form-row">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Job Name *</div>
-                                <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label">
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Job ID *</div>
-                                <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;">
-                            </div>
-                        </div>
-                        <div class="mis-form-row">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Due Date *</div>
-                                <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${defaultDue}">
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Site</div>
-                                <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
-                            </div>
-                        </div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Description</div>
-                            <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..."></textarea>
-                        </div>
-                    </div>
-                    <div class="mis-card">
-                        <div class="mis-card-title"><i class="icon" data-lucide="list-checks"></i> Tasks</div>
-                        <div id="misTasksContainer"><div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;">No tasks added. Click below to add one.</div></div>
-                        <button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>
-                    </div>
-                    <div class="mis-card">
-                        <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                            <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Optional: Products & Preflight</div>
-                            <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                        </div>
-                        <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                            <div style="padding-top:1rem;">
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Product Templates</div>
-                                    <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;">
-                                        ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Preflight Profile</div>
-                                    <select class="modal-edit-select" id="misJobPreflight">
-                                        <option value="">Default (none)</option>
-                                        ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top:1rem;display:flex;gap:0.75rem;">
-                        <button class="mis-btn mis-btn-primary" onclick="misSubmitJob()" id="misSubmitBtn"><i class="icon" data-lucide="send"></i> Create Job</button>
-                        <button class="mis-btn" onclick="misUpdatePreview()"><i class="icon" data-lucide="eye"></i> Preview JSON</button>
-                    </div>
-                </div>
-                <div class="mis-card" style="position:sticky;top:6rem;">
-                    <div class="mis-card-title"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
-                    <pre class="json-preview" id="misJsonPreview">{}</pre>
-                    <div style="margin-top:0.75rem;"><button class="mis-btn mis-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button></div>
-                </div>
-            </div>`;
-
-        window._misTaskTemplateOpts = taskTemplates;
-        window._misCustomerSS = createSearchableSelect('misJobCustomer',
-            customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
-            { placeholder: 'Search customers...', onchange: () => { misUpdateJobId(); misUpdatePreview(); } }
-        );
-        ['misJobName','misJobId','misJobDueDate','misJobDescription'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) { el.addEventListener('input', misUpdatePreview); el.addEventListener('change', misUpdatePreview); }
-        });
-        refreshIcons();
-    }
-
-    // ─── AE: Create Job Form ─────────────────────────────────
-
-    async function loadAeCreate(ap) {
-        const main = document.getElementById('mainContent');
-        main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Create AE Job</h2>
-                <div><span class="type-badge" style="border-color:var(--accent);color:var(--accent);">${esc(ap.name)}</span> <span class="type-badge">AE</span></div>
-            </div>
-            <div style="display:grid;grid-template-columns:1fr 380px;gap:1.5rem;align-items:start;">
-                <div>
-                    <div class="mis-card">
-                        <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
-                        <div class="mis-form-row">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Job Name *</div>
-                                <input class="modal-edit-input" id="aeJobName" placeholder="e.g. Spring Label Run">
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Job ID *</div>
-                                <input class="modal-edit-input" id="aeJobId" placeholder="e.g. 000001" style="font-family:var(--mono);font-size:0.78rem;">
-                            </div>
-                        </div>
-                        <div class="mis-form-row">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Job Part ID</div>
-                                <input class="modal-edit-input" id="aeJobPartId" placeholder="e.g. 000001" style="font-family:var(--mono);font-size:0.78rem;">
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Customer ID</div>
-                                <input class="modal-edit-input" id="aeCustomerId" placeholder="e.g. 0001">
-                            </div>
-                        </div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Description</div>
-                            <textarea class="mis-form-textarea" id="aeDescription" placeholder="Optional job description..."></textarea>
-                        </div>
-                        <div class="mis-form-row">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Category</div>
-                                <select class="modal-edit-select" id="aeCategory">
-                                    <option value="Production">Production</option>
-                                    <option value="Prepress">Prepress</option>
-                                    <option value="">None</option>
-                                </select>
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Custom Field 1</div>
-                                <input class="modal-edit-input" id="aeCustomField1" placeholder="e.g. Flexo">
-                            </div>
-                        </div>
-                    </div>
-                    <div style="margin-top:1rem;display:flex;gap:0.75rem;">
-                        <button class="mis-btn mis-btn-primary" onclick="aeSubmitJob()" id="aeSubmitBtn"><i class="icon" data-lucide="send"></i> Create AE Job</button>
-                        <button class="mis-btn" onclick="aeUpdatePreview()"><i class="icon" data-lucide="eye"></i> Preview</button>
-                    </div>
-                </div>
-                <div class="mis-card" style="position:sticky;top:6rem;">
-                    <div class="mis-card-title"><i class="icon" data-lucide="braces"></i> Request Preview</div>
-                    <pre class="json-preview" id="aeJsonPreview">{}</pre>
-                    <div style="margin-top:0.75rem;"><button class="mis-btn mis-btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('aeJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button></div>
-                </div>
-            </div>`;
-        ['aeJobName','aeJobId','aeJobPartId','aeCustomerId','aeDescription','aeCategory','aeCustomField1'].forEach(id => {
-            const el = document.getElementById(id);
-            if (el) { el.addEventListener('input', aeUpdatePreview); el.addEventListener('change', aeUpdatePreview); }
-        });
-        refreshIcons();
-    }
-
-    function aeBuildPayload() {
-        return {
-            jobName: document.getElementById('aeJobName')?.value?.trim() || '',
-            jobId: document.getElementById('aeJobId')?.value?.trim() || '',
-            jobPartId: document.getElementById('aeJobPartId')?.value?.trim() || '',
-            customerCode: document.getElementById('aeCustomerId')?.value?.trim() || '',
-            description: document.getElementById('aeDescription')?.value?.trim() || '',
-            category: document.getElementById('aeCategory')?.value || '',
-            customField1: document.getElementById('aeCustomField1')?.value?.trim() || '',
-        };
-    }
-
-    window.aeUpdatePreview = function() {
-        const payload = aeBuildPayload();
-        const el = document.getElementById('aeJsonPreview');
-        if (el) el.textContent = JSON.stringify(payload, null, 2);
-    };
-
-    window.aeSubmitJob = async function() {
-        const btn = document.getElementById('aeSubmitBtn');
-        const payload = aeBuildPayload();
-        if (!payload.jobName) return showToast('Enter a job name', 'error');
-        if (!payload.jobId) return showToast('Enter a job ID', 'error');
-        btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Creating...';
-        try {
-            const result = await misPut('create-job', payload);
-            const ap = getMisActiveProfile();
-            await storeMisJob({
-                job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
-                customer_name: '', status: 'Created', phase: '',
-                due_date: null, description: payload.description || '',
-                connection_id: ap?.id || null, connection_name: ap?.name || '', solution: 'ae',
-                cluster: '', payload, wcp_response: result,
-            });
-            showToast(`AE Job "${payload.jobId}" created!`, 'success');
-            const monTab = document.querySelector('.sub-tab[data-view="mis-monitor"]');
-            if (monTab) monTab.click();
-        } catch (e) { showToast(`Failed: ${e.message}`, 'error'); }
-        finally { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="send"></i> Create AE Job'; refreshIcons(); }
-    };
+    // ─── MIS: Payload & Task Helpers ─────────────────────────
 
     function misUpdateJobId() {
         const el = document.getElementById('misJobCustomer');
@@ -11248,35 +11029,40 @@
         misUpdatePreview();
     }
 
+    function misGetTargetType() {
+        const sel = document.getElementById('misTargetConnection');
+        return sel?.selectedOptions?.[0]?.dataset?.type || 'wcp';
+    }
+
     function misBuildPayload() {
-        const overrideSolution = window._misDrawerJobSolution;
-        const ap = getMisActiveProfile();
-        const isAe = overrideSolution ? overrideSolution === 'ae' : ap?.type === 'ae';
+        const isAe = misGetTargetType() === 'ae';
+
+        // Common fields
+        const jobName = document.getElementById('misJobName')?.value || '';
+        const jobId = document.getElementById('misJobId')?.value || '';
+        const description = document.getElementById('misJobDescription')?.value || '';
 
         if (isAe) {
-            // AE payload — simpler, no tasks
             return {
-                jobName: document.getElementById('misJobName')?.value || '',
-                jobId: document.getElementById('misJobId')?.value || '',
+                jobName, jobId, description,
                 jobPartId: document.getElementById('aeJobPartId')?.value || '',
                 customerCode: document.getElementById('misJobCustomerCode')?.value || '',
-                description: document.getElementById('misJobDescription')?.value || '',
                 category: document.getElementById('aeCategory')?.value || '',
                 customField1: document.getElementById('aeCustomField1')?.value || '',
             };
         }
 
         // WCP payload
+        const custEl = document.getElementById('misJobCustomer');
+        const customerCode = custEl?._ss ? custEl._ss.getValue() : (document.getElementById('misJobCustomerCode')?.value || '');
         const dueDate = document.getElementById('misJobDueDate')?.value;
         const prods = document.getElementById('misJobProducts');
         const selProds = prods ? Array.from(prods.selectedOptions).map(o => o.value) : [];
         const payload = {
             siteName: 'Home',
-            customerCode: (() => { const el = document.getElementById('misJobCustomer'); return el?._ss ? el._ss.getValue() : ''; })(),
-            jobName: document.getElementById('misJobName')?.value || '',
-            jobId: document.getElementById('misJobId')?.value || '',
+            customerCode,
+            jobName, jobId, description,
             dueDate: dueDate ? new Date(dueDate).toISOString() : '',
-            description: document.getElementById('misJobDescription')?.value || '',
         };
         if (selProds.length) payload.productTemplates = selProds;
         payload.tasks = jobTasks.map(t => {
@@ -11337,8 +11123,14 @@
 
     window.misSubmitJob = async function() {
         const btn = document.getElementById('misSubmitBtn');
-        const ap = getMisActiveProfile();
-        const isWcp = ap?.type !== 'ae';
+        const connSel = document.getElementById('misTargetConnection');
+        const connOpt = connSel?.selectedOptions?.[0];
+        const targetType = connOpt?.dataset?.type || 'wcp';
+        const connId = connSel?.value || null;
+        const connName = connOpt?.dataset?.name || '';
+        const connCluster = connOpt?.dataset?.cluster || '';
+        const isWcp = targetType !== 'ae';
+
         const payload = misBuildPayload();
         if (!payload.jobName) return showToast('Enter a job name', 'error');
         if (!payload.jobId) return showToast('Enter a job ID', 'error');
@@ -11348,17 +11140,24 @@
             if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
             if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
         }
+        if (!connId) return showToast('Select a connection to submit to', 'error');
+
         btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Creating...';
         try {
-            const result = await misPut('create-job', payload);
-            const ap = getMisActiveProfile();
+            const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId };
+            const resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            const text = await resp.text().catch(() => '');
+            let result; try { result = JSON.parse(text); } catch { result = { rawResponse: text.slice(0, 500) }; }
+            if (!resp.ok) throw new Error(result.error || result.message || `HTTP ${resp.status}`);
+
             const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent || '';
             await storeMisJob({
                 job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
-                customer_name: custDisplay.replace(/\s*\(.*\)$/, ''), status: 'Created', phase: 'Draft',
-                due_date: payload.dueDate, description: payload.description || '',
-                connection_id: ap?.id || null, connection_name: ap?.name || '', solution: ap?.type || 'wcp',
-                cluster: ap?.cluster || '', payload, wcp_response: result,
+                customer_name: custDisplay.replace(/\s*\(.*\)$/, '') || document.getElementById('misJobCustomerCode')?.value || '',
+                status: 'Created', phase: 'Draft',
+                due_date: payload.dueDate || null, description: payload.description || '',
+                connection_id: connId, connection_name: connName, solution: targetType,
+                cluster: connCluster, payload, wcp_response: result,
             });
             showToast(`Job "${payload.jobId}" created!`, 'success');
             misCloseJobDrawer();
@@ -11373,6 +11172,7 @@
     window.misOpenJobDrawer = async function(mode, jobId) {
         misCloseJobDrawer();
         const ap = getMisActiveProfile();
+        const connections = _misProfilesCache || [];
         const isEdit = mode === 'edit';
         const isView = mode === 'view';
         const isCreate = mode === 'create';
@@ -11383,14 +11183,8 @@
             if (!job) { showToast('Job not found', 'error'); return; }
         }
 
-        // Determine solution type: use job's type for edit/view, active profile for create
-        const jobSolution = (isEdit || isView) ? (job?.solution || 'wcp') : (ap?.type || 'wcp');
-        const isAeForm = jobSolution === 'ae';
-
-        // Load reference data for WCP
-        if (!isAeForm) {
-            await misLoadRefData();
-        }
+        // Always try to load WCP ref data (silently fail if no WCP connection)
+        try { await misLoadRefData(); } catch (e) { /* no WCP connection — that's ok */ }
         const customers = cachedCustomers?.data || [];
         const taskTemplates = getTaskTemplateList();
         const productTemplates = getProductTemplateList();
@@ -11399,20 +11193,28 @@
         // Reset task state
         jobTasks = []; taskCounter = 0;
 
-        // Defaults
+        const hasJob = isEdit || isView;
+        const dis = isView ? 'disabled' : '';
         const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
-        const editDue = (isEdit || isView) && job?.due_date ? new Date(job.due_date).toISOString().slice(0, 16) : defaultDue;
+        const editDue = hasJob && job?.due_date ? new Date(job.due_date).toISOString().slice(0, 16) : defaultDue;
         const title = isView ? esc(job.job_name) : isEdit ? `Edit: ${esc(job.job_name)}` : 'New Job';
         const icon = isView ? 'eye' : isEdit ? 'edit-3' : 'plus';
 
-        // Create overlay
+        // Determine default connection
+        const defaultConnId = hasJob ? (job.connection_id || ap?.id || '') : (ap?.id || '');
+
+        // Connection selector options
+        const connOpts = connections.map(c =>
+            `<option value="${c.id}" data-type="${c.type || 'wcp'}" data-name="${esc(c.name)}" data-cluster="${c.cluster || ''}" ${c.id === defaultConnId ? 'selected' : ''}>${esc(c.name)} (${(c.type || 'wcp').toUpperCase()})</option>`
+        ).join('');
+
+        // Create overlay + drawer
         const overlay = document.createElement('div');
         overlay.className = 'mis-drawer-overlay';
         overlay.id = 'misDrawerOverlay';
         overlay.onclick = misCloseJobDrawer;
         document.body.appendChild(overlay);
 
-        // Create drawer
         const drawer = document.createElement('div');
         drawer.className = 'mis-drawer';
         drawer.id = 'misDrawer';
@@ -11423,21 +11225,119 @@
                 <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDrawer()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
             </div>
             <div class="mis-drawer-body">
-                ${isAeForm ? misDrawerAeForm(job, isEdit, isView) : misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles)}
-                <div class="mis-card" style="margin-top:1rem;">
+                <!-- Job Details (always visible) -->
+                <div class="mis-card">
+                    <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Customer</div>
+                        <div id="misJobCustomer"></div>
+                        <input class="modal-edit-input" id="misJobCustomerCode" placeholder="Or enter customer ID manually" style="margin-top:0.35rem;font-size:0.82rem;" value="${hasJob ? esc(job?.customer_code || '') : ''}" ${dis}>
+                    </div>
+                    <div class="mis-form-row">
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Job Name *</div>
+                            <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label" value="${hasJob ? esc(job?.job_name || '') : ''}" ${dis}>
+                        </div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Job ID *</div>
+                            <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;" value="${hasJob ? esc(job?.job_id || '') : ''}" ${dis}>
+                        </div>
+                    </div>
+                    <div class="mis-form-row">
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Due Date</div>
+                            <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${editDue}" ${dis}>
+                        </div>
+                        <div class="mis-form-group">
+                            <div class="mis-form-label">Site</div>
+                            <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
+                        </div>
+                    </div>
+                    <div class="mis-form-group">
+                        <div class="mis-form-label">Description</div>
+                        <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
+                    </div>
+                    ${isView && job ? `<div style="margin-top:0.75rem;">${misStatusBadge(job.status)} ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''}</div>` : ''}
+                </div>
+
+                <!-- Tasks (WCP) — collapsible -->
+                <div class="mis-card" id="misTasksSection">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="list-checks"></i> Tasks <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body" style="max-height:2000px;">
+                        <div style="padding-top:0.75rem;">
+                            <div id="misTasksContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No tasks added.</div></div>
+                            ${!isView ? `<button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AE Details — collapsible -->
+                <div class="mis-card" id="misAeSection">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="server"></i> AE Details <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(Automation Engine)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-row">
+                                <div class="mis-form-group"><div class="mis-form-label">Job Part ID</div><input class="modal-edit-input" id="aeJobPartId" value="${hasJob ? esc(job?.payload?.jobPartId || '') : ''}" ${dis}></div>
+                                <div class="mis-form-group"><div class="mis-form-label">Category</div><select class="modal-edit-select" id="aeCategory" ${dis}><option value="">None</option><option value="Production">Production</option><option value="Prepress">Prepress</option></select></div>
+                            </div>
+                            <div class="mis-form-group"><div class="mis-form-label">Custom Field 1</div><input class="modal-edit-input" id="aeCustomField1" value="${hasJob ? esc(job?.payload?.customField1 || '') : ''}" ${dis}></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Products & Preflight (WCP) — collapsible -->
+                <div class="mis-card">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Product Templates</div>
+                                <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;" ${dis}>
+                                    ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+                                </select>
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Preflight Profile</div>
+                                <select class="modal-edit-select" id="misJobPreflight" ${dis}>
+                                    <option value="">Default (none)</option>
+                                    ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Payload Preview — collapsible -->
+                <div class="mis-card">
                     <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
                         <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
                         <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
                     </div>
                     <div class="mis-collapsible-body collapsed" style="max-height:0;">
                         <div style="padding-top:0.75rem;">
-                            <pre class="json-preview" id="misJsonPreview" style="max-height:300px;">${(isEdit || isView) && job?.payload ? JSON.stringify(job.payload, null, 2) : '{}'}</pre>
+                            <pre class="json-preview" id="misJsonPreview" style="max-height:300px;">${hasJob && job?.payload ? JSON.stringify(job.payload, null, 2) : '{}'}</pre>
                             <button class="mis-btn mis-btn-sm" style="margin-top:0.5rem;" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button>
                         </div>
                     </div>
                 </div>
             </div>
             <div class="mis-drawer-footer">
+                ${!isView ? `
+                <div style="display:flex;align-items:center;gap:0.5rem;margin-right:auto;">
+                    <span style="font-size:0.82rem;color:var(--text-muted);">Submit to:</span>
+                    <select class="modal-edit-select" id="misTargetConnection" style="width:auto;min-width:160px;font-size:0.82rem;">
+                        ${connOpts}
+                    </select>
+                </div>` : ''}
                 ${isEdit ? `
                     <button class="mis-btn" onclick="misSaveDrawerDraft('${jobId}')" id="misDrawerSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Draft</button>
                     <button class="mis-btn mis-btn-primary" onclick="misSubmitDrawerJob('${jobId}')" id="misDrawerSubmitBtn"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job</button>
@@ -11449,150 +11349,91 @@
         `;
         document.body.appendChild(drawer);
 
-        // Wire up searchable selects and events
+        // Wire up searchable customer select
         window._misTaskTemplateOpts = taskTemplates;
-        if (!isAeForm && customers.length) {
+        if (customers.length) {
             window._misCustomerSS = createSearchableSelect('misJobCustomer',
                 customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
-                { placeholder: 'Search customers...', onchange: () => { if (!isEdit) misUpdateJobId(); misUpdatePreview(); } }
+                { placeholder: 'Search customers...', onchange: (val) => {
+                    const codeInput = document.getElementById('misJobCustomerCode');
+                    if (codeInput) codeInput.value = val;
+                    if (!isEdit) misUpdateJobId();
+                    misUpdatePreview();
+                }}
             );
         }
 
-        // Wire up live preview on form fields
-        ['misJobName','misJobId','misJobDueDate','misJobDescription'].forEach(id => {
+        // Wire up live preview on all form fields
+        ['misJobName','misJobId','misJobDueDate','misJobDescription','misJobCustomerCode','aeJobPartId','aeCategory','aeCustomField1'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.addEventListener('input', misUpdatePreview); el.addEventListener('change', misUpdatePreview); }
         });
 
+        // Wire up connection selector to update preview + collapsible states
+        const connSel = document.getElementById('misTargetConnection');
+        if (connSel) {
+            connSel.addEventListener('change', () => { misUpdateDrawerSections(); misUpdatePreview(); });
+        }
+
         // Populate fields for edit/view mode
-        if ((isEdit || isView) && job) {
-            if (!isAeForm) {
-                // Set customer
-                const custEl = document.getElementById('misJobCustomer');
-                if (custEl?._ss && job.customer_code) custEl._ss.setValue(job.customer_code);
-                // Set basic fields
-                document.getElementById('misJobName').value = job.job_name || '';
-                document.getElementById('misJobId').value = job.job_id || '';
-                document.getElementById('misJobDescription').value = job.description || '';
-                // Populate tasks from payload
-                if (job.payload?.tasks?.length) {
-                    for (const t of job.payload.tasks) {
-                        misAddTask();
-                        const lastTask = jobTasks[jobTasks.length - 1];
-                        if (lastTask) {
-                            lastTask.templateId = t.taskTemplateNodeId || '';
-                            lastTask.assignees = (t.assignee || []).map(a => a.id || '');
-                            if (t.properties?.dueDate) {
-                                lastTask.dueDate = new Date(t.properties.dueDate).toISOString().slice(0, 16);
-                            }
-                            // Update the DOM elements for this task
-                            const taskCard = document.getElementById(`mis-task-${lastTask.idx}`);
-                            if (taskCard) {
-                                const tplEl = document.getElementById(`misTaskTpl-${lastTask.idx}`);
-                                if (tplEl?._ss && lastTask.templateId) tplEl._ss.setValue(lastTask.templateId);
-                                const assigneeInput = taskCard.querySelector('input[placeholder="user@company.com"]');
-                                if (assigneeInput && lastTask.assignees[0]) assigneeInput.value = lastTask.assignees[0];
-                                const dueDateInput = taskCard.querySelector('input[type="datetime-local"]');
-                                if (dueDateInput && lastTask.dueDate) dueDateInput.value = lastTask.dueDate;
-                            }
+        if (hasJob && job) {
+            // Customer searchable select
+            const custEl = document.getElementById('misJobCustomer');
+            if (custEl?._ss && job.customer_code) custEl._ss.setValue(job.customer_code);
+
+            // AE fields from payload
+            if (job.payload) {
+                const aeCat = document.getElementById('aeCategory');
+                if (aeCat && job.payload.category) aeCat.value = job.payload.category;
+            }
+
+            // Populate tasks from payload
+            if (job.payload?.tasks?.length) {
+                for (const t of job.payload.tasks) {
+                    misAddTask();
+                    const lastTask = jobTasks[jobTasks.length - 1];
+                    if (lastTask) {
+                        lastTask.templateId = t.taskTemplateNodeId || '';
+                        lastTask.assignees = (t.assignee || []).map(a => a.id || '');
+                        if (t.properties?.dueDate) lastTask.dueDate = new Date(t.properties.dueDate).toISOString().slice(0, 16);
+                        const taskCard = document.getElementById(`mis-task-${lastTask.idx}`);
+                        if (taskCard) {
+                            const tplEl = document.getElementById(`misTaskTpl-${lastTask.idx}`);
+                            if (tplEl?._ss && lastTask.templateId) tplEl._ss.setValue(lastTask.templateId);
+                            const assigneeInput = taskCard.querySelector('input[placeholder="user@company.com"]');
+                            if (assigneeInput && lastTask.assignees[0]) assigneeInput.value = lastTask.assignees[0];
+                            const dueDateInput = taskCard.querySelector('input[type="datetime-local"]');
+                            if (dueDateInput && lastTask.dueDate) dueDateInput.value = lastTask.dueDate;
                         }
                     }
                 }
             }
         }
 
+        // Set initial collapsible states based on selected connection
+        misUpdateDrawerSections();
+
         // Animate open
-        requestAnimationFrame(() => {
-            overlay.classList.add('open');
-            drawer.classList.add('open');
-        });
+        requestAnimationFrame(() => { overlay.classList.add('open'); drawer.classList.add('open'); });
         refreshIcons();
         misUpdatePreview();
         document.addEventListener('keydown', _misDrawerEsc);
     };
 
-    function misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles) {
-        const dis = isView ? 'disabled' : '';
-        const hasJob = isEdit || isView;
-        return `
-            <div class="mis-card">
-                <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
-                <div class="mis-form-group">
-                    <div class="mis-form-label">Customer *</div>
-                    <div id="misJobCustomer"></div>
-                </div>
-                <div class="mis-form-row">
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Job Name *</div>
-                        <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label" value="${hasJob ? esc(job?.job_name || '') : ''}" ${dis}>
-                    </div>
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Job ID *</div>
-                        <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;" value="${hasJob ? esc(job?.job_id || '') : ''}" ${dis}>
-                    </div>
-                </div>
-                <div class="mis-form-row">
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Due Date *</div>
-                        <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${editDue}" ${dis}>
-                    </div>
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Site</div>
-                        <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
-                    </div>
-                </div>
-                <div class="mis-form-group">
-                    <div class="mis-form-label">Description</div>
-                    <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
-                </div>
-                ${isView && job ? `<div style="margin-top:0.75rem;"><span class="mis-badge ${misStatusBadge(job.status).match(/mis-badge-\w+/)?.[0] || ''}">${esc(job.status)}</span> ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''} <span style="font-size:0.78rem;color:var(--text-muted);margin-left:0.5rem;">${esc(job.connection_name || '')} ${esc((job.solution || 'wcp').toUpperCase())}</span></div>` : ''}
-            </div>
-            <div class="mis-card">
-                <div class="mis-card-title"><i class="icon" data-lucide="list-checks"></i> Tasks</div>
-                <div id="misTasksContainer"><div style="padding:1rem;color:var(--text-muted);font-size:0.85rem;">${isView ? 'No tasks.' : 'No tasks added. Click below to add one.'}</div></div>
-                ${!isView ? `<button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>` : ''}
-            </div>
-            <div class="mis-card">
-                <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                    <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight</div>
-                    <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                </div>
-                <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                    <div style="padding-top:1rem;">
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Product Templates</div>
-                            <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;">
-                                ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-                            </select>
-                        </div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Preflight Profile</div>
-                            <select class="modal-edit-select" id="misJobPreflight">
-                                <option value="">Default (none)</option>
-                                ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>`;
-    }
-
-    function misDrawerAeForm(job, isEdit) {
-        return `
-            <div class="mis-card">
-                <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details (AE)</div>
-                <div class="mis-form-group"><div class="mis-form-label">Job Name *</div><input class="modal-edit-input" id="misJobName" value="${isEdit ? esc(job?.job_name || '') : ''}"></div>
-                <div class="mis-form-row">
-                    <div class="mis-form-group"><div class="mis-form-label">Job ID *</div><input class="modal-edit-input" id="misJobId" value="${isEdit ? esc(job?.job_id || '') : ''}" style="font-family:var(--mono);font-size:0.78rem;"></div>
-                    <div class="mis-form-group"><div class="mis-form-label">Job Part ID</div><input class="modal-edit-input" id="aeJobPartId" value="${isEdit ? esc(job?.payload?.jobPartId || '') : ''}"></div>
-                </div>
-                <div class="mis-form-group"><div class="mis-form-label">Customer ID</div><input class="modal-edit-input" id="misJobCustomerCode" value="${isEdit ? esc(job?.customer_code || '') : ''}"></div>
-                <div class="mis-form-group"><div class="mis-form-label">Description</div><textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional...">${isEdit ? esc(job?.description || '') : ''}</textarea></div>
-                <div class="mis-form-row">
-                    <div class="mis-form-group"><div class="mis-form-label">Category</div><select class="modal-edit-select" id="aeCategory"><option value="">None</option><option value="Production">Production</option><option value="Prepress">Prepress</option></select></div>
-                    <div class="mis-form-group"><div class="mis-form-label">Custom Field 1</div><input class="modal-edit-input" id="aeCustomField1" value="${isEdit ? esc(job?.payload?.customField1 || '') : ''}"></div>
-                </div>
-            </div>`;
+    // Toggle collapsible sections based on selected connection type
+    function misUpdateDrawerSections() {
+        const type = misGetTargetType();
+        const tasksBody = document.querySelector('#misTasksSection .mis-collapsible-body');
+        const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
+        if (type === 'ae') {
+            // Collapse tasks, expand AE
+            if (tasksBody && !tasksBody.classList.contains('collapsed')) { tasksBody.style.maxHeight = '0'; tasksBody.classList.add('collapsed'); }
+            if (aeBody && aeBody.classList.contains('collapsed')) { aeBody.classList.remove('collapsed'); aeBody.style.maxHeight = aeBody.scrollHeight + 'px'; }
+        } else {
+            // Expand tasks, collapse AE
+            if (aeBody && !aeBody.classList.contains('collapsed')) { aeBody.style.maxHeight = '0'; aeBody.classList.add('collapsed'); }
+            if (tasksBody && tasksBody.classList.contains('collapsed')) { tasksBody.classList.remove('collapsed'); tasksBody.style.maxHeight = tasksBody.scrollHeight + 'px'; }
+        }
     }
 
     window.misOpenJob = function(id, status) {
@@ -11612,17 +11453,24 @@
     function _misDrawerEsc(e) { if (e.key === 'Escape') misCloseJobDrawer(); }
 
     window.misSaveDrawerDraft = async function(jobId) {
+        const connSel = document.getElementById('misTargetConnection');
+        const connOpt = connSel?.selectedOptions?.[0];
         const payload = misBuildPayload();
         const btn = document.getElementById('misDrawerSaveBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Saving...'; }
 
+        const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '';
         const updates = {
             job_name: payload.jobName,
-            customer_code: payload.customerCode,
-            customer_name: document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '',
+            customer_code: payload.customerCode || document.getElementById('misJobCustomerCode')?.value || '',
+            customer_name: custDisplay || document.getElementById('misJobCustomerCode')?.value || '',
             due_date: payload.dueDate || null,
             description: payload.description,
             payload: payload,
+            solution: connOpt?.dataset?.type || null,
+            connection_id: connSel?.value || null,
+            connection_name: connOpt?.dataset?.name || '',
+            cluster: connOpt?.dataset?.cluster || '',
         };
 
         try {
@@ -11645,19 +11493,17 @@
 
     window.misSubmitDrawerJob = async function(jobId) {
       try {
-        console.log('[MIS] misSubmitDrawerJob called with jobId:', jobId);
-        const j = (_cachedMisJobs || []).find(x => x.id === jobId);
-        if (!j) { showToast('Job not found in cache', 'error'); return; }
-        console.log('[MIS] Job found:', j.job_id, 'solution:', j.solution);
-        const isAe = j.solution === 'ae';
-        const isWcp = !isAe;
+        const connSel = document.getElementById('misTargetConnection');
+        const connOpt = connSel?.selectedOptions?.[0];
+        const connId = connSel?.value;
+        const targetType = connOpt?.dataset?.type || 'wcp';
+        const connName = connOpt?.dataset?.name || '';
+        const connCluster = connOpt?.dataset?.cluster || '';
+        const isWcp = targetType !== 'ae';
 
-        // Build payload using job's connection type, not the active profile
-        window._misDrawerJobSolution = j.solution;
+        if (!connId) return showToast('Select a connection to submit to', 'error');
+
         const payload = misBuildPayload();
-        window._misDrawerJobSolution = null;
-        console.log('[MIS] Payload built:', JSON.stringify(payload).slice(0, 200));
-
         if (!payload.jobName) return showToast('Enter a job name', 'error');
         if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
         if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
@@ -11669,14 +11515,25 @@
         const btn = document.getElementById('misDrawerSubmitBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Submitting...'; }
 
-        // First save the draft with updated payload
+        // Save draft with updated payload + connection info
         const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '';
         try {
             await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ job_name: payload.jobName, customer_code: payload.customerCode || payload.customerCode, customer_name: custDisplay, due_date: payload.dueDate || null, description: payload.description, payload }),
+                body: JSON.stringify({
+                    job_name: payload.jobName,
+                    customer_code: payload.customerCode || document.getElementById('misJobCustomerCode')?.value || '',
+                    customer_name: custDisplay || document.getElementById('misJobCustomerCode')?.value || '',
+                    due_date: payload.dueDate || null,
+                    description: payload.description,
+                    payload,
+                    solution: targetType,
+                    connection_id: connId,
+                    connection_name: connName,
+                    cluster: connCluster,
+                }),
             });
         } catch (e) {
             showToast('Failed to save draft: ' + e.message, 'error');
@@ -11684,12 +11541,9 @@
             return;
         }
 
-        // Then submit to WCP/AE
-        const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json' };
-        if (j.connection_id) headers['X-MIS-Connection-Id'] = j.connection_id;
-        else { const active = misGetCreds(); if (active.connectionId) headers['X-MIS-Connection-Id'] = active.connectionId; }
-
+        // Submit to WCP/AE using selected connection
         try {
+            const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId };
             const resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
             const text = await resp.text().catch(() => '');
             let data; try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
@@ -11702,16 +11556,15 @@
                 body: JSON.stringify({ status: 'Created', wcp_response: data }),
             });
             _cachedMisJobs = null;
-            showToast(`Job submitted successfully!`, 'success');
+            showToast('Job submitted successfully!', 'success');
             misCloseJobDrawer();
             await loadMisMonitor();
         } catch (e) {
-            console.error('[MIS] Submit API error:', e);
             showToast(`Failed to submit: ${e.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job'; refreshIcons(); }
         }
       } catch (outerErr) {
-        console.error('[MIS] misSubmitDrawerJob outer error:', outerErr);
+        console.error('[MIS] misSubmitDrawerJob error:', outerErr);
         showToast(`Error: ${outerErr.message}`, 'error');
       }
     };
