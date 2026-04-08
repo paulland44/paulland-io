@@ -3122,7 +3122,7 @@
         .ss-display.placeholder { color: var(--text-muted); }
         .ss-display:hover { border-color: var(--accent); }
         .searchable-select.open .ss-display { border-color: var(--accent); }
-        .ss-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 50; background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 2px; box-shadow: var(--shadow-md); max-height: 280px; overflow: hidden; }
+        .ss-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; z-index: 600; background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-top: 2px; box-shadow: var(--shadow-md); max-height: 280px; overflow: hidden; }
         .searchable-select.open .ss-dropdown { display: block; }
         .ss-search { width: 100%; padding: 0.5rem 0.75rem; background: var(--void-lighter); border: none; border-bottom: 1px solid var(--border); color: var(--star); font-size: 0.85rem; outline: none; }
         .ss-options { max-height: 220px; overflow-y: auto; }
@@ -10854,6 +10854,12 @@
         return resp.json();
     }
 
+    async function misGetForConnection(path, connectionId) {
+        const resp = await fetch(`${MIS_API_BASE}/${path}`, { headers: { 'Accept': 'application/json', 'X-MIS-Connection-Id': connectionId }, credentials: 'same-origin' });
+        if (!resp.ok) { const body = await resp.text().catch(() => ''); throw new Error(`API ${resp.status}: ${body.slice(0, 200)}`); }
+        return resp.json();
+    }
+
     async function misPut(path, body) {
         if (!misHasActiveConnection()) throw new Error('No active connection configured.');
         const resp = await fetch(`${MIS_API_BASE}/${path}`, { method: 'PUT', headers: { ...misHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -10877,33 +10883,63 @@
 
     function clearCachedRefData() { cachedCustomers = cachedTaskTemplates = cachedProductTemplates = cachedPreflightProfiles = null; }
 
-    async function misLoadRefData() {
-        if (!misHasActiveConnection()) { showToast('Configure a connection in Settings first.', 'error'); return; }
-        if (getMisActiveProfile()?.type === 'ae') return; // AE has no ref data
-        const load = async (name, path) => { try { return await misGet(path); } catch (e) { showToast(`${name}: ${e.message}`, 'error'); return null; } };
+    let _refDataConnectionId = null; // tracks which WCP connection ref data was loaded from
+
+    async function misLoadRefData(forConnectionId) {
+        // Find a WCP connection to load ref data from
+        const profiles = _misProfilesCache || [];
+        let wcpConn = null;
+        if (forConnectionId) {
+            wcpConn = profiles.find(p => p.id === forConnectionId && p.type !== 'ae');
+        }
+        if (!wcpConn) {
+            // Try the active connection first, then any WCP connection
+            const active = getMisActiveProfile();
+            if (active?.type !== 'ae') wcpConn = active;
+            else wcpConn = profiles.find(p => p.type !== 'ae');
+        }
+        if (!wcpConn) return; // No WCP connections at all
+
+        // Skip if already loaded from this connection
+        if (_refDataConnectionId === wcpConn.id && cachedCustomers && cachedTaskTemplates) return;
+
+        const connId = wcpConn.id;
+        console.log('[MIS] Loading ref data from connection:', wcpConn.name, connId);
+        const load = async (name, path) => {
+            try {
+                const result = await misGetForConnection(path, connId);
+                if (result?.error) { console.warn(`[MIS] Ref ${name}: error response:`, result.error); return null; }
+                console.log(`[MIS] Ref ${name}: loaded`, Array.isArray(result) ? result.length + ' items' : typeof result === 'object' ? Object.keys(result).join(',') : typeof result);
+                return result;
+            } catch (e) { console.warn(`[MIS] Ref ${name}: fetch failed:`, e.message); return null; }
+        };
         const [cust, tasks, prods, preflights] = await Promise.all([
-            cachedCustomers || load('Customers', 'customers'),
-            cachedTaskTemplates || load('Task Templates', 'task-templates'),
-            cachedProductTemplates || load('Product Templates', 'product-templates'),
-            cachedPreflightProfiles || load('Preflight Profiles', 'preflight-profiles'),
+            load('Customers', 'customers'),
+            load('Task Templates', 'task-templates'),
+            load('Product Templates', 'product-templates'),
+            load('Preflight Profiles', 'preflight-profiles'),
         ]);
         if (cust) cachedCustomers = cust;
         if (tasks) cachedTaskTemplates = tasks;
         if (prods) cachedProductTemplates = prods;
         if (preflights) cachedPreflightProfiles = preflights;
+        _refDataConnectionId = connId;
+        console.log('[MIS] Ref data loaded. Customers:', !!cachedCustomers, 'Tasks:', !!cachedTaskTemplates, 'connId:', connId);
     }
 
     function getTaskTemplateList() {
-        if (!cachedTaskTemplates) return [{ id: 'Default', name: 'Default Upload Task' }];
-        if (Array.isArray(cachedTaskTemplates)) return cachedTaskTemplates;
-        if (cachedTaskTemplates.taskTemplates) return cachedTaskTemplates.taskTemplates.map(t => ({ id: t.nodeId, name: t.name }));
+        if (!cachedTaskTemplates) { console.log('[MIS] getTaskTemplateList: cache is null'); return [{ id: 'Default', name: 'Default Upload Task' }]; }
+        if (Array.isArray(cachedTaskTemplates)) { console.log('[MIS] getTaskTemplateList: array with', cachedTaskTemplates.length, 'items'); return cachedTaskTemplates; }
+        if (cachedTaskTemplates.taskTemplates) { const r = cachedTaskTemplates.taskTemplates.map(t => ({ id: t.nodeId, name: t.name })); console.log('[MIS] getTaskTemplateList: .taskTemplates with', r.length, 'items'); return r; }
         if (cachedTaskTemplates.templates) {
             const t = cachedTaskTemplates.templates;
             const results = [];
             for (const [key, tmpl] of Object.entries(t.system || {})) results.push({ id: tmpl.nodeId || key, name: tmpl.name || key });
             for (const [key, tmpl] of Object.entries(t.custom?.global || {})) results.push({ id: tmpl.nodeId || key, name: tmpl.name || key });
+            console.log('[MIS] getTaskTemplateList: .templates.system+custom with', results.length, 'items');
             return results.length ? results : [{ id: 'Default', name: 'Default Upload Task' }];
         }
+        console.log('[MIS] getTaskTemplateList: unrecognized format, keys:', Object.keys(cachedTaskTemplates));
         return [{ id: 'Default', name: 'Default Upload Task' }];
     }
 
@@ -11084,7 +11120,8 @@
     window.misAddTask = function() {
         taskCounter++;
         const idx = taskCounter;
-        const templates = window._misTaskTemplateOpts || [];
+        // Always read fresh from cache at click time (not from stale snapshot)
+        const templates = getTaskTemplateList();
         const defaultDue = new Date(Date.now() + 5 * 86400000).toISOString().slice(0, 16);
         jobTasks.push({ idx, templateId: '', assignees: [''], dueDate: defaultDue, subject: '', message: '', allowFiles: true, fileTypes: ['PDF'] });
         const container = document.getElementById('misTasksContainer');
@@ -11183,8 +11220,12 @@
             if (!job) { showToast('Job not found', 'error'); return; }
         }
 
-        // Always try to load WCP ref data (silently fail if no WCP connection)
-        try { await misLoadRefData(); } catch (e) { /* no WCP connection — that's ok */ }
+        // Determine default connection (must be before misLoadRefData call)
+        const hasJob = isEdit || isView;
+        const defaultConnId = hasJob ? (job?.connection_id || ap?.id || '') : (ap?.id || '');
+
+        // Load WCP ref data — prefer the default connection for this job, then any WCP connection
+        try { await misLoadRefData(defaultConnId); } catch (e) { console.warn('[MIS] Ref data load error:', e.message); }
         const customers = cachedCustomers?.data || [];
         const taskTemplates = getTaskTemplateList();
         const productTemplates = getProductTemplateList();
@@ -11193,15 +11234,11 @@
         // Reset task state
         jobTasks = []; taskCounter = 0;
 
-        const hasJob = isEdit || isView;
         const dis = isView ? 'disabled' : '';
         const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
         const editDue = hasJob && job?.due_date ? new Date(job.due_date).toISOString().slice(0, 16) : defaultDue;
         const title = isView ? esc(job.job_name) : isEdit ? `Edit: ${esc(job.job_name)}` : 'New Job';
         const icon = isView ? 'eye' : isEdit ? 'edit-3' : 'plus';
-
-        // Determine default connection
-        const defaultConnId = hasJob ? (job.connection_id || ap?.id || '') : (ap?.id || '');
 
         // Connection selector options
         const connOpts = connections.map(c =>
@@ -11350,7 +11387,6 @@
         document.body.appendChild(drawer);
 
         // Wire up searchable customer select
-        window._misTaskTemplateOpts = taskTemplates;
         if (customers.length) {
             window._misCustomerSS = createSearchableSelect('misJobCustomer',
                 customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
@@ -11372,7 +11408,49 @@
         // Wire up connection selector to update preview + collapsible states
         const connSel = document.getElementById('misTargetConnection');
         if (connSel) {
-            connSel.addEventListener('change', () => { misUpdateDrawerSections(); misUpdatePreview(); });
+            connSel.addEventListener('change', async () => {
+                misUpdateDrawerSections();
+                // Reload ref data if switching to a different WCP connection
+                const newType = connSel.selectedOptions?.[0]?.dataset?.type || 'wcp';
+                const newConnId = connSel.value;
+                if (newType !== 'ae' && newConnId !== _refDataConnectionId) {
+                    clearCachedRefData();
+                    await misLoadRefData(newConnId);
+                    // Rebuild customer searchable select
+                    const custs = cachedCustomers?.data || [];
+                    const custContainer = document.getElementById('misJobCustomer');
+                    if (custContainer && custs.length) {
+                        custContainer.innerHTML = '';
+                        window._misCustomerSS = createSearchableSelect('misJobCustomer',
+                            custs.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+                            { placeholder: 'Search customers...', onchange: (val) => {
+                                const codeInput = document.getElementById('misJobCustomerCode');
+                                if (codeInput) codeInput.value = val;
+                                misUpdatePreview();
+                            }}
+                        );
+                    }
+                    // Rebuild task template selects on existing task cards
+                    const newTemplates = getTaskTemplateList();
+                    const tplOpts = newTemplates.map(t => ({ value: t.id, label: t.name, searchText: t.name }));
+                    for (const task of jobTasks) {
+                        const tplContainer = document.getElementById(`misTaskTpl-${task.idx}`);
+                        if (tplContainer) {
+                            const currentVal = task.templateId;
+                            tplContainer.innerHTML = '';
+                            createSearchableSelect(`misTaskTpl-${task.idx}`, tplOpts,
+                                { placeholder: 'Search templates...', onchange: (val) => { misUpdateTaskData(task.idx, 'templateId', val); misUpdatePreview(); } }
+                            );
+                            // Restore selection if the same template exists in the new list
+                            if (currentVal && newTemplates.some(t => t.id === currentVal)) {
+                                const el = document.getElementById(`misTaskTpl-${task.idx}`);
+                                if (el?._ss) el._ss.setValue(currentVal);
+                            }
+                        }
+                    }
+                }
+                misUpdatePreview();
+            });
         }
 
         // Populate fields for edit/view mode
