@@ -54,6 +54,15 @@ function buildDescription(extracted: ExtractedJob, r2Uploads: R2Upload[]): strin
     if (cm.reasoning) parts.push(`Reasoning: ${cm.reasoning}`);
   }
 
+  // Task assignee info
+  if (extracted.task_assignee) {
+    const ta = extracted.task_assignee;
+    parts.push(`\n--- Task Assignee ---`);
+    parts.push(`Email: ${ta.email}`);
+    parts.push(`Source: ${ta.source === 'third_party' ? 'Third party (design agency / external contact)' : ta.source === 'sender' ? 'Requester (sender wants upload link)' : 'Default'}`);
+    if (ta.reasoning) parts.push(`Reasoning: ${ta.reasoning}`);
+  }
+
   parts.push('\n[Created automatically from inbound email]');
 
   return parts.join('\n');
@@ -69,6 +78,21 @@ function buildWcpPayload(jobId: string, extracted: ExtractedJob): any {
   const dueDateIso = new Date(rawDueDate).toISOString(); // normalise to full ISO with Z
   const dueDateMs = new Date(dueDateIso).getTime();
 
+  // Determine task assignee: extracted from email or fallback to default
+  const assigneeEmail = extracted.task_assignee?.email || DEFAULT_ASSIGNEE;
+  const assigneeSource = extracted.task_assignee?.source || 'default';
+
+  // Build task subject/message based on assignee source
+  let taskSubject = `Upload files for: ${extracted.job_name}`;
+  let taskMessage = extracted.description || 'Please upload the required files for this job.';
+  if (assigneeSource === 'third_party') {
+    taskSubject = `Artwork requested: ${extracted.job_name}`;
+    taskMessage = `You have been identified as the contact for artwork/files for this job. Please upload the required files.\n\n${extracted.description || ''}`;
+  } else if (assigneeSource === 'sender') {
+    taskSubject = `Upload your files: ${extracted.job_name}`;
+    taskMessage = `As requested, please use this task to upload your files for the job.\n\n${extracted.description || ''}`;
+  }
+
   const payload: any = {
     siteName: 'Home',
     customerCode: extracted.customer_match?.partnerId || '',
@@ -81,8 +105,10 @@ function buildWcpPayload(jobId: string, extracted: ExtractedJob): any {
         properties: {
           dueDate: dueDateMs,
           allowFiles: true,
+          subject: taskSubject,
+          message: taskMessage,
         },
-        assignee: [{ id: DEFAULT_ASSIGNEE }],
+        assignee: [{ id: assigneeEmail }],
       },
     ],
   };

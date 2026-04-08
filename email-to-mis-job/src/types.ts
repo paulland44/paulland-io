@@ -46,6 +46,12 @@ export interface CustomerMatch {
   reasoning: string;
 }
 
+export interface TaskAssignee {
+  email: string;
+  source: 'third_party' | 'sender' | null;
+  reasoning: string;
+}
+
 export interface ExtractedJob {
   job_name: string;
   customer_match: CustomerMatch | null;
@@ -55,6 +61,7 @@ export interface ExtractedJob {
   substrate: string | null;
   quantity: string | null;
   is_reprint: boolean | null;
+  task_assignee: TaskAssignee | null;
 }
 
 export interface PromptData {

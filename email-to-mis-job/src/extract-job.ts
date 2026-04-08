@@ -66,6 +66,12 @@ ${data.artwork_filenames.length > 0 ? data.artwork_filenames.join(', ') : 'None'
 OTHER ATTACHMENTS (stored in R2, not readable):
 ${data.other_filenames.length > 0 ? data.other_filenames.join(', ') : 'None'}
 
+TASK ASSIGNEE RULES:
+Determine who should receive the file upload task. Look for these patterns:
+1. The sender mentions a third party to contact for files (e.g. "reach out to my agency at studio@designco.com", "contact our designer at jane@artwork.com", "get the files from bob@printer.com"). In this case, use that email address.
+2. The sender asks to be notified where to upload files themselves (e.g. "let me know where I can upload", "send me the upload link", "I'll upload the artwork", "where should I send the files"). In this case, use the SENDER'S email address (${data.from_email}).
+3. If neither pattern is found, set task_assignee to null.
+
 Extract the following as JSON. Use null for any field you cannot determine:
 
 {
@@ -83,7 +89,12 @@ Extract the following as JSON. Use null for any field you cannot determine:
   "print_process": "Flexo | Litho | Digital | Gravure | null",
   "substrate": "Substrate type if mentioned",
   "quantity": "Quantity if mentioned",
-  "is_reprint": true/false or null
+  "is_reprint": true/false or null,
+  "task_assignee": {
+    "email": "The email address to assign the upload task to",
+    "source": "third_party | sender | null",
+    "reasoning": "Brief explanation of why this person was chosen"
+  }
 }
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
@@ -137,6 +148,7 @@ function parseExtraction(raw: string): ExtractedJob {
     substrate: null,
     quantity: null,
     is_reprint: null,
+    task_assignee: null,
   };
 }
 
@@ -150,5 +162,6 @@ function validateExtraction(obj: any): ExtractedJob {
     substrate: obj.substrate || null,
     quantity: obj.quantity || null,
     is_reprint: obj.is_reprint ?? null,
+    task_assignee: obj.task_assignee?.email ? obj.task_assignee : null,
   };
 }
