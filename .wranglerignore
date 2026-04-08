@@ -1,0 +1,5 @@
+email-to-mis-job/
+mcp-server/
+mcp-worker/
+node_modules/
+.git/

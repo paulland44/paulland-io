@@ -1,0 +1,16 @@
+name = "email-to-mis-job"
+main = "src/index.ts"
+compatibility_date = "2026-03-17"
+compatibility_flags = ["nodejs_compat"]
+
+[ai]
+binding = "AI"
+
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "knowledge-capture"
+
+# Secrets (set via `wrangler secret put`):
+# PAULLAND_API_URL        — https://paulland.io/api
+# PAULLAND_INTERNAL_API_KEY — internal API key for Pages API auth
+# TEST_SECRET             — guards the HTTP test endpoint

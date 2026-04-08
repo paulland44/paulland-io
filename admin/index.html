@@ -11383,8 +11383,12 @@
             if (!job) { showToast('Job not found', 'error'); return; }
         }
 
+        // Determine solution type: use job's type for edit/view, active profile for create
+        const jobSolution = (isEdit || isView) ? (job?.solution || 'wcp') : (ap?.type || 'wcp');
+        const isAeForm = jobSolution === 'ae';
+
         // Load reference data for WCP
-        if (ap?.type !== 'ae') {
+        if (!isAeForm) {
             await misLoadRefData();
         }
         const customers = cachedCustomers?.data || [];
@@ -11419,7 +11423,7 @@
                 <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDrawer()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
             </div>
             <div class="mis-drawer-body">
-                ${ap?.type === 'ae' ? misDrawerAeForm(job, isEdit, isView) : misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles)}
+                ${isAeForm ? misDrawerAeForm(job, isEdit, isView) : misDrawerWcpForm(job, isEdit, isView, editDue, defaultDue, productTemplates, preflightProfiles)}
                 <div class="mis-card" style="margin-top:1rem;">
                     <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
                         <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
@@ -11447,7 +11451,7 @@
 
         // Wire up searchable selects and events
         window._misTaskTemplateOpts = taskTemplates;
-        if (ap?.type !== 'ae' && customers.length) {
+        if (!isAeForm && customers.length) {
             window._misCustomerSS = createSearchableSelect('misJobCustomer',
                 customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
                 { placeholder: 'Search customers...', onchange: () => { if (!isEdit) misUpdateJobId(); misUpdatePreview(); } }
@@ -11462,7 +11466,7 @@
 
         // Populate fields for edit/view mode
         if ((isEdit || isView) && job) {
-            if (ap?.type !== 'ae') {
+            if (!isAeForm) {
                 // Set customer
                 const custEl = document.getElementById('misJobCustomer');
                 if (custEl?._ss && job.customer_code) custEl._ss.setValue(job.customer_code);
@@ -11640,15 +11644,19 @@
     };
 
     window.misSubmitDrawerJob = async function(jobId) {
+      try {
+        console.log('[MIS] misSubmitDrawerJob called with jobId:', jobId);
         const j = (_cachedMisJobs || []).find(x => x.id === jobId);
         if (!j) { showToast('Job not found in cache', 'error'); return; }
+        console.log('[MIS] Job found:', j.job_id, 'solution:', j.solution);
         const isAe = j.solution === 'ae';
         const isWcp = !isAe;
 
         // Build payload using job's connection type, not the active profile
-        window._misDrawerJobSolution = j.solution; // temp flag for misBuildPayload
+        window._misDrawerJobSolution = j.solution;
         const payload = misBuildPayload();
         window._misDrawerJobSolution = null;
+        console.log('[MIS] Payload built:', JSON.stringify(payload).slice(0, 200));
 
         if (!payload.jobName) return showToast('Enter a job name', 'error');
         if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
@@ -11698,9 +11706,14 @@
             misCloseJobDrawer();
             await loadMisMonitor();
         } catch (e) {
+            console.error('[MIS] Submit API error:', e);
             showToast(`Failed to submit: ${e.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job'; refreshIcons(); }
         }
+      } catch (outerErr) {
+        console.error('[MIS] misSubmitDrawerJob outer error:', outerErr);
+        showToast(`Error: ${outerErr.message}`, 'error');
+      }
     };
 
     // ─── MIS: Job Monitor ─────────────────────────────────────
