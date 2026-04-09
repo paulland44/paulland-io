@@ -15,14 +15,13 @@ import {
 export function buildEmbeddingText(sourceTable: string, row: any): string {
   switch (sourceTable) {
     case 'content': {
-      const prefix =
-        row.type === 'article'
-          ? 'Article'
-          : row.type === 'thought'
-            ? 'Thought'
-            : row.type === 'signal'
-              ? 'Signal'
-              : 'Reflection';
+      const prefixMap: Record<string, string> = {
+        article: 'Article', thought: 'Thought', signal: 'Signal',
+        reflection: 'Reflection', reference: 'Reference', problem: 'Problem',
+        strategy: 'Strategy', solution: 'Solution', feature: 'Feature',
+        product: 'Product', project: 'Project', collection: 'Collection',
+      };
+      const prefix = prefixMap[row.type] || row.type || 'Content';
       const parts = [`${prefix}: ${row.title || 'Untitled'}`];
       if (row.body) parts.push(row.body);
       if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
@@ -76,6 +75,10 @@ export function buildEmbeddingText(sourceTable: string, row: any): string {
       return `Decision (${row.note_date}): ${row.decision || ''}\nContext: ${row.context || ''}`;
     case 'reflections_log':
       return `Reflection (${row.note_date}, ${row.category || 'leadership'}): ${row.observation || ''}\nCoach: ${row.coach_perspective || ''}`;
+    case 'persona_log':
+      return `Persona Update (${row.log_date}, ${row.section_updated || 'general'}): ${row.entry || ''}`;
+    case 'research_log':
+      return `Research Update (${row.log_date}, ${row.section_updated || 'general'}): ${row.entry || ''}`;
     default:
       return JSON.stringify(row);
   }
@@ -286,4 +289,6 @@ export const EMBEDDABLE_TABLES = [
   'product_evidence',
   'product_decisions',
   'reflections_log',
+  'persona_log',
+  'research_log',
 ];

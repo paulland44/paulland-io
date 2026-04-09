@@ -854,7 +854,7 @@ async function handleEntityUpdate(request, env, ctx) {
 async function handleEntityLog(request, env, ctx) {
   const { table, data, returnRow } = await request.json();
 
-  const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content', 'content'];
+  const allowedTables = ['people_log', 'project_updates', 'companies', 'product_content', 'product_assets', 'company_content', 'content', 'persona_log', 'research_log'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }

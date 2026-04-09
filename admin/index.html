@@ -3233,6 +3233,9 @@
                 <button class="nav-item" data-section="strategy">
                     <i class="icon" data-lucide="target"></i> Strategy
                 </button>
+                <button class="nav-item" data-section="research">
+                    <i class="icon" data-lucide="microscope"></i> Research
+                </button>
                 <button class="nav-item" data-section="sources">
                     <i class="icon" data-lucide="inbox"></i> Sources
                 </button>
@@ -3417,6 +3420,12 @@
             { view: 'projects', label: 'Projects', countKey: 'projects' },
             { view: 'competition', label: 'Competition' },
         ]},
+        research: { tabs: [
+            { view: 'personas', label: 'Personas', countKey: 'personas' },
+            { view: 'research-segments', label: 'Segments', countKey: 'researchSegments' },
+            { view: 'research-market', label: 'Market', countKey: 'researchMarket' },
+            { view: 'voc', label: 'VOC', countKey: 'voc' },
+        ]},
         strategy: { tabs: [
             { view: 'strategy-overview', label: 'Overview' },
             { view: 'strategy-core', label: 'Core', countKey: 'strategyCore' },
@@ -3521,13 +3530,14 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, summaries, feedItems, feeds, assets, people, companies, products, projects] = await Promise.all([
+        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, referenceResult, summaries, feedItems, feeds, assets, people, companies, products, projects, vocCount] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'problem'),
             db.from('content').select('id, metadata', { count: 'exact' }).eq('type', 'strategy'),
+            db.from('content').select('id, metadata', { count: 'exact' }).eq('type', 'reference'),
             db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('feed_items').select('id', { count: 'exact', head: true }),
             db.from('feeds').select('id', { count: 'exact', head: true }),
@@ -3536,7 +3546,14 @@
             db.from('companies').select('id', { count: 'exact', head: true }),
             db.from('products').select('id', { count: 'exact', head: true }),
             db.from('projects').select('id', { count: 'exact', head: true }),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'strategy').contains('tags', ['customer-feedback']),
         ]);
+
+        // Research sub-counts from reference type items
+        const refItems = referenceResult.data || [];
+        const personaCount = refItems.filter(r => r.metadata?.reference_type === 'persona').length;
+        const segmentCount = refItems.filter(r => r.metadata?.reference_type === 'segment-workflow').length;
+        const marketCount = refItems.filter(r => ['market-research','strategic','naming'].includes(r.metadata?.reference_type)).length;
 
         // Store counts in data object (sub-tabs read from this)
         countData = {
@@ -3545,6 +3562,10 @@
             signals: signals.count || 0,
             reflections: reflections.count || 0,
             problems: problemsCount.count || 0,
+            personas: personaCount,
+            researchSegments: segmentCount,
+            researchMarket: marketCount,
+            voc: vocCount.count || 0,
             strategyCore: (strategiesResult.data || []).filter(s => ['core-strategy','product-strategy','ost'].includes(s.metadata?.strategy_type)).length,
             strategyGoals: (strategiesResult.data || []).filter(s => ['goals','roadmap'].includes(s.metadata?.strategy_type)).length,
             strategyArch: (strategiesResult.data || []).filter(s => s.metadata?.strategy_type === 'architecture').length,
@@ -3607,6 +3628,11 @@
             case 'signals': await loadSignals(); break;
             case 'reflections': await loadReflections(); break;
             case 'problems': await loadProblems(); break;
+            case 'personas': await loadPersonas(); break;
+            case 'persona-detail': break; // handled by loadPersonaDetail(id) directly
+            case 'research-segments': await loadResearchSegments(); break;
+            case 'research-market': await loadResearchMarket(); break;
+            case 'voc': await loadVOC(); break;
             case 'strategy-overview': await loadStrategyView(null); break;
             case 'strategy-core': await loadStrategyView(['core-strategy','product-strategy','ost']); break;
             case 'strategy-goals': await loadStrategyView(['goals','roadmap']); break;
@@ -5848,6 +5874,424 @@
             } catch {
                 btn.textContent = 'Save as Summary'; btn.disabled = false;
             }
+        });
+    }
+
+    // ─── Research: Personas ───────────────────────────────────
+
+    async function loadPersonas() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading personas</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, body, tags, status, metadata, updated_at')
+            .eq('type', 'reference')
+            .order('title')
+            .limit(200);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const personas = (data || []).filter(r => r.metadata?.reference_type === 'persona');
+
+        // Group personas by category
+        const categories = {
+            'Executive': ['Managing Director', 'Manager'],
+            'Sales & Commercial': ['Sales Representative', 'Estimator', 'CSR', 'Customer Service Manager', 'Buyer'],
+            'Design & Prepress': ['Graphic Designer', 'Structural Designer', 'Prepress Operator'],
+            'Production': ['Production Manager', 'Production Supervisor', 'Press Operator', 'Finishing Operator', 'Workflow Operator'],
+            'Quality & Materials': ['Quality Control Inspector', 'Materials Manager', 'Packaging Engineer'],
+            'Logistics': ['Shipping Coordinator', 'Warehouse Operator'],
+            'Customer-Side': ['Customer', 'Customer IT', 'Brand Owner'],
+            'Other': ['New Staff', 'Trainer'],
+        };
+
+        function getCategory(title) {
+            const name = title.replace(/^Persona\s*[-–—]\s*/i, '');
+            for (const [cat, names] of Object.entries(categories)) {
+                if (names.some(n => name.toLowerCase().includes(n.toLowerCase()))) return cat;
+            }
+            return 'Other';
+        }
+
+        const grouped = {};
+        personas.forEach(p => {
+            const cat = getCategory(p.title);
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(p);
+        });
+
+        const categoryOrder = Object.keys(categories);
+        const sortedGroups = Object.entries(grouped).sort((a, b) => categoryOrder.indexOf(a[0]) - categoryOrder.indexOf(b[0]));
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Personas</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${personas.length} personas</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search personas..." id="searchPersonas">
+            </div>
+            <div id="personaGrid">
+            ${sortedGroups.map(([cat, items]) => `
+                <h3 style="margin:1.5rem 0 0.75rem;font-size:0.85rem;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted)">${esc(cat)}</h3>
+                <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:0.75rem">
+                ${items.map(p => {
+                    const name = p.title.replace(/^Persona\s*[-–—]\s*/i, '');
+                    const segments = p.metadata?.segments || [];
+                    const tiers = p.metadata?.business_tiers || [];
+                    // Extract first line of profile from body
+                    const profileMatch = p.body?.match(/##\s*Profile\s*\n+([\s\S]*?)(?=\n##|\n---|\n\n\n)/i);
+                    const profileSnippet = profileMatch ? profileMatch[1].replace(/\*\*Also known as\*\*.*$/m, '').trim().substring(0, 120) : '';
+                    // Count pain points
+                    const painMatches = p.body?.match(/\|\s*[^|]+\s*\|\s*(High|Medium|Low|Critical)/gi);
+                    const painCount = painMatches ? painMatches.length : 0;
+                    return `
+                    <div class="card" style="cursor:pointer;padding:1rem" onclick="loadPersonaDetail('${p.id}')">
+                        <div style="font-weight:600;font-size:0.95rem;margin-bottom:0.35rem">${esc(name)}</div>
+                        ${profileSnippet ? `<div style="font-size:0.8rem;color:var(--text-muted);margin-bottom:0.5rem;line-height:1.4">${esc(profileSnippet)}...</div>` : ''}
+                        <div style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.4rem">
+                            ${segments.map(s => `<span class="tag" style="font-size:0.7rem">${esc(s)}</span>`).join('')}
+                        </div>
+                        ${painCount ? `<span style="font-size:0.7rem;color:var(--accent)">${painCount} pain points documented</span>` : ''}
+                    </div>`;
+                }).join('')}
+                </div>
+            `).join('')}
+            </div>`;
+
+        refreshIcons();
+
+        // Search filter
+        document.getElementById('searchPersonas')?.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#personaGrid .card').forEach(card => {
+                card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    }
+
+    async function loadPersonaDetail(id) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading persona</div>';
+
+        const [{ data: persona, error }, logResult] = await Promise.all([
+            db.from('content').select('id, title, body, tags, status, metadata, updated_at, captured_at').eq('id', id).single(),
+            db.from('persona_log').select('id, log_date, entry, source, section_updated, created_at').eq('content_id', id).order('created_at', { ascending: false }).limit(20),
+        ]);
+
+        if (error || !persona) { main.innerHTML = `<div class="empty">Persona not found</div>`; return; }
+
+        const name = persona.title.replace(/^Persona\s*[-–—]\s*/i, '');
+        const logEntries = logResult.data || [];
+
+        // Parse body into sections
+        const sections = [];
+        const sectionRegex = /^##\s+(.+)$/gm;
+        let match;
+        const matches = [];
+        while ((match = sectionRegex.exec(persona.body)) !== null) {
+            matches.push({ title: match[1], index: match.index + match[0].length });
+        }
+        for (let i = 0; i < matches.length; i++) {
+            const start = matches[i].index;
+            const end = i + 1 < matches.length ? matches[i + 1].index - matches[i + 1].title.length - 3 : persona.body.length;
+            sections.push({ title: matches[i].title, content: persona.body.substring(start, end).trim() });
+        }
+
+        main.innerHTML = `
+            <div class="page-header">
+                <button class="btn" onclick="loadPersonas()" style="margin-right:0.5rem"><i class="icon" data-lucide="arrow-left"></i></button>
+                <h2 class="page-title">${esc(name)}</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">Updated ${new Date(persona.updated_at).toLocaleDateString()}</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 320px;gap:1.5rem;align-items:start">
+                <div>
+                    ${sections.map((s, idx) => `
+                        <div class="card" style="margin-bottom:1rem;padding:1.25rem">
+                            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.75rem">
+                                <h3 style="font-size:0.95rem;font-weight:600">${esc(s.title)}</h3>
+                                <button class="btn" style="font-size:0.7rem;padding:0.2rem 0.5rem" onclick="togglePersonaEdit(${idx})">Edit</button>
+                            </div>
+                            <div class="persona-section-content" id="personaSection${idx}" style="font-size:0.85rem;line-height:1.6">${renderBody(s.content)}</div>
+                            <div class="persona-section-edit" id="personaEdit${idx}" style="display:none">
+                                <textarea class="input" rows="12" style="font-family:var(--mono);font-size:0.8rem;width:100%">${esc(s.content)}</textarea>
+                                <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                                    <button class="btn" onclick="togglePersonaEdit(${idx})">Cancel</button>
+                                    <button class="btn btn-primary" onclick="savePersonaSection('${persona.id}', '${esc(s.title)}', ${idx})">Save</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+                <div>
+                    <div class="card" style="padding:1rem;margin-bottom:1rem">
+                        <h4 style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem">Metadata</h4>
+                        <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.8">
+                            <div><strong>Segments:</strong> ${(persona.metadata?.segments || []).join(', ') || 'All'}</div>
+                            <div><strong>Business Tiers:</strong> ${(persona.metadata?.business_tiers || []).join(', ') || 'All'}</div>
+                            <div><strong>Tags:</strong> ${(persona.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join(' ') || 'None'}</div>
+                            <div><strong>Status:</strong> ${persona.status}</div>
+                        </div>
+                    </div>
+                    <div class="card" style="padding:1rem">
+                        <h4 style="font-size:0.85rem;font-weight:600;margin-bottom:0.75rem">Recent Updates</h4>
+                        ${logEntries.length ? logEntries.map(l => `
+                            <div style="border-left:2px solid var(--accent);padding-left:0.75rem;margin-bottom:0.75rem;font-size:0.8rem">
+                                <div style="font-weight:500">${esc(l.section_updated || 'general')} <span style="color:var(--text-muted)">(${l.source})</span></div>
+                                <div style="color:var(--text-muted);font-size:0.7rem">${new Date(l.created_at).toLocaleDateString()}</div>
+                                <div style="margin-top:0.25rem;line-height:1.4">${esc(l.entry).substring(0, 200)}</div>
+                            </div>
+                        `).join('') : '<div style="font-size:0.8rem;color:var(--text-muted)">No updates logged yet</div>'}
+                    </div>
+                </div>
+            </div>`;
+
+        refreshIcons();
+    }
+
+    window.loadPersonaDetail = loadPersonaDetail;
+
+    window.togglePersonaEdit = function(idx) {
+        const content = document.getElementById('personaSection' + idx);
+        const edit = document.getElementById('personaEdit' + idx);
+        if (edit.style.display === 'none') {
+            content.style.display = 'none';
+            edit.style.display = '';
+        } else {
+            content.style.display = '';
+            edit.style.display = 'none';
+        }
+    };
+
+    window.savePersonaSection = async function(personaId, sectionTitle, idx) {
+        const edit = document.getElementById('personaEdit' + idx);
+        const textarea = edit.querySelector('textarea');
+        const newContent = textarea.value;
+
+        // Rebuild body with updated section
+        const { data: persona } = await db.from('content').select('body').eq('id', personaId).single();
+        if (!persona) return;
+
+        let body = persona.body;
+        const header = '## ' + sectionTitle;
+        const headerIdx = body.indexOf(header);
+        if (headerIdx === -1) return;
+
+        const sectionStart = headerIdx + header.length;
+        const nextHeader = body.indexOf('\n## ', sectionStart);
+        const sectionEnd = nextHeader === -1 ? body.length : nextHeader;
+
+        body = body.substring(0, sectionStart) + '\n' + newContent + '\n' + body.substring(sectionEnd);
+
+        const { error } = await db.from('content').update({ body, updated_at: new Date().toISOString() }).eq('id', personaId);
+        if (error) { alert('Error saving: ' + error.message); return; }
+
+        // Log the edit
+        await fetch('/api/entity-log', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ table: 'persona_log', data: {
+                content_id: personaId, log_date: new Date().toISOString().split('T')[0],
+                entry: 'Manual edit of section: ' + sectionTitle, source: 'admin_edit',
+                section_updated: sectionTitle.toLowerCase().replace(/[^a-z_]/g, '_'),
+            }}),
+        }).catch(() => {});
+
+        loadPersonaDetail(personaId);
+    };
+
+    // ─── Research: Segments ──────────────────────────────────
+
+    async function loadResearchSegments() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading segment research</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, body, tags, status, metadata, updated_at')
+            .eq('type', 'reference')
+            .order('title')
+            .limit(300);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const segments = (data || []).filter(r => r.metadata?.reference_type === 'segment-workflow');
+        // Also include stage-level docs that don't have metadata yet but match patterns
+        const stagePattern = /stage\s*\d+|complete workflow|segment/i;
+        const allResearch = (data || []).filter(r =>
+            r.metadata?.reference_type === 'segment-workflow' ||
+            (!r.metadata?.reference_type && stagePattern.test(r.title))
+        );
+
+        const segmentNames = ['Labels', 'Folding Carton', 'Flexibles', 'Corrugated'];
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Segment Workflows</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${allResearch.length} documents</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search research..." id="searchSegments">
+                <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
+                    <button class="btn segment-filter active" data-seg="all" style="font-size:0.75rem">All</button>
+                    ${segmentNames.map(s => `<button class="btn segment-filter" data-seg="${s}" style="font-size:0.75rem">${s}</button>`).join('')}
+                </div>
+            </div>
+            <div class="table-container"><table class="data-table" id="segmentTable">
+                <thead><tr>
+                    <th>Title</th>
+                    <th>Segment</th>
+                    <th>Updated</th>
+                </tr></thead>
+                <tbody>
+                ${allResearch.map(r => {
+                    const seg = r.metadata?.segment || segmentNames.find(s => r.title.toLowerCase().includes(s.toLowerCase())) || '—';
+                    return `<tr data-seg="${esc(seg)}" style="cursor:pointer" onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+                        <td style="font-weight:500">${esc(r.title)}</td>
+                        <td><span class="tag">${esc(seg)}</span></td>
+                        <td style="font-size:0.8rem;color:var(--text-muted)">${new Date(r.updated_at).toLocaleDateString()}</td>
+                    </tr>`;
+                }).join('')}
+                </tbody>
+            </table></div>`;
+
+        refreshIcons();
+
+        // Segment filter
+        document.querySelectorAll('.segment-filter').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.segment-filter').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                const seg = btn.dataset.seg;
+                document.querySelectorAll('#segmentTable tbody tr').forEach(row => {
+                    row.style.display = (seg === 'all' || row.dataset.seg === seg) ? '' : 'none';
+                });
+            });
+        });
+
+        // Search
+        document.getElementById('searchSegments')?.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#segmentTable tbody tr').forEach(row => {
+                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    }
+
+    // ─── Research: Market ────────────────────────────────────
+
+    async function loadResearchMarket() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading market research</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, body, tags, status, metadata, updated_at')
+            .eq('type', 'reference')
+            .order('title')
+            .limit(200);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const marketTypes = ['market-research', 'strategic', 'naming'];
+        const items = (data || []).filter(r =>
+            marketTypes.includes(r.metadata?.reference_type) ||
+            (!r.metadata?.reference_type && !r.metadata?.reference_type && (
+                r.title.toLowerCase().includes('market') ||
+                r.title.toLowerCase().includes('job volume') ||
+                r.title.toLowerCase().includes('pricing') ||
+                r.title.toLowerCase().includes('strategic analysis')
+            ))
+        );
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Market Research</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${items.length} documents</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search market research..." id="searchMarket">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr;gap:0.5rem">
+            ${items.map(r => {
+                const snippet = (r.body || '').substring(0, 200).replace(/[#*_\[\]]/g, '');
+                const refType = r.metadata?.reference_type || 'reference';
+                return `
+                <div class="card" style="padding:1rem;cursor:pointer" onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem">
+                        <span style="font-weight:600;font-size:0.9rem">${esc(r.title)}</span>
+                        <span class="tag" style="font-size:0.65rem">${esc(refType)}</span>
+                    </div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.4">${esc(snippet)}${snippet.length >= 200 ? '...' : ''}</div>
+                </div>`;
+            }).join('')}
+            </div>`;
+
+        refreshIcons();
+
+        document.getElementById('searchMarket')?.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#mainContent .card').forEach(card => {
+                card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    }
+
+    // ─── Research: VOC ──────────────────────────────────────
+
+    async function loadVOC() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading VOC</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, body, tags, status, metadata, updated_at, captured_at')
+            .eq('type', 'strategy')
+            .contains('tags', ['customer-feedback'])
+            .order('captured_at', { ascending: false })
+            .limit(100);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const items = data || [];
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Voice of Customer</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${items.length} items</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search VOC..." id="searchVOC">
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:0.75rem">
+            ${items.map(r => {
+                // Extract customer code from title
+                const codeMatch = r.title.match(/(?:VOC|Feedback|Trial).*?[-–—]\s*(\w+)|(\w+)\s*[-–—]\s*(?:VOC|Feedback|Trial)/i);
+                const code = r.metadata?.customer_code || (codeMatch ? (codeMatch[1] || codeMatch[2]) : '');
+                const snippet = (r.body || '').substring(0, 150).replace(/[#*_\[\]]/g, '');
+                const isSynthesis = r.title.toLowerCase().includes('synthesis');
+                return `
+                <div class="card" style="padding:1rem;cursor:pointer;${isSynthesis ? 'border-left:3px solid var(--accent)' : ''}" onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.35rem">
+                        ${code ? `<span class="tag" style="font-size:0.7rem;font-weight:600">${esc(code)}</span>` : ''}
+                        ${isSynthesis ? '<span class="tag" style="font-size:0.65rem;background:var(--accent);color:white">Synthesis</span>' : ''}
+                    </div>
+                    <div style="font-weight:600;font-size:0.9rem;margin-bottom:0.3rem">${esc(r.title)}</div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.4">${esc(snippet)}${snippet.length >= 150 ? '...' : ''}</div>
+                    <div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.5rem">${new Date(r.captured_at).toLocaleDateString()}</div>
+                </div>`;
+            }).join('')}
+            </div>`;
+
+        refreshIcons();
+
+        document.getElementById('searchVOC')?.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#mainContent .card').forEach(card => {
+                card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
         });
     }
 

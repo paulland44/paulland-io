@@ -180,7 +180,7 @@ server.tool(
   'List content items (articles, thoughts, signals, reflections, problems, strategies) with optional filters',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'reference', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
       .optional()
       .describe('Filter by content type'),
     status: z.string().optional().describe('Filter by status (new, reviewed, archived)'),
@@ -528,7 +528,7 @@ server.tool(
   'Create a new content item (article, thought, signal, reflection, problem, strategy)',
   {
     type: z
-      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy'])
+      .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'reference'])
       .describe('Content type'),
     title: z.string().describe('Title'),
     body: z.string().describe('Body (markdown)'),
@@ -1080,6 +1080,26 @@ server.tool(
           )
           .optional()
           .default([]),
+        persona_updates: z
+          .array(
+            z.object({
+              persona_name: z.string().describe('Name of the persona (e.g. "CSR", "Production Manager")'),
+              section: z.string().describe('Section to update (pain_points, discovery_questions, goals, workflow_stages, tools_systems, segment_variations)'),
+              observation: z.string().describe('What was learned about this persona'),
+            })
+          )
+          .optional()
+          .default([]),
+        research_updates: z
+          .array(
+            z.object({
+              content_title: z.string().describe('Title of the research content to update'),
+              observation: z.string().describe('New observation or evidence'),
+              section: z.string().optional().describe('Which part of the research was updated'),
+            })
+          )
+          .optional()
+          .default([]),
         review_summary: z.string().optional().default(''),
       })
       .describe('Structured review extraction results'),
@@ -1220,6 +1240,78 @@ server.tool(
       problemObsCount++;
     }
     (results as any).problem_observations = problemObsCount;
+
+    // Write persona updates
+    let personaUpdateCount = 0;
+    for (const pu of review_data.persona_updates) {
+      if (!pu.persona_name || !pu.observation) continue;
+      // Find persona by name (fuzzy match on title)
+      const personas = await supabaseGet(
+        `content?type=eq.reference&metadata->>reference_type=eq.persona&title=ilike.*${encodeURIComponent(pu.persona_name)}*&select=id,title,body&limit=1`
+      );
+      if (!personas.length) continue;
+      const persona = personas[0];
+      const today = date;
+
+      // Map section name to markdown header
+      const sectionHeaders: Record<string, string> = {
+        pain_points: '## Pain Points', discovery_questions: '## Discovery Questions',
+        goals: '## Goals & Motivations', workflow_stages: '## Workflow Stages',
+        tools_systems: '## Tools & Systems Used', segment_variations: '## Segment Variations',
+        profile: '## Profile', buying_influence: '## Buying Influence',
+      };
+      const header = sectionHeaders[pu.section] || `## ${pu.section}`;
+      const updateBlock = `\n\n> **Update ${today}** (daily_review): ${pu.observation}`;
+
+      let body = persona.body || '';
+      const headerIdx = body.indexOf(header);
+      if (headerIdx === -1) {
+        body += `\n\n${header}\n${updateBlock}`;
+      } else {
+        const afterHeader = body.indexOf('\n## ', headerIdx + header.length);
+        if (afterHeader === -1) {
+          body += updateBlock;
+        } else {
+          body = body.slice(0, afterHeader) + updateBlock + body.slice(afterHeader);
+        }
+      }
+
+      await supabasePatch(`content?id=eq.${persona.id}`, { body, updated_at: new Date().toISOString() });
+      await supabasePost('persona_log', {
+        content_id: persona.id, log_date: today, entry: pu.observation,
+        source: 'daily_review', source_ref: { daily_note_date: date, section: pu.section },
+        section_updated: pu.section,
+      });
+      embedItem('content', persona.id).catch(() => {});
+      personaUpdateCount++;
+    }
+    (results as any).persona_updates = personaUpdateCount;
+
+    // Write research updates
+    let researchUpdateCount = 0;
+    for (const ru of review_data.research_updates) {
+      if (!ru.content_title || !ru.observation) continue;
+      const items = await supabaseGet(
+        `content?type=eq.reference&title=ilike.*${encodeURIComponent(ru.content_title)}*&select=id,title,body&limit=1`
+      );
+      if (!items.length) continue;
+      const item = items[0];
+      const today = date;
+      const updateBlock = `\n\n---\n### Update ${today} (daily_review)${ru.section ? ` — ${ru.section}` : ''}\n${ru.observation}`;
+
+      await supabasePatch(`content?id=eq.${item.id}`, {
+        body: (item.body || '') + updateBlock,
+        updated_at: new Date().toISOString(),
+      });
+      await supabasePost('research_log', {
+        content_id: item.id, log_date: today, entry: ru.observation,
+        source: 'daily_review', source_ref: { daily_note_date: date },
+        section_updated: ru.section || null,
+      });
+      embedItem('content', item.id).catch(() => {});
+      researchUpdateCount++;
+    }
+    (results as any).research_updates = researchUpdateCount;
 
     // Create audit record
     await supabasePost('ai_reviews', {
@@ -3579,6 +3671,225 @@ server.tool(
         entity_table, entity_name: entityRows[0].name,
         content_title: contentRows[0].title, relationship_type,
       }, null, 2) }],
+    };
+  }
+);
+
+// ─── Group 13: Personas & Research ────────────────────────
+
+server.tool(
+  'list_personas',
+  'List all personas (reference content items tagged as personas). Returns name, segments, business tiers, and tags.',
+  {
+    segment: z.string().optional().describe('Filter by segment (e.g. "Labels", "Folding Carton")'),
+    search: z.string().optional().describe('Search by name'),
+    limit: z.number().optional().default(50).describe('Max items to return'),
+  },
+  async ({ segment, search, limit }) => {
+    let path = `content?type=eq.reference&metadata->>reference_type=eq.persona&select=id,title,body,tags,status,metadata,updated_at&order=title&limit=${limit}`;
+    if (search) path += `&title=ilike.*${encodeURIComponent(search)}*`;
+    const rows = await supabaseGet(path);
+
+    // Filter by segment if specified (segments are in the body or metadata)
+    let filtered = rows;
+    if (segment) {
+      filtered = rows.filter((r: any) => {
+        const segs = r.metadata?.segments || [];
+        if (segs.length && segs.some((s: string) => s.toLowerCase().includes(segment.toLowerCase()))) return true;
+        // Fallback: check body text for segment mention
+        return r.body?.toLowerCase().includes(segment.toLowerCase());
+      });
+    }
+
+    // Return summary info (strip body for list view)
+    const items = filtered.map((r: any) => ({
+      id: r.id,
+      name: r.title?.replace(/^Persona\s*[-–—]\s*/i, '') || r.title,
+      title: r.title,
+      segments: r.metadata?.segments || [],
+      business_tiers: r.metadata?.business_tiers || [],
+      tags: r.tags || [],
+      updated_at: r.updated_at,
+    }));
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ count: items.length, items }, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'get_persona',
+  'Get full persona detail including body, metadata, and recent update log entries.',
+  {
+    id: z.string().describe('Persona content item UUID'),
+  },
+  async ({ id }) => {
+    const rows = await supabaseGet(`content?id=eq.${id}&select=id,type,title,body,tags,status,metadata,url,source,captured_at,updated_at&limit=1`);
+    if (!rows.length) {
+      return { content: [{ type: 'text' as const, text: 'Persona not found' }], isError: true };
+    }
+    const persona = rows[0];
+
+    // Fetch recent log entries
+    const logEntries = await supabaseGet(
+      `persona_log?content_id=eq.${id}&select=id,log_date,entry,source,section_updated,created_at&order=created_at.desc&limit=20`
+    );
+
+    // Fetch linked content
+    const links = await supabaseGet(
+      `content_links?or=(source_id.eq.${id},target_id.eq.${id})&select=id,source_id,target_id,link_type,context&limit=20`
+    );
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ...persona,
+          name: persona.title?.replace(/^Persona\s*[-–—]\s*/i, '') || persona.title,
+          recent_updates: logEntries,
+          linked_content: links,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'update_persona_section',
+  'Append new evidence or observations to a specific section of a persona. Creates a persona_log entry tracking the update.',
+  {
+    persona_id: z.string().describe('UUID of the persona content item'),
+    section: z.enum(['pain_points', 'discovery_questions', 'goals', 'workflow_stages', 'tools_systems', 'segment_variations', 'profile', 'buying_influence'])
+      .describe('Which section to update'),
+    addition: z.string().describe('Text to append to the section'),
+    source: z.string().optional().default('manual').describe('Source of update (e.g. daily_review, voc_session, support_review, admin_edit)'),
+    source_ref: z.record(z.any()).optional().default({}).describe('Reference back to source content'),
+  },
+  async ({ persona_id, section, addition, source, source_ref }) => {
+    // Fetch current persona
+    const rows = await supabaseGet(`content?id=eq.${persona_id}&select=id,title,body&limit=1`);
+    if (!rows.length) {
+      return { content: [{ type: 'text' as const, text: 'Persona not found' }], isError: true };
+    }
+    const persona = rows[0];
+    let body = persona.body || '';
+
+    // Map section names to markdown headers
+    const sectionHeaders: Record<string, string> = {
+      pain_points: '## Pain Points',
+      discovery_questions: '## Discovery Questions',
+      goals: '## Goals & Motivations',
+      workflow_stages: '## Workflow Stages',
+      tools_systems: '## Tools & Systems Used',
+      segment_variations: '## Segment Variations',
+      profile: '## Profile',
+      buying_influence: '## Buying Influence',
+    };
+
+    const header = sectionHeaders[section];
+    const today = new Date().toISOString().split('T')[0];
+    const updateBlock = `\n\n> **Update ${today}** (${source}): ${addition}`;
+
+    // Find the section and append after it (before the next ## header)
+    const headerIdx = body.indexOf(header);
+    if (headerIdx === -1) {
+      // Section doesn't exist — append it at the end
+      body += `\n\n${header}\n${updateBlock}`;
+    } else {
+      // Find the next ## header after this section
+      const afterHeader = body.indexOf('\n## ', headerIdx + header.length);
+      if (afterHeader === -1) {
+        // No next section — append at end of body
+        body += updateBlock;
+      } else {
+        // Insert before the next section
+        body = body.slice(0, afterHeader) + updateBlock + body.slice(afterHeader);
+      }
+    }
+
+    // Update the content item
+    await supabasePatch(`content?id=eq.${persona_id}`, {
+      body,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Create persona_log entry
+    await supabasePost('persona_log', {
+      content_id: persona_id,
+      log_date: today,
+      entry: addition,
+      source,
+      source_ref: source_ref || {},
+      section_updated: section,
+    });
+
+    // Re-embed
+    embedItem('content', persona_id).catch(() => {});
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          persona: persona.title,
+          section,
+          source,
+          log_created: true,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'update_research',
+  'Append new evidence or observations to a research content item. Creates a research_log entry tracking the update.',
+  {
+    content_id: z.string().describe('UUID of the research content item'),
+    addition: z.string().describe('Text to append'),
+    section: z.string().optional().describe('Which part of the research was updated'),
+    source: z.string().optional().default('manual').describe('Source of update (e.g. daily_review, voc_session, support_review, admin_edit)'),
+    source_ref: z.record(z.any()).optional().default({}).describe('Reference back to source content'),
+  },
+  async ({ content_id, addition, section, source, source_ref }) => {
+    const rows = await supabaseGet(`content?id=eq.${content_id}&select=id,title,body,type&limit=1`);
+    if (!rows.length) {
+      return { content: [{ type: 'text' as const, text: 'Content not found' }], isError: true };
+    }
+    const item = rows[0];
+    const today = new Date().toISOString().split('T')[0];
+    const updateBlock = `\n\n---\n### Update ${today} (${source})${section ? ` — ${section}` : ''}\n${addition}`;
+
+    await supabasePatch(`content?id=eq.${content_id}`, {
+      body: (item.body || '') + updateBlock,
+      updated_at: new Date().toISOString(),
+    });
+
+    // Create research_log entry
+    await supabasePost('research_log', {
+      content_id,
+      log_date: today,
+      entry: addition,
+      source,
+      source_ref: source_ref || {},
+      section_updated: section || null,
+    });
+
+    // Re-embed
+    embedItem('content', content_id).catch(() => {});
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          content: item.title,
+          section: section || 'general',
+          source,
+          log_created: true,
+        }, null, 2),
+      }],
     };
   }
 );
