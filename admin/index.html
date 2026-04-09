@@ -6137,67 +6137,129 @@
 
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
 
-        const segments = (data || []).filter(r => r.metadata?.reference_type === 'segment-workflow');
-        // Also include stage-level docs that don't have metadata yet but match patterns
+        // Classify items into segments
+        const segmentNames = ['Labels', 'Folding Carton', 'Flexibles', 'Corrugated'];
         const stagePattern = /stage\s*\d+|complete workflow|segment/i;
         const allResearch = (data || []).filter(r =>
             r.metadata?.reference_type === 'segment-workflow' ||
             (!r.metadata?.reference_type && stagePattern.test(r.title))
         );
 
-        const segmentNames = ['Labels', 'Folding Carton', 'Flexibles', 'Corrugated'];
+        function detectSegment(r) {
+            if (r.metadata?.segment) return r.metadata.segment;
+            const t = r.title.toLowerCase();
+            if (t.includes('labels') || t.includes('label segment')) return 'Labels';
+            if (t.includes('folding carton')) return 'Folding Carton';
+            if (t.includes('flexibles') || t.includes('flexible segment')) return 'Flexibles';
+            if (t.includes('corrugated')) return 'Corrugated';
+            return 'General';
+        }
+
+        function extractStageNum(title) {
+            const m = title.match(/stage\s*(\d+)/i);
+            return m ? parseInt(m[1]) : -1;
+        }
+
+        // Group by segment
+        const grouped = {};
+        segmentNames.forEach(s => { grouped[s] = []; });
+        grouped['General'] = [];
+        allResearch.forEach(r => {
+            const seg = detectSegment(r);
+            if (!grouped[seg]) grouped[seg] = [];
+            grouped[seg].push(r);
+        });
+
+        // Sort each segment: complete workflow first, then by stage number
+        for (const seg of Object.keys(grouped)) {
+            grouped[seg].sort((a, b) => {
+                const aIsOverview = a.title.toLowerCase().includes('complete workflow');
+                const bIsOverview = b.title.toLowerCase().includes('complete workflow');
+                if (aIsOverview && !bIsOverview) return -1;
+                if (!aIsOverview && bIsOverview) return 1;
+                return extractStageNum(a.title) - extractStageNum(b.title);
+            });
+        }
+
+        const defaultSeg = segmentNames[0];
+
+        function renderSegmentContent(seg) {
+            const items = grouped[seg] || [];
+            if (!items.length) return '<div class="empty" style="padding:2rem">No documents for this segment</div>';
+
+            return items.map(r => {
+                const stageNum = extractStageNum(r.title);
+                const isOverview = r.title.toLowerCase().includes('complete workflow');
+                // Clean title: remove segment name suffix for cleaner display
+                let cleanTitle = r.title;
+                segmentNames.forEach(s => {
+                    cleanTitle = cleanTitle.replace(new RegExp(`\\s*[-–—(]\\s*${s}\\s*(Segment)?\\s*[)]?\\s*$`, 'i'), '');
+                    cleanTitle = cleanTitle.replace(new RegExp(`\\s*[-–—]\\s*${s}\\s*(Segment)?`, 'i'), '');
+                });
+                // Extract a brief description from the body (first meaningful paragraph)
+                const bodyClean = (r.body || '').replace(/^#.*$/gm, '').replace(/^\s*[-*]\s*/gm, '').trim();
+                const snippet = bodyClean.substring(0, 140).replace(/\n/g, ' ').trim();
+
+                return `
+                <div class="segment-stage-row ${isOverview ? 'segment-overview' : ''}" style="display:flex;align-items:flex-start;gap:1rem;padding:0.85rem 1rem;border-bottom:1px solid var(--border);cursor:pointer;transition:background 0.15s${isOverview ? ';border-left:3px solid var(--accent);background:var(--void-lighter)' : ''}"
+                     onmouseenter="this.style.background='var(--void-lighter)'" onmouseleave="this.style.background='${isOverview ? 'var(--void-lighter)' : ''}'"
+                     onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+                    <div style="min-width:2.5rem;text-align:center;padding-top:0.15rem">
+                        ${isOverview
+                            ? '<i class="icon" data-lucide="book-open" style="width:18px;height:18px;color:var(--accent)"></i>'
+                            : `<span style="font-size:1.1rem;font-weight:700;color:var(--accent);font-family:var(--mono)">${stageNum >= 0 ? stageNum : ''}</span>`
+                        }
+                    </div>
+                    <div style="flex:1;min-width:0">
+                        <div style="font-weight:${isOverview ? '700' : '600'};font-size:${isOverview ? '0.95rem' : '0.88rem'};margin-bottom:0.15rem">${esc(cleanTitle)}</div>
+                        ${snippet ? `<div style="font-size:0.78rem;color:var(--text-muted);line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(snippet)}</div>` : ''}
+                    </div>
+                    <div style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;padding-top:0.15rem">${new Date(r.updated_at).toLocaleDateString()}</div>
+                </div>`;
+            }).join('');
+        }
 
         main.innerHTML = `
             <div class="page-header">
                 <h2 class="page-title">Segment Workflows</h2>
                 <span style="flex:1"></span>
-                <span style="font-size:0.8rem;color:var(--text-muted)">${allResearch.length} documents</span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${allResearch.length} documents across ${segmentNames.length} segments</span>
             </div>
-            <div class="filters">
-                <input type="text" class="search-input" placeholder="Search research..." id="searchSegments">
-                <div style="display:flex;gap:0.3rem;flex-wrap:wrap">
-                    <button class="btn segment-filter active" data-seg="all" style="font-size:0.75rem">All</button>
-                    ${segmentNames.map(s => `<button class="btn segment-filter" data-seg="${s}" style="font-size:0.75rem">${s}</button>`).join('')}
-                </div>
+            <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:1rem">
+                ${segmentNames.map((s, i) => `
+                    <button class="seg-tab${i === 0 ? ' active' : ''}" data-seg="${s}"
+                        style="padding:0.6rem 1.2rem;font-size:0.85rem;font-weight:500;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;color:var(--text-muted);transition:all 0.15s">
+                        ${s} <span style="font-size:0.75rem;opacity:0.6;margin-left:0.25rem">${(grouped[s] || []).length}</span>
+                    </button>
+                `).join('')}
+                ${grouped['General']?.length ? `<button class="seg-tab" data-seg="General" style="padding:0.6rem 1.2rem;font-size:0.85rem;font-weight:500;background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;cursor:pointer;color:var(--text-muted);transition:all 0.15s">General <span style="font-size:0.75rem;opacity:0.6;margin-left:0.25rem">${grouped['General'].length}</span></button>` : ''}
             </div>
-            <div class="table-container"><table class="data-table" id="segmentTable">
-                <thead><tr>
-                    <th>Title</th>
-                    <th>Segment</th>
-                    <th>Updated</th>
-                </tr></thead>
-                <tbody>
-                ${allResearch.map(r => {
-                    const seg = r.metadata?.segment || segmentNames.find(s => r.title.toLowerCase().includes(s.toLowerCase())) || '—';
-                    return `<tr data-seg="${esc(seg)}" style="cursor:pointer" onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
-                        <td style="font-weight:500">${esc(r.title)}</td>
-                        <td><span class="tag">${esc(seg)}</span></td>
-                        <td style="font-size:0.8rem;color:var(--text-muted)">${new Date(r.updated_at).toLocaleDateString()}</td>
-                    </tr>`;
-                }).join('')}
-                </tbody>
-            </table></div>`;
+            <div id="segmentContent" class="card" style="padding:0;overflow:hidden">
+                ${renderSegmentContent(defaultSeg)}
+            </div>`;
 
         refreshIcons();
 
-        // Segment filter
-        document.querySelectorAll('.segment-filter').forEach(btn => {
-            btn.addEventListener('click', () => {
-                document.querySelectorAll('.segment-filter').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                const seg = btn.dataset.seg;
-                document.querySelectorAll('#segmentTable tbody tr').forEach(row => {
-                    row.style.display = (seg === 'all' || row.dataset.seg === seg) ? '' : 'none';
+        // Tab switching
+        document.querySelectorAll('.seg-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.seg-tab').forEach(t => {
+                    t.classList.remove('active');
+                    t.style.borderBottomColor = 'transparent';
+                    t.style.color = 'var(--text-muted)';
                 });
+                tab.classList.add('active');
+                tab.style.borderBottomColor = 'var(--accent)';
+                tab.style.color = 'var(--text-body)';
+                const seg = tab.dataset.seg;
+                document.getElementById('segmentContent').innerHTML = renderSegmentContent(seg);
+                refreshIcons();
             });
-        });
-
-        // Search
-        document.getElementById('searchSegments')?.addEventListener('input', (e) => {
-            const q = e.target.value.toLowerCase();
-            document.querySelectorAll('#segmentTable tbody tr').forEach(row => {
-                row.style.display = row.textContent.toLowerCase().includes(q) ? '' : 'none';
-            });
+            // Set initial active style
+            if (tab.classList.contains('active')) {
+                tab.style.borderBottomColor = 'var(--accent)';
+                tab.style.color = 'var(--text-body)';
+            }
         });
     }
 
