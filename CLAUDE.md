@@ -58,6 +58,8 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 | `content_links` | Junction: content ↔ content (signals→problems, articles→problems, etc.) | source_id, target_id, link_type, context |
 | `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active |
 | `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
+| `persona_log` | Incremental updates to personas | content_id, log_date, entry, source, source_ref, section_updated |
+| `research_log` | Incremental updates to research docs | content_id, log_date, entry, source, source_ref, section_updated |
 
 ## API Routes (`functions/api/[[path]].js`)
 
@@ -228,7 +230,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (49 tools)
+### Tool Groups (53 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -240,6 +242,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
+| Personas & Research | list_personas, get_persona, update_persona_section, update_research | 4 |
 | Assets | list_assets, upload_asset, get_asset_content | 3 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
@@ -256,6 +259,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | `reflection` | Leadership and coaching reflections | — |
 | `problem` | Problem definitions (P1-P18 domain, PP1-PP10 Phoenix) | problem_id, problem_domain, priority, category, related_problems, affected_personas, is_index |
 | `strategy` | Internal strategy docs (domain/product strategies, goals, architecture, customer feedback) | strategy_type, product_area, owner, version, doc_status |
+| `reference` | Personas, segment workflows, market research, strategic research | reference_type (persona, segment-workflow, market-research, strategic), segment |
 
 ### Problem Metadata Schema
 

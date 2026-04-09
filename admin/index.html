@@ -10598,6 +10598,28 @@
             { name: 'entity_table', type: 'string', desc: 'companies, products, projects, people' },
             { name: 'relationship_type', type: 'string?', desc: 'mentions, about, evidence, competitive-intel (default: mentions)' },
         ]},
+        { name: 'list_personas', desc: 'List all personas with optional segment and search filters', group: 'Personas & Research', params: 3, paramDetails: [
+            { name: 'segment', type: 'string?', desc: 'Filter by segment (e.g. "Labels", "Folding Carton")' },
+            { name: 'search', type: 'string?', desc: 'Search by name' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default: 50)' },
+        ]},
+        { name: 'get_persona', desc: 'Get full persona detail with body, metadata, and recent update log', group: 'Personas & Research', params: 1, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Persona content item UUID' },
+        ]},
+        { name: 'update_persona_section', desc: 'Append evidence to a persona section with change tracking', group: 'Personas & Research', params: 5, paramDetails: [
+            { name: 'persona_id', type: 'string', desc: 'Persona content item UUID' },
+            { name: 'section', type: 'enum', desc: 'pain_points, discovery_questions, goals, workflow_stages, tools_systems, segment_variations, profile, buying_influence' },
+            { name: 'addition', type: 'string', desc: 'Text to append to the section' },
+            { name: 'source', type: 'string?', desc: 'daily_review, voc_session, support_review, admin_edit (default: manual)' },
+            { name: 'source_ref', type: 'object?', desc: 'Reference back to source content' },
+        ]},
+        { name: 'update_research', desc: 'Append evidence to a research doc with change tracking', group: 'Personas & Research', params: 5, paramDetails: [
+            { name: 'content_id', type: 'string', desc: 'Research content item UUID' },
+            { name: 'addition', type: 'string', desc: 'Text to append' },
+            { name: 'section', type: 'string?', desc: 'Which part of the research was updated' },
+            { name: 'source', type: 'string?', desc: 'daily_review, voc_session, support_review, admin_edit (default: manual)' },
+            { name: 'source_ref', type: 'object?', desc: 'Reference back to source content' },
+        ]},
     ];
 
     const MCP_SKILLS = [
@@ -10720,11 +10742,12 @@
     const GROUP_ICONS = {
         'Content': 'book-open', 'Search': 'search', 'Write': 'pencil', 'Feed': 'rss',
         'AI Workflows': 'brain', 'Content Linking': 'link', 'Problem Intelligence': 'alert-triangle',
-        'Strategy Intelligence': 'target', 'Embeddings': 'layers', 'Utility': 'activity',
+        'Strategy Intelligence': 'target', 'Personas & Research': 'microscope',
+        'Embeddings': 'layers', 'Utility': 'activity',
         'Prompts': 'file-text', 'MIS': 'factory',
     };
 
-    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Content Linking', 'Problem Intelligence', 'Strategy Intelligence', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
+    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Content Linking', 'Problem Intelligence', 'Strategy Intelligence', 'Personas & Research', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
 
     async function loadMcpOverview() {
         const main = document.getElementById('mainContent');
