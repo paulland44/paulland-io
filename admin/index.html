@@ -6146,7 +6146,9 @@
         );
 
         function detectSegment(r) {
-            if (r.metadata?.segment) return r.metadata.segment;
+            const metaSeg = r.metadata?.segment;
+            if (metaSeg === 'All') return 'All';
+            if (metaSeg && metaSeg !== 'All') return metaSeg;
             const t = r.title.toLowerCase();
             if (t.includes('labels') || t.includes('label segment')) return 'Labels';
             if (t.includes('folding carton')) return 'Folding Carton';
@@ -6160,14 +6162,19 @@
             return m ? parseInt(m[1]) : -1;
         }
 
-        // Group by segment
+        // Group by segment — "All" items appear in every segment tab
         const grouped = {};
         segmentNames.forEach(s => { grouped[s] = []; });
         grouped['General'] = [];
         allResearch.forEach(r => {
             const seg = detectSegment(r);
-            if (!grouped[seg]) grouped[seg] = [];
-            grouped[seg].push(r);
+            if (seg === 'All') {
+                // Cross-segment docs appear in every segment
+                segmentNames.forEach(s => grouped[s].push(r));
+            } else {
+                if (!grouped[seg]) grouped[seg] = [];
+                grouped[seg].push(r);
+            }
         });
 
         // Sort each segment: complete workflow first, then by stage number
