@@ -978,6 +978,15 @@
         .product-overview-content th, .product-overview-content td { padding: 0.3rem 0.5rem; border: 1px solid var(--border); text-align: left; }
         .product-overview-content th { background: var(--void-lighter); color: var(--star); font-weight: 400; }
 
+        .persona-section-content table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.82rem; }
+        .persona-section-content th, .persona-section-content td { padding: 0.4rem 0.6rem; border: 1px solid var(--border); text-align: left; vertical-align: top; }
+        .persona-section-content th { background: var(--void-lighter); color: var(--star); font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+        .persona-section-content ul { margin: 0.25rem 0; padding-left: 1.25rem; }
+        .persona-section-content li { margin-bottom: 0.2rem; }
+        .persona-section-content blockquote { border-left: 3px solid var(--accent); padding: 0.5rem 0.75rem; margin: 0.75rem 0; background: var(--void-lighter); border-radius: var(--radius-sm); font-size: 0.82rem; }
+        .persona-section-content h3 { font-size: 0.88rem; margin: 1rem 0 0.4rem; }
+        .persona-section-content strong { color: var(--text-body); }
+
         .content-modal-body {
             color: var(--text-body);
             font-size: 1.05rem;
@@ -5971,6 +5980,18 @@
         });
     }
 
+    function renderPersonaSection(text) {
+        if (!text) return '<em style="color:var(--text-muted)">No content.</em>';
+        // Clean Obsidian wiki-links: [[target|display]] → display, [[target]] → target
+        let cleaned = text.replace(/\[\[([^\]|]+)\|([^\]]+)\]\]/g, '$2').replace(/\[\[([^\]]+)\]\]/g, '$1');
+        // Clean Obsidian-style bold within links
+        cleaned = cleaned.replace(/\\\[/g, '[').replace(/\\\]/g, ']');
+        if (typeof marked !== 'undefined') {
+            return marked.parse(cleaned);
+        }
+        return cleaned.split(/\n\n+/).map(p => `<p>${esc(p.trim())}</p>`).join('');
+    }
+
     async function loadPersonaDetail(id) {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading persona</div>';
@@ -6014,7 +6035,7 @@
                                 <h3 style="font-size:0.95rem;font-weight:600">${esc(s.title)}</h3>
                                 <button class="btn" style="font-size:0.7rem;padding:0.2rem 0.5rem" onclick="togglePersonaEdit(${idx})">Edit</button>
                             </div>
-                            <div class="persona-section-content" id="personaSection${idx}" style="font-size:0.85rem;line-height:1.6">${renderBody(s.content)}</div>
+                            <div class="persona-section-content" id="personaSection${idx}" style="font-size:0.85rem;line-height:1.6">${renderPersonaSection(s.content)}</div>
                             <div class="persona-section-edit" id="personaEdit${idx}" style="display:none">
                                 <textarea class="input" rows="12" style="font-family:var(--mono);font-size:0.8rem;width:100%">${esc(s.content)}</textarea>
                                 <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
