@@ -58,6 +58,8 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 | `content_links` | Junction: content ↔ content (signals→problems, articles→problems, etc.) | source_id, target_id, link_type, context |
 | `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active |
 | `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
+| `bookings` | Weekly bookings order-line data | week, year, order_number, end_user, customer_name, subsegment, booking_type, product_code, region, subregion, country, channel, order_type, sales_rep, sales_org, value_2023, value_2024, value_2025, value_2026, source_file |
+| `revenue` | Monthly revenue by product and type | period, year, month, product_code, product_name, revenue_type, actual, prior_year, two_year_back, growth_dollar, growth_pct, fc, fc_gap, source_file |
 | `persona_log` | Incremental updates to personas | content_id, log_date, entry, source, source_ref, section_updated |
 | `research_log` | Incremental updates to research docs | content_id, log_date, entry, source, source_ref, section_updated |
 
@@ -142,9 +144,9 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Feed Items, Feeds), Tools (Ask AI)
+**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Feed Items, Feeds), Tools (Ask AI), Sales (Dashboard), Support (Dashboard)
 
-**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI
+**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI, Sales Dashboard, Support Dashboard
 
 **Theme System**: Dark/light mode, accent colours (sage, amber, blue, rose, violet), font sizing. Stored in localStorage.
 
@@ -230,7 +232,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (53 tools)
+### Tool Groups (59 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -238,7 +240,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Search | search_knowledge_base | 1 |
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
 | Feed | capture_feed_item, dismiss_feed_item | 2 |
-| AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write | 10 |
+| AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write, sales_report_extract/write, bookings_report_extract/write | 14 |
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
@@ -247,6 +249,8 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |
+| Bookings | import_bookings | 1 |
+| Revenue | import_revenue | 1 |
 | Utility | get_system_status | 1 |
 
 ### Content Types
@@ -292,7 +296,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 
 The `content_links` table enables linking any content item to any other (signal→problem, article→problem, problem→problem). Link types: `evidence`, `related`, `derived_from`, `supports`.
 
-### Skills (8 skills, defined in `.claude/skills/`)
+### Skills (10 skills, defined in `.claude/skills/`)
 
 | Skill | Prompt Slug | Tools Used |
 |-------|-------------|------------|
@@ -304,12 +308,14 @@ The `content_links` table enables linking any content item to any other (signal�
 | Extract Problems | `extract-problems` | get_prompt, problem_extract, problem_write, list_content, get_content, link_content |
 | Extract Strategies | `extract-strategies` | get_prompt, strategy_extract, strategy_write, list_content, link_content |
 | Support Review | `support-review` | get_prompt, support_review_extract, support_review_write |
+| Sales Report | `sales-report` | get_prompt, sales_report_extract, sales_report_write |
+| Bookings Report | `bookings-report` | get_prompt, bookings_report_extract, bookings_report_write |
 
-### Prompt Templates (10 prompts, stored in Supabase `prompts` table)
+### Prompt Templates (12 prompts, stored in Supabase `prompts` table)
 
 Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
 
-Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`, `sales-report`, `bookings-report`
 
 ### Worker Secrets (set via `wrangler secret put`)
 

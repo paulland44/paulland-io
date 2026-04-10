@@ -2581,6 +2581,147 @@
         .summary-type-support { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
 
         /* ─── Support Review Detail ─── */
+        /* ─── Sales Dashboard ─── */
+        .sales-metrics {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .sales-product-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+        }
+        .sales-product-card .product-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+        .sales-product-card .product-name {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-heading);
+        }
+        .sales-product-card .product-code {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-family: var(--mono);
+        }
+        .sales-product-card .product-revenue {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: var(--text-heading);
+            line-height: 1.2;
+        }
+        .sales-product-card .product-revenue .currency {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-muted);
+        }
+        .sales-growth {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            font-size: 0.78rem;
+            font-weight: 600;
+            padding: 0.15rem 0.45rem;
+            border-radius: var(--radius-sm);
+        }
+        .sales-growth.positive { background: rgba(76, 175, 80, 0.12); color: #4caf50; }
+        .sales-growth.negative { background: rgba(220, 60, 60, 0.12); color: #dc3c3c; }
+        .sales-product-card .product-detail {
+            display: flex;
+            gap: 1rem;
+            margin-top: 0.75rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .sales-product-card .product-detail span {
+            display: flex;
+            flex-direction: column;
+        }
+        .sales-product-card .product-detail .detail-val {
+            font-weight: 600;
+            color: var(--text-body);
+            font-size: 0.82rem;
+        }
+        .sales-mix-bar {
+            display: flex;
+            height: 8px;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 0.75rem;
+            background: var(--border);
+        }
+        .sales-mix-bar > div { height: 100%; }
+        .mix-saas { background: var(--accent); }
+        .mix-maint { background: rgba(var(--accent-rgb, 139,164,133), 0.5); }
+        .mix-services { background: rgba(196, 168, 80, 0.6); }
+        .mix-perpetual { background: rgba(160, 160, 160, 0.5); }
+        .sales-mix-legend {
+            display: flex;
+            gap: 0.75rem;
+            margin-top: 0.4rem;
+            flex-wrap: wrap;
+        }
+        .sales-mix-legend span {
+            font-size: 0.68rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .sales-mix-legend .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .sales-dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        @media (max-width: 768px) {
+            .sales-dashboard-grid { grid-template-columns: 1fr; }
+        }
+        .sales-chart-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.25rem;
+        }
+        .sales-chart-card h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-heading);
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .sales-fc-indicator {
+            font-size: 0.72rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: var(--radius-sm);
+            font-weight: 500;
+        }
+        .sales-fc-indicator.gap-negative { background: rgba(220, 60, 60, 0.1); color: #dc3c3c; }
+        .sales-fc-indicator.gap-positive { background: rgba(76, 175, 80, 0.1); color: #4caf50; }
+        .sales-period-select {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.6rem;
+            font-size: 0.8rem;
+            color: var(--text-body);
+            font-family: var(--sans);
+        }
+
         .support-metrics {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -3254,6 +3395,9 @@
                 <button class="nav-item" data-section="mis">
                     <i class="icon" data-lucide="factory"></i> MIS
                 </button>
+                <button class="nav-item" data-section="sales">
+                    <i class="icon" data-lucide="bar-chart-3"></i> Sales
+                </button>
                 <button class="nav-item" data-section="support">
                     <i class="icon" data-lucide="headset"></i> Support
                 </button>
@@ -3457,6 +3601,14 @@
         mis: { tabs: [
             { view: 'mis-monitor', label: 'Jobs' },
             { view: 'mis-json', label: 'JSON Builder' },
+        ]},
+        sales: { tabs: [
+            { view: 'sales-dashboard', label: 'Overview' },
+            { view: 'sales-ae', label: 'Automation Engine' },
+            { view: 'sales-wcp', label: 'WebCenter Pack' },
+            { view: 'sales-transactions', label: 'Transactions' },
+            { view: 'sales-storage', label: 'Storage' },
+            { view: 'sales-phoenix', label: 'Phoenix' },
         ]},
         support: { tabs: [
             { view: 'support-dashboard', label: 'Dashboard' },
@@ -3672,6 +3824,12 @@
             case 'mis-create': await loadMisMonitor(); misOpenJobDrawer('create'); break;
             case 'mis-monitor': await loadMisMonitor(); break;
             case 'mis-json': await loadMisJson(); break;
+            case 'sales-dashboard': await loadSalesDashboard(); break;
+            case 'sales-ae': await loadSalesProductDetail('PC3675'); break;
+            case 'sales-wcp': await loadSalesProductDetail('PC3753'); break;
+            case 'sales-transactions': await loadSalesProductDetail('PC3751'); break;
+            case 'sales-storage': await loadSalesProductDetail('PC3752'); break;
+            case 'sales-phoenix': await loadSalesProductDetail('PC3360'); break;
             case 'support-dashboard': await loadSupportDashboard(); break;
             case 'settings-appearance': await loadSettingsView(); break;
             case 'settings-connections': await loadSettingsConnections(); break;
@@ -6138,7 +6296,7 @@
         if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
 
         // Classify items into segments
-        const segmentNames = ['Labels', 'Folding Carton', 'Flexibles', 'Corrugated'];
+        const segmentNames = ['Labels', 'Folding Carton', 'Flexibles', 'Corrugated', 'Digital Print'];
         const stagePattern = /stage\s*\d+|complete workflow|segment/i;
         const allResearch = (data || []).filter(r =>
             r.metadata?.reference_type === 'segment-workflow' ||
@@ -6146,12 +6304,16 @@
         );
 
         function detectSegment(r) {
-            if (r.metadata?.segment && r.metadata.segment !== 'All') return r.metadata.segment;
+            if (r.metadata?.segment && r.metadata.segment !== 'All') {
+                if (r.metadata.segment.startsWith('Digital Print')) return 'Digital Print';
+                return r.metadata.segment;
+            }
             const t = r.title.toLowerCase();
             if (t.includes('labels') || t.includes('label segment')) return 'Labels';
             if (t.includes('folding carton')) return 'Folding Carton';
             if (t.includes('flexibles') || t.includes('flexible segment')) return 'Flexibles';
             if (t.includes('corrugated')) return 'Corrugated';
+            if (t.includes('digital print')) return 'Digital Print';
             return 'General';
         }
 
@@ -9140,6 +9302,1259 @@
         document.getElementById('btnSummaryCancel').addEventListener('click', () => {
             openSummaryDetail(item);
         });
+    }
+
+    // ─── Sales Dashboard ───────────────────────────────────────
+
+    let salesCharts = [];
+
+    function destroySalesCharts() {
+        salesCharts.forEach(c => c.destroy());
+        salesCharts = [];
+    }
+
+    const SALES_PRODUCT_COLORS = {
+        PC3675: { bg: 'rgba(139,164,133,0.85)', border: 'rgb(139,164,133)' },
+        PC3753: { bg: 'rgba(100,149,237,0.85)', border: 'rgb(100,149,237)' },
+        PC3751: { bg: 'rgba(196,168,80,0.85)', border: 'rgb(196,168,80)' },
+        PC3752: { bg: 'rgba(180,130,200,0.85)', border: 'rgb(180,130,200)' },
+        PC3360: { bg: 'rgba(220,120,60,0.85)', border: 'rgb(220,120,60)' },
+    };
+
+    function salesFmtK(v) {
+        if (v == null || isNaN(v)) return '—';
+        if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}m`;
+        if (Math.abs(v) >= 1) return `${Math.round(v)}`;
+        return v.toFixed(1);
+    }
+
+    function salesFmtPct(v) {
+        if (v == null || isNaN(v)) return 'N/A';
+        return `${(v * 100).toFixed(1)}%`;
+    }
+
+    let salesReportsCache = null;
+    let bookingsReportsCache = null;
+    let salesSelectedIdx = -1;
+
+    async function fetchSalesReports() {
+        if (salesReportsCache) return salesReportsCache;
+        const { data, error } = await db
+            .from('content')
+            .select('id, title, body, tags, status, metadata, captured_at')
+            .eq('type', 'summary')
+            .contains('tags', ['sales-report'])
+            .order('captured_at', { ascending: true });
+        if (error) return null;
+        salesReportsCache = (data || []).filter(r => r.metadata?.report_type === 'sales-report');
+        return salesReportsCache;
+    }
+
+    let bookingsDataCache = null;
+    let revenueDataCache = null;
+
+    async function fetchRevenueData() {
+        if (revenueDataCache) return revenueDataCache;
+        const { data, error } = await db
+            .from('revenue')
+            .select('period, year, month, product_code, product_name, revenue_type, actual, prior_year, two_year_back, growth_dollar, growth_pct')
+            .order('period', { ascending: true });
+        if (error || !data) return null;
+        revenueDataCache = data;
+        return revenueDataCache;
+    }
+
+    function getProductRevenue(allRevenue, productCode) {
+        if (!allRevenue || !allRevenue.length) return null;
+        const rows = allRevenue.filter(r => r.product_code === productCode);
+        if (!rows.length) return null;
+
+        // Group by period
+        const periods = [...new Set(rows.map(r => r.period))].sort();
+        const monthlyData = periods.map(p => {
+            const periodRows = rows.filter(r => r.period === p);
+            const total = periodRows.find(r => r.revenue_type === 'total');
+            const saas = periodRows.find(r => r.revenue_type === 'saas_subscriptions');
+            const maint = periodRows.find(r => r.revenue_type === 'maintenance');
+            const services = periodRows.find(r => r.revenue_type === 'services');
+            const perpetual = periodRows.find(r => r.revenue_type === 'perpetual');
+
+            const monthNames = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const yr = total?.year || parseInt(p.split('-')[0]);
+            const mn = total?.month || parseInt(p.split('-')[1]);
+            const label = monthNames[mn] + ' ' + yr;
+
+            return {
+                period: p, year: yr, month: mn, label,
+                actual: total?.actual || 0,
+                py: total?.prior_year || 0,
+                growth_pct: total?.growth_pct || null,
+                saas: saas?.actual || 0,
+                maintenance: maint?.actual || 0,
+                services: services?.actual || 0,
+                perpetual: perpetual?.actual || 0,
+            };
+        });
+
+        // YTD for the latest year
+        const latestYear = Math.max(...monthlyData.map(m => m.year));
+        const ytdMonths = monthlyData.filter(m => m.year === latestYear);
+        const ytdActual = ytdMonths.reduce((s, m) => s + m.actual, 0);
+        const ytdPy = ytdMonths.reduce((s, m) => s + m.py, 0);
+
+        return { monthlyData, ytdActual, ytdPy, latestYear, periods };
+    }
+
+    async function fetchBookingsData() {
+        if (bookingsDataCache) return bookingsDataCache;
+        const { data, error } = await db
+            .from('bookings')
+            .select('product_code, customer_name, country, subsegment, booking_type, order_type, week, year, channel, value_2024, value_2025, value_2026');
+        if (error || !data) return null;
+        bookingsDataCache = data;
+        return bookingsDataCache;
+    }
+
+    // Analyse bookings for a product, optionally filtered to a specific year's data
+    function getProductBookings(allBookings, productCode, targetYear) {
+        if (!allBookings || !allBookings.length) return null;
+        const prefix = productCode.replace('PC', '');
+        const allRows = allBookings.filter(r => r.product_code.startsWith(prefix));
+        if (!allRows.length) return null;
+
+        // If targetYear specified, filter rows to that year; otherwise use all
+        const yr = targetYear || 2026;
+        const valKey = 'value_' + yr;
+        const pyKey = 'value_' + (yr - 1);
+        const py2Key = 'value_' + (yr - 2);
+
+        // Use rows from the target year's dataset (year column matches)
+        const rows = targetYear ? allRows.filter(r => r.year === targetYear) : allRows;
+
+        const ytdCurrent = rows.reduce((s, r) => s + (r[valKey] || 0), 0);
+        const ytdPy = rows.reduce((s, r) => s + (r[pyKey] || 0), 0);
+        const ytdPy2 = rows.reduce((s, r) => s + (r[py2Key] || 0), 0);
+        const growthPct = ytdPy > 0 ? (ytdCurrent - ytdPy) / Math.abs(ytdPy) : (ytdCurrent > 0 ? 1 : null);
+
+        // Aggregate using the target year's value
+        const agg = (field) => {
+            const map = {};
+            rows.forEach(r => { const k = r[field]; if (k) map[k] = (map[k] || 0) + (r[valKey] || 0); });
+            return map;
+        };
+
+        const custMap = agg('customer_name');
+        const topCustomers = Object.entries(custMap)
+            .map(([name, val]) => ({ name, value: val }))
+            .filter(c => c.value > 0)
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 15);
+
+        const countryMap = agg('country');
+        const byCountry = Object.entries(countryMap).map(([c, v]) => ({ country: c, value: v })).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
+
+        const byBookingType = agg('booking_type');
+        const byOrderType = agg('order_type');
+
+        const segMap = agg('subsegment');
+        const bySegment = Object.entries(segMap).map(([s, v]) => ({ segment: s, value: v })).filter(s => s.value > 0).sort((a, b) => b.value - a.value);
+
+        const weekMap = {};
+        rows.forEach(r => { if (r.week && r[valKey]) weekMap[r.week] = (weekMap[r.week] || 0) + r[valKey]; });
+        const byWeek = Object.entries(weekMap).map(([w, v]) => ({ week: parseInt(w), value: v })).sort((a, b) => a.week - b.week);
+
+        const acvRows = rows.filter(r => r.booking_type && r.booking_type.includes('ACV') && r[valKey] > 0);
+        const avgAcv = acvRows.length > 0 ? acvRows.reduce((s, r) => s + r[valKey], 0) / acvRows.length : 0;
+
+        // Channel
+        const channelMap = agg('channel');
+
+        // Region
+        const regionMap = agg('region');
+        const byRegion = Object.entries(regionMap).map(([r, v]) => ({ region: r, value: v })).filter(r => r.value > 0).sort((a, b) => b.value - a.value);
+
+        return {
+            year: yr,
+            ytd: { current: Math.round(ytdCurrent), py: Math.round(ytdPy), py2: Math.round(ytdPy2), growth_pct: growthPct },
+            topCustomers,
+            byCountry,
+            byBookingType,
+            byOrderType,
+            bySegment,
+            byWeek,
+            byRegion,
+            channel: channelMap,
+            acv: { count: acvRows.length, average: Math.round(avgAcv), total: Math.round(acvRows.reduce((s, r) => s + r[valKey], 0)) },
+            totalOrders: new Set(rows.filter(r => r[valKey] > 0).map(r => r.order_number)).size,
+            uniqueCustomers: new Set(rows.filter(r => r[valKey] > 0).map(r => r.customer_name)).size,
+            uniqueCountries: new Set(rows.filter(r => r[valKey] > 0).map(r => r.country)).size,
+            trends: buildMultiYearTrends(allRows, prefix),
+        };
+    }
+
+    // Build 4-year trends from prior-year columns across both file imports
+    function buildMultiYearTrends(allRows, prefix) {
+        const rows25 = allRows.filter(r => r.year === 2025); // 2025 file: has value_2023/2024/2025
+        const rows26 = allRows.filter(r => r.year === 2026); // 2026 file: has value_2024/2025/2026
+        if (!rows25.length && !rows26.length) return null;
+
+        const years = ['2023', '2024', '2025', '2026'];
+        // For each year, pick the best source: 2023 from 2025-file, 2024/2025 from 2025-file (full year), 2026 from 2026-file
+        const sourceRows = { '2023': rows25, '2024': rows25, '2025': rows25, '2026': rows26 };
+
+        // Order type totals per year
+        const byOrderType = {};
+        years.forEach(y => {
+            byOrderType[y] = {};
+            const src = sourceRows[y];
+            const vk = 'value_' + y;
+            src.forEach(r => {
+                if (r.order_type && r[vk]) {
+                    byOrderType[y][r.order_type] = (byOrderType[y][r.order_type] || 0) + r[vk];
+                }
+            });
+        });
+
+        // Recurring (SaaS + Subscriptions) vs Non-Recurring (License + Services)
+        const recurringTypes = ['2. SaaS', '5. Subscriptions'];
+        const recurring = {};
+        const nonRecurring = {};
+        const recurringPct = {};
+        const totals = {};
+        years.forEach(y => {
+            const rec = Object.entries(byOrderType[y]).filter(([t]) => recurringTypes.includes(t)).reduce((s, [, v]) => s + v, 0);
+            const nonRec = Object.entries(byOrderType[y]).filter(([t]) => !recurringTypes.includes(t)).reduce((s, [, v]) => s + v, 0);
+            recurring[y] = Math.round(rec);
+            nonRecurring[y] = Math.round(nonRec);
+            totals[y] = Math.round(rec + nonRec);
+            recurringPct[y] = (rec + nonRec) > 0 ? Math.round(rec / (rec + nonRec) * 1000) / 10 : 0;
+        });
+
+        // ACV metrics per year
+        const acvTrend = {};
+        years.forEach(y => {
+            const src = sourceRows[y];
+            const vk = 'value_' + y;
+            const acvRows = src.filter(r => r.booking_type && r.booking_type.includes('ACV') && r[vk] > 0);
+            if (acvRows.length > 0) {
+                const vals = acvRows.map(r => r[vk]).sort((a, b) => a - b);
+                acvTrend[y] = {
+                    count: acvRows.length,
+                    average: Math.round(acvRows.reduce((s, r) => s + r[vk], 0) / acvRows.length),
+                    median: Math.round(vals[Math.floor(vals.length / 2)]),
+                    total: Math.round(acvRows.reduce((s, r) => s + r[vk], 0)),
+                };
+            }
+        });
+
+        // Customer metrics per year
+        const customerTrend = {};
+        years.forEach(y => {
+            const src = sourceRows[y];
+            const vk = 'value_' + y;
+            const custMap = {};
+            src.forEach(r => { if (r.customer_name && r[vk]) custMap[r.customer_name] = (custMap[r.customer_name] || 0) + r[vk]; });
+            const sorted = Object.entries(custMap).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
+            const total = sorted.reduce((s, [, v]) => s + v, 0);
+            const top10Sum = sorted.slice(0, 10).reduce((s, [, v]) => s + v, 0);
+            customerTrend[y] = {
+                unique: sorted.length,
+                top10Share: total > 0 ? Math.round(top10Sum / total * 1000) / 10 : 0,
+            };
+        });
+
+        return { years, byOrderType, recurring, nonRecurring, recurringPct, totals, acvTrend, customerTrend };
+    }
+
+    async function loadSalesDashboard() {
+        destroySalesCharts();
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading sales data...</div>';
+
+        const [reports, allBookings] = await Promise.all([fetchSalesReports(), fetchBookingsData()]);
+        if (!reports || !reports.length) {
+            main.innerHTML = `<div class="empty" style="padding: 3rem; text-align: center;">
+                <div style="font-size: 1.2rem; margin-bottom: 0.5rem;">No sales reports yet</div>
+                <div style="color: var(--text-muted);">Upload a Sales Report XLSX to Assets (tagged "sales-report") and run the <code>/sales-report</code> skill.</div>
+            </div>`;
+            return;
+        }
+
+        // Use stored selection or default to latest
+        if (salesSelectedIdx < 0 || salesSelectedIdx >= reports.length) salesSelectedIdx = reports.length - 1;
+        const periods = reports.map(r => ({ id: r.id, period: r.metadata.period, label: r.metadata.period_label }));
+        const report = reports[salesSelectedIdx];
+        const products = report.metadata.products || {};
+        const geo = report.metadata.geo || {};
+
+        // Product cards
+        const productCards = Object.entries(products).map(([code, p]) => {
+            const m = p.monthly || {};
+            const mix = p.revenue_mix || {};
+            const total = m.actual || 0;
+            const growthPct = m.growth_pct;
+            const growthClass = growthPct != null ? (growthPct >= 0 ? 'positive' : 'negative') : '';
+            const growthArrow = growthPct != null ? (growthPct >= 0 ? '&#9650;' : '&#9660;') : '';
+
+            // Revenue mix bar
+            const mixTotal = (mix.saas || 0) + (mix.maintenance || 0) + (mix.services || 0) + (mix.perpetual || 0);
+            const pctSaas = mixTotal > 0 ? (mix.saas || 0) / mixTotal * 100 : 0;
+            const pctMaint = mixTotal > 0 ? (mix.maintenance || 0) / mixTotal * 100 : 0;
+            const pctServ = mixTotal > 0 ? (mix.services || 0) / mixTotal * 100 : 0;
+            const pctPerp = mixTotal > 0 ? (mix.perpetual || 0) / mixTotal * 100 : 0;
+
+            const fcGap = m.fc_gap;
+            const fcClass = fcGap != null ? (fcGap >= 0 ? 'gap-positive' : 'gap-negative') : '';
+            const fcText = fcGap != null ? `FC gap: ${fcGap >= 0 ? '+' : ''}${salesFmtK(fcGap)}k` : '';
+
+            const recurPct = total > 0 ? (((mix.saas || 0) + (mix.maintenance || 0)) / total * 100).toFixed(0) : '—';
+
+            // Bookings data from table (2026 data)
+            const bk = getProductBookings(allBookings, code, 2026);
+            const bkYtd = bk ? bk.ytd.current / 1000 : 0; // convert to $k
+            const bkGrowth = bk?.ytd.growth_pct;
+            const bkGrowthClass = bkGrowth != null ? (bkGrowth >= 0 ? 'positive' : 'negative') : '';
+            const bkArrow = bkGrowth != null ? (bkGrowth >= 0 ? '&#9650;' : '&#9660;') : '';
+            const revYtd = p.ytd?.actual || total;
+            const b2b = (bkYtd > 0 && revYtd > 0) ? (bkYtd / revYtd).toFixed(2) : null;
+            const b2bClass = b2b != null ? (parseFloat(b2b) >= 1 ? 'positive' : 'negative') : '';
+
+            return `<div class="sales-product-card">
+                <div class="product-header">
+                    <div>
+                        <div class="product-name">${esc(p.name)}</div>
+                        <div class="product-code">${code}</div>
+                    </div>
+                    <div style="text-align:right;">
+                        ${growthClass ? `<span class="sales-growth ${growthClass}">${growthArrow} ${salesFmtPct(growthPct)}</span>` : ''}
+                        ${fcText ? `<div class="sales-fc-indicator ${fcClass}" style="margin-top:0.3rem;">${fcText}</div>` : ''}
+                    </div>
+                </div>
+                <div class="product-revenue"><span class="currency">$</span>${salesFmtK(total)}<span class="currency">k</span></div>
+                <div class="product-detail">
+                    <span>SaaS/Subs<br><span class="detail-val">$${salesFmtK(mix.saas || 0)}k</span></span>
+                    <span>Maint<br><span class="detail-val">$${salesFmtK(mix.maintenance || 0)}k</span></span>
+                    <span>Services<br><span class="detail-val">$${salesFmtK(mix.services || 0)}k</span></span>
+                    <span>Perpetual<br><span class="detail-val">$${salesFmtK(mix.perpetual || 0)}k</span></span>
+                    <span>Recurring<br><span class="detail-val">${recurPct}%</span></span>
+                </div>
+                <div class="sales-mix-bar">
+                    <div class="mix-saas" style="width:${pctSaas}%"></div>
+                    <div class="mix-maint" style="width:${pctMaint}%"></div>
+                    <div class="mix-services" style="width:${pctServ}%"></div>
+                    <div class="mix-perpetual" style="width:${pctPerp}%"></div>
+                </div>
+                ${bkYtd > 0 ? `<div style="margin-top:0.65rem;padding-top:0.55rem;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+                    <div style="font-size:0.72rem;color:var(--text-muted);">
+                        Bookings YTD: <span style="color:var(--text-body);font-weight:600;">$${salesFmtK(bkYtd)}k</span>
+                        ${bkGrowthClass ? `<span class="sales-growth ${bkGrowthClass}" style="margin-left:0.3rem;">${bkArrow} ${salesFmtPct(bkGrowth)}</span>` : ''}
+                    </div>
+                    ${b2b ? `<div style="font-size:0.72rem;color:var(--text-muted);">B:B <span class="sales-growth ${b2bClass}" style="font-size:0.72rem;">${b2b}x</span></div>` : ''}
+                </div>` : ''}
+            </div>`;
+        }).join('');
+
+        // Observations section
+        const allObs = Object.entries(products).flatMap(([code, p]) =>
+            (p.observations || []).map(o => ({ product: p.name, text: o }))
+        );
+
+        main.innerHTML = `
+            <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h2 class="page-title">Sales Dashboard</h2>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">${reports.length} report${reports.length !== 1 ? 's' : ''}</div>
+                </div>
+                <select class="sales-period-select" id="salesPeriodSelect">
+                    ${periods.map((p, i) => `<option value="${i}" ${i === salesSelectedIdx ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}
+                </select>
+            </div>
+
+            <div class="sales-metrics">
+                ${productCards}
+            </div>
+
+            <div class="sales-mix-legend" style="margin-bottom:1.5rem;">
+                <span><span class="dot mix-saas"></span> SaaS / Subscriptions</span>
+                <span><span class="dot mix-maint"></span> Maintenance</span>
+                <span><span class="dot mix-services"></span> Non-Recurring Services</span>
+                <span><span class="dot mix-perpetual"></span> Perpetual Sales</span>
+            </div>
+
+            <div class="sales-dashboard-grid">
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="bar-chart-3" style="width:16px;height:16px;"></i> Revenue by Product</h3>
+                    <div style="height:280px;"><canvas id="salesRevenueChart"></canvas></div>
+                </div>
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="pie-chart" style="width:16px;height:16px;"></i> Revenue Mix</h3>
+                    <div style="height:280px;"><canvas id="salesMixChart"></canvas></div>
+                </div>
+                ${geo.core || geo.tilia ? `
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="globe" style="width:16px;height:16px;"></i> Core Software by Region (AE proxy)</h3>
+                    <div style="height:280px;"><canvas id="salesCoreGeoChart"></canvas></div>
+                </div>
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="globe" style="width:16px;height:16px;"></i> Tilia Software by Region (Phoenix proxy)</h3>
+                    <div style="height:280px;"><canvas id="salesTiliaGeoChart"></canvas></div>
+                </div>
+                ` : ''}
+            </div>
+
+            ${reports.length > 1 ? `
+            <div class="sales-dashboard-grid">
+                <div class="sales-chart-card" style="grid-column: 1 / -1;">
+                    <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Revenue Trend (Month over Month)</h3>
+                    <div style="height:300px;"><canvas id="salesTrendChart"></canvas></div>
+                </div>
+            </div>
+            ` : ''}
+
+            ${allObs.length ? `
+            <div class="support-section">
+                <h3><i data-lucide="lightbulb" style="width:16px;height:16px;"></i> Key Observations</h3>
+                ${allObs.map(o => `<div style="font-size:0.82rem;color:var(--text-body);margin-bottom:0.35rem;">
+                    <strong style="color:var(--text-heading);">${esc(o.product)}:</strong> ${esc(o.text)}
+                </div>`).join('')}
+            </div>
+            ` : ''}
+        `;
+
+        refreshIcons();
+
+        // ─── Charts ─────────────────────────────────────
+        const style = getComputedStyle(document.documentElement);
+        const muted = style.getPropertyValue('--text-muted').trim() || '#888';
+        const border = style.getPropertyValue('--border').trim() || '#333';
+
+        // Revenue by Product (bar chart — actual vs PY)
+        const revCtx = document.getElementById('salesRevenueChart');
+        if (revCtx) {
+            const labels = Object.values(products).map(p => p.name);
+            const actuals = Object.values(products).map(p => p.monthly?.actual || 0);
+            const pys = Object.values(products).map(p => p.monthly?.py || 0);
+            const colors = Object.keys(products).map(c => SALES_PRODUCT_COLORS[c]?.bg || 'rgba(139,164,133,0.7)');
+
+            salesCharts.push(new Chart(revCtx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [
+                        { label: 'Actual', data: actuals, backgroundColor: colors, borderRadius: 4 },
+                        { label: 'Prior Year', data: pys, backgroundColor: 'rgba(160,160,160,0.35)', borderRadius: 4 },
+                    ],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } } },
+                    scales: {
+                        x: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
+                        y: { ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: border }, beginAtZero: true },
+                    },
+                },
+            }));
+        }
+
+        // Revenue Mix (doughnut)
+        const mixCtx = document.getElementById('salesMixChart');
+        if (mixCtx) {
+            let totalSaas = 0, totalMaint = 0, totalServ = 0, totalPerp = 0;
+            Object.values(products).forEach(p => {
+                const mix = p.revenue_mix || {};
+                totalSaas += mix.saas || 0;
+                totalMaint += mix.maintenance || 0;
+                totalServ += mix.services || 0;
+                totalPerp += mix.perpetual || 0;
+            });
+            salesCharts.push(new Chart(mixCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['SaaS / Subscriptions', 'Maintenance', 'Non-Recurring Services', 'Perpetual Sales'],
+                    datasets: [{
+                        data: [totalSaas, totalMaint, totalServ, totalPerp],
+                        backgroundColor: [
+                            'rgba(139,164,133,0.85)',
+                            'rgba(100,149,237,0.7)',
+                            'rgba(196,168,80,0.7)',
+                            'rgba(160,160,160,0.5)',
+                        ],
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'right', labels: { color: muted, padding: 12, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+                        tooltip: { callbacks: { label: ctx => ` $${salesFmtK(ctx.parsed)}k` } },
+                    },
+                },
+            }));
+        }
+
+        // Core Geo (horizontal bar)
+        const coreGeoCtx = document.getElementById('salesCoreGeoChart');
+        if (coreGeoCtx && geo.core) {
+            const regions = Object.keys(geo.core);
+            const actuals = regions.map(r => geo.core[r]?.actual || 0);
+            const pys = regions.map(r => geo.core[r]?.py || 0);
+            salesCharts.push(new Chart(coreGeoCtx, {
+                type: 'bar',
+                data: {
+                    labels: regions,
+                    datasets: [
+                        { label: 'Actual', data: actuals, backgroundColor: 'rgba(139,164,133,0.8)', borderRadius: 4 },
+                        { label: 'Prior Year', data: pys, backgroundColor: 'rgba(160,160,160,0.35)', borderRadius: 4 },
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: border }, beginAtZero: true },
+                        y: { ticks: { color: muted }, grid: { display: false } },
+                    },
+                },
+            }));
+        }
+
+        // Tilia Geo (horizontal bar)
+        const tiliaGeoCtx = document.getElementById('salesTiliaGeoChart');
+        if (tiliaGeoCtx && geo.tilia) {
+            const regions = Object.keys(geo.tilia);
+            const actuals = regions.map(r => geo.tilia[r]?.actual || 0);
+            const pys = regions.map(r => geo.tilia[r]?.py || 0);
+            salesCharts.push(new Chart(tiliaGeoCtx, {
+                type: 'bar',
+                data: {
+                    labels: regions,
+                    datasets: [
+                        { label: 'Actual', data: actuals, backgroundColor: 'rgba(220,120,60,0.8)', borderRadius: 4 },
+                        { label: 'Prior Year', data: pys, backgroundColor: 'rgba(160,160,160,0.35)', borderRadius: 4 },
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } } },
+                    scales: {
+                        x: { ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: border }, beginAtZero: true },
+                        y: { ticks: { color: muted }, grid: { display: false } },
+                    },
+                },
+            }));
+        }
+
+        // Trend chart (MoM across all reports)
+        const trendCtx = document.getElementById('salesTrendChart');
+        if (trendCtx && reports.length > 1) {
+            const trendLabels = reports.map(r => r.metadata.period_label || r.metadata.period);
+            const allCodes = [...new Set(reports.flatMap(r => Object.keys(r.metadata.products || {})))];
+
+            const datasets = allCodes.map(code => {
+                const c = SALES_PRODUCT_COLORS[code] || { bg: 'rgba(139,164,133,0.7)', border: 'rgb(139,164,133)' };
+                return {
+                    label: reports.find(r => r.metadata.products?.[code])?.metadata.products[code]?.name || code,
+                    data: reports.map(r => r.metadata.products?.[code]?.monthly?.actual || 0),
+                    borderColor: c.border,
+                    backgroundColor: c.bg,
+                    tension: 0.3,
+                    fill: false,
+                    pointRadius: 4,
+                };
+            });
+
+            salesCharts.push(new Chart(trendCtx, {
+                type: 'line',
+                data: { labels: trendLabels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } } },
+                    scales: {
+                        x: { ticks: { color: muted }, grid: { display: false } },
+                        y: { ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: border }, beginAtZero: true },
+                    },
+                },
+            }));
+        }
+
+        // Period selector change handler
+        document.getElementById('salesPeriodSelect')?.addEventListener('change', (e) => {
+            const idx = parseInt(e.target.value);
+            if (idx >= 0 && idx < reports.length) {
+                salesSelectedIdx = idx;
+                loadSalesDashboard();
+            }
+        });
+    }
+
+    // ─── Sales Product Detail ───────────────────────────────────
+
+    let salesProductSubTab = 'overview'; // 'overview' | 'revenue' | 'bookings'
+    let salesRevenueYear = 0; // 0 = auto (latest), otherwise 2025 or 2026
+
+    async function loadSalesProductDetail(productCode) {
+        destroySalesCharts();
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading product data...</div>';
+
+        const [reports, allBookings, allRevenue] = await Promise.all([fetchSalesReports(), fetchBookingsData(), fetchRevenueData()]);
+        if ((!reports || !reports.length) && !allRevenue?.length) {
+            main.innerHTML = '<div class="empty">No data yet.</div>';
+            return;
+        }
+
+        const bk26 = getProductBookings(allBookings, productCode, 2026);
+        const bk25 = getProductBookings(allBookings, productCode, 2025);
+        const bk = bk26 || bk25;
+
+        // Revenue from table (15 months)
+        const rev = getProductRevenue(allRevenue, productCode);
+
+        const productName = reports.find(r => r.metadata.products?.[productCode])?.metadata.products[productCode]?.name || productCode;
+        const months = reports.map(r => {
+            const p = r.metadata.products?.[productCode];
+            return { period: r.metadata.period, label: r.metadata.period_label, data: p || null };
+        }).filter(m => m.data);
+
+        if (!months.length && !bk) {
+            main.innerHTML = `<div class="empty">No data for ${productName}.</div>`;
+            return;
+        }
+
+        const latest = months.length ? months[months.length - 1].data : {};
+        const latestLabel = months.length ? months[months.length - 1].label : '—';
+        const m = latest.monthly || {};
+        const mix = latest.revenue_mix || {};
+        const ytdRev = latest.ytd || {};
+        const color = SALES_PRODUCT_COLORS[productCode] || { bg: 'rgba(139,164,133,0.85)', border: 'rgb(139,164,133)' };
+
+        const growthClass = m.growth_pct != null ? (m.growth_pct >= 0 ? 'positive' : 'negative') : '';
+        const growthArrow = m.growth_pct != null ? (m.growth_pct >= 0 ? '&#9650;' : '&#9660;') : '';
+        const recurring = (mix.saas || 0) + (mix.maintenance || 0);
+        const recurPct = m.actual > 0 ? (recurring / m.actual * 100).toFixed(1) : '—';
+
+        // Bookings KPIs (prefer 2026, show 2025 FY as context)
+        const bkYtd = bk26 ? bk26.ytd.current / 1000 : 0;
+        const bkGrowth = bk26?.ytd.growth_pct;
+        const revYtd = ytdRev.actual || m.actual || 0;
+        const b2b = (bkYtd > 0 && revYtd > 0) ? (bkYtd / revYtd).toFixed(2) : null;
+        const bk25Total = bk25 ? bk25.ytd.current / 1000 : 0;
+        const bkAvgAcv = bk26?.acv.count > 0 ? bk26.acv.average / 1000 : (bk25?.acv.count > 0 ? bk25.acv.average / 1000 : 0);
+
+        // Active sub-tab
+        const tab = salesProductSubTab;
+
+        // ─── Build HTML sections ────────────────────────
+        // History table (for Revenue tab)
+        const historyRows = months.map(mo => {
+            const d = mo.data.monthly || {};
+            const mx = mo.data.revenue_mix || {};
+            return `<tr>
+                <td style="font-weight:500;">${esc(mo.label)}</td>
+                <td style="text-align:right;">$${salesFmtK(d.actual)}k</td>
+                <td style="text-align:right;color:var(--text-muted);">$${salesFmtK(d.py)}k</td>
+                <td style="text-align:right;"><span class="sales-growth ${(d.growth_pct||0) >= 0 ? 'positive' : 'negative'}">${salesFmtPct(d.growth_pct)}</span></td>
+                <td style="text-align:right;">$${salesFmtK(mx.saas||0)}k</td>
+                <td style="text-align:right;">$${salesFmtK(mx.maintenance||0)}k</td>
+                <td style="text-align:right;">$${salesFmtK(mx.services||0)}k</td>
+                <td style="text-align:right;">$${salesFmtK(mx.perpetual||0)}k</td>
+            </tr>`;
+        }).join('');
+
+        const allObs = months.flatMap(mo => (mo.data.observations || []).map(o => ({ period: mo.label, text: o }))).reverse();
+
+        // Bookings helper — render a breakdown grid
+        const bkGrid = (data, label) => {
+            if (!data) return '';
+            const entries = Object.entries(data).filter(([,v]) => v > 0).sort((a,b) => b[1] - a[1]);
+            if (!entries.length) return '';
+            return `<div style="font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:0.3rem;">${label}</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem;margin-bottom:0.6rem;">
+                ${entries.map(([type, val]) => `<div>
+                    <div style="font-size:0.66rem;color:var(--text-muted);">${esc(type.replace('3.2 ACV  ', 'ACV ').replace('3.1 ACV  ', 'ACV ').replace('1. Sales Orders', 'Sales Orders').replace(/^\d+\.\s*/, ''))}</div>
+                    <div style="font-size:0.92rem;font-weight:700;color:var(--text-heading);">$${salesFmtK(val / 1000)}k</div>
+                </div>`).join('')}
+            </div>`;
+        };
+
+        // Use the best available bookings data for the bookings tab (prefer 2026, show both)
+        const bkDisplay = bk26 || bk25;
+        const bkYear = bk26 ? 2026 : 2025;
+        const bkYearLabel = bk26 ? '2026 YTD' : '2025 Full Year';
+
+        main.innerHTML = `
+            <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h2 class="page-title">${esc(productName)}</h2>
+                    <div style="font-size:0.8rem;color:var(--text-muted);">${productCode}</div>
+                </div>
+                <div style="display:flex;gap:0.25rem;">
+                    <button class="sales-period-select sales-sub-tab ${tab === 'overview' ? 'active' : ''}" data-subtab="overview" style="cursor:pointer;${tab === 'overview' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Overview</button>
+                    <button class="sales-period-select sales-sub-tab ${tab === 'revenue' ? 'active' : ''}" data-subtab="revenue" style="cursor:pointer;${tab === 'revenue' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Revenue</button>
+                    <button class="sales-period-select sales-sub-tab ${tab === 'bookings' ? 'active' : ''}" data-subtab="bookings" style="cursor:pointer;${tab === 'bookings' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Bookings</button>
+                </div>
+            </div>
+
+            <!-- ═══ OVERVIEW TAB ═══ -->
+            <div id="salesTabOverview" style="${tab !== 'overview' ? 'display:none;' : ''}">
+                <div class="sales-metrics" style="grid-template-columns: repeat(6, 1fr);">
+                    <div class="sales-product-card">
+                        <div class="product-code">Revenue (${esc(latestLabel.split(' ')[0] || '—')})</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(m.actual || 0)}<span class="currency">k</span></div>
+                        ${growthClass ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${growthClass}">${growthArrow} ${salesFmtPct(m.growth_pct)}</span></div>` : ''}
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Revenue YTD</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(revYtd)}<span class="currency">k</span></div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">PY $${salesFmtK(ytdRev.py || m.py || 0)}k</div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Recurring</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${recurPct}<span class="currency">%</span></div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Bookings YTD</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(bkYtd)}<span class="currency">k</span></div>
+                        ${bkGrowth != null ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${bkGrowth >= 0 ? 'positive' : 'negative'}">${bkGrowth >= 0 ? '&#9650;' : '&#9660;'} ${salesFmtPct(bkGrowth)}</span></div>` : ''}
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Book-to-Bill</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${b2b || '—'}<span class="currency">x</span></div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Avg ACV</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${bkAvgAcv > 0 ? salesFmtK(bkAvgAcv) : '—'}<span class="currency">k</span></div>
+                        ${bk26?.acv.count ? `<div style="font-size:0.7rem;color:var(--text-muted);">${bk26.acv.count} deals</div>` : ''}
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Revenue Trend</h3>
+                        <div style="height:220px;"><canvas id="salesOvRevChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="activity" style="width:16px;height:16px;"></i> Weekly Bookings (2026)</h3>
+                        <div style="height:220px;"><canvas id="salesOvWeekChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="layers" style="width:16px;height:16px;"></i> Revenue Mix</h3>
+                        <div style="height:220px;"><canvas id="salesOvMixChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Top 5 Customers (2026 Bookings)</h3>
+                        <div style="height:220px;"><canvas id="salesOvCustChart"></canvas></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ═══ REVENUE TAB ═══ -->
+            <div id="salesTabRevenue" style="${tab !== 'revenue' ? 'display:none;' : ''}">
+                ${rev ? (() => {
+                    // Filter to selected year (12 months)
+                    const availYears = [...new Set(rev.monthlyData.map(m => m.year))].sort();
+                    const selYear = salesRevenueYear || Math.max(...availYears);
+                    const yrData = rev.monthlyData.filter(m => m.year === selYear);
+                    const monthNames = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+                    // Build full 12-month x-axis, with nulls for missing months
+                    const fullLabels = monthNames.map((mn, i) => mn + ' ' + selYear);
+                    const fullActual = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.actual : null; });
+                    const fullPy = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.py : null; });
+                    const fullSaas = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.saas : null; });
+                    const fullMaint = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.maintenance : null; });
+                    const fullServ = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.services : null; });
+                    const fullPerp = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.perpetual : null; });
+                    // Store for chart rendering
+                    window._revYrData = { selYear, fullLabels, fullActual, fullPy, fullSaas, fullMaint, fullServ, fullPerp, yrData, availYears };
+                    return `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+                    <div style="font-size:0.85rem;color:var(--text-muted);">${yrData.length} month${yrData.length !== 1 ? 's' : ''} of data · PY = ${selYear - 1}</div>
+                    <div style="display:flex;gap:0.25rem;">
+                        ${availYears.map(y => `<button class="sales-period-select sales-rev-year ${y === selYear ? 'active' : ''}" data-revyear="${y}" style="cursor:pointer;${y === selYear ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">${y}</button>`).join('')}
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Revenue ${selYear} vs ${selYear - 1}</h3>
+                        <div style="height:280px;"><canvas id="salesRevTrendChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="bar-chart-3" style="width:16px;height:16px;"></i> YoY Comparison</h3>
+                        <div style="height:280px;"><canvas id="salesRevYoyChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="layers" style="width:16px;height:16px;"></i> Revenue Mix</h3>
+                        <div style="height:260px;"><canvas id="salesRevMixChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Recurring %</h3>
+                        <div style="height:260px;"><canvas id="salesRevRecurringChart"></canvas></div>
+                    </div>
+                </div>`;
+                })() : ''}
+                <div class="support-section">
+                    <h3><i data-lucide="table" style="width:16px;height:16px;"></i> Monthly Revenue History</h3>
+                    <table class="support-table">
+                        <thead><tr><th>Period</th><th style="text-align:right;">Total</th><th style="text-align:right;">Prior Year</th><th style="text-align:right;">YoY</th><th style="text-align:right;">SaaS/Subs</th><th style="text-align:right;">Maint</th><th style="text-align:right;">Services</th><th style="text-align:right;">Perpetual</th></tr></thead>
+                        <tbody>${rev ? (() => {
+                            const sy = salesRevenueYear || rev.latestYear;
+                            return rev.monthlyData.filter(m => m.year === sy).map(m => `<tr>
+                            <td style="font-weight:500;">${esc(m.label)}</td>
+                            <td style="text-align:right;">$${salesFmtK(m.actual)}k</td>
+                            <td style="text-align:right;color:var(--text-muted);">$${salesFmtK(m.py)}k</td>
+                            <td style="text-align:right;"><span class="sales-growth ${(m.growth_pct||0) >= 0 ? 'positive' : 'negative'}">${salesFmtPct(m.growth_pct)}</span></td>
+                            <td style="text-align:right;">$${salesFmtK(m.saas)}k</td>
+                            <td style="text-align:right;">$${salesFmtK(m.maintenance)}k</td>
+                            <td style="text-align:right;">$${salesFmtK(m.services)}k</td>
+                            <td style="text-align:right;">$${salesFmtK(m.perpetual)}k</td>
+                        </tr>`).join('');
+                        })() : '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);">No revenue data</td></tr>'}</tbody>
+                    </table>
+                </div>
+                ${allObs.length ? `<div class="support-section"><h3><i data-lucide="lightbulb" style="width:16px;height:16px;"></i> Observations</h3>
+                    ${allObs.map(o => `<div style="font-size:0.82rem;color:var(--text-body);margin-bottom:0.3rem;"><span style="color:var(--text-muted);font-size:0.7rem;margin-right:0.3rem;">${esc(o.period)}</span>${esc(o.text)}</div>`).join('')}
+                </div>` : ''}
+            </div>
+
+            <!-- ═══ BOOKINGS TAB ═══ -->
+            <div id="salesTabBookings" style="${tab !== 'bookings' ? 'display:none;' : ''}">
+                ${bkDisplay ? `
+                <div class="sales-metrics" style="grid-template-columns: repeat(5, 1fr);">
+                    <div class="sales-product-card">
+                        <div class="product-code">${bkYearLabel}</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(bkDisplay.ytd.current / 1000)}<span class="currency">k</span></div>
+                        ${bkDisplay.ytd.growth_pct != null ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${bkDisplay.ytd.growth_pct >= 0 ? 'positive' : 'negative'}">${bkDisplay.ytd.growth_pct >= 0 ? '&#9650;' : '&#9660;'} ${salesFmtPct(bkDisplay.ytd.growth_pct)}</span></div>` : ''}
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Customers</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${bkDisplay.uniqueCustomers}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">${bkDisplay.uniqueCountries} countries</div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">ACV Deals</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${bkDisplay.acv.count}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">Avg $${salesFmtK(bkDisplay.acv.average / 1000)}k</div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Direct</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK((bkDisplay.channel?.DIRECT || 0) / 1000)}<span class="currency">k</span></div>
+                    </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Indirect</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK((bkDisplay.channel?.INDIRECT || 0) / 1000)}<span class="currency">k</span></div>
+                    </div>
+                </div>
+
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="activity" style="width:16px;height:16px;"></i> Weekly Bookings (${bkYear})</h3>
+                        <div style="height:260px;"><canvas id="salesBkWeekChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="globe" style="width:16px;height:16px;"></i> Bookings by Country</h3>
+                        <div style="height:260px;"><canvas id="salesBkCountryChart"></canvas></div>
+                    </div>
+                </div>
+
+                <div class="sales-dashboard-grid" style="grid-template-columns: 1fr 1fr 1fr;">
+                    <div class="sales-chart-card">
+                        <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                            <span><i data-lucide="users" style="width:16px;height:16px;"></i> Top Customers</span>
+                            <span id="salesBkFilterLabel" style="font-size:0.68rem;font-weight:400;color:var(--accent);display:none;cursor:pointer;" title="Click to clear filter"></span>
+                        </h3>
+                        <table class="support-table" style="font-size:0.78rem;">
+                            <thead><tr><th>Customer</th><th style="text-align:right;">${bkYearLabel}</th></tr></thead>
+                            <tbody id="salesBkCustomerBody">
+                                ${(bkDisplay.topCustomers || []).slice(0, 12).map(c => `<tr>
+                                    <td>${esc(c.name.length > 30 ? c.name.substring(0,28) + '...' : c.name)}</td>
+                                    <td style="text-align:right;font-weight:500;">$${salesFmtK(c.value / 1000)}k</td>
+                                </tr>`).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="pie-chart" style="width:16px;height:16px;"></i> Booking Breakdown</h3>
+                        ${bkGrid(bkDisplay.byBookingType, 'By Booking Type')}
+                        ${bkGrid(bkDisplay.byOrderType, 'By Order Type')}
+                        ${bkDisplay.acv.count > 0 ? `<div style="padding-top:0.5rem;border-top:1px solid var(--border);font-size:0.7rem;color:var(--text-muted);text-transform:uppercase;">ACV Metrics</div>
+                        <div style="display:flex;gap:1.5rem;margin-top:0.2rem;"><div><span style="font-size:0.72rem;color:var(--text-muted);">Avg: </span><strong>$${salesFmtK(bkDisplay.acv.average / 1000)}k</strong></div><div><span style="font-size:0.72rem;color:var(--text-muted);">Deals: </span><strong>${bkDisplay.acv.count}</strong></div></div>` : ''}
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="target" style="width:16px;height:16px;"></i> Segments</h3>
+                        ${(bkDisplay.bySegment || []).slice(0, 8).map(s => `<div style="display:flex;justify-content:space-between;font-size:0.78rem;padding:0.2rem 0;border-bottom:1px solid var(--border);">
+                            <span>${esc(s.segment.length > 28 ? s.segment.substring(0, 26) + '...' : s.segment)}</span>
+                            <span style="font-weight:600;">$${salesFmtK(s.value / 1000)}k</span>
+                        </div>`).join('')}
+                    </div>
+                </div>
+
+                ${bkDisplay?.trends ? `
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="repeat" style="width:16px;height:16px;"></i> Business Transition</h3>
+                        <div style="height:260px;"><canvas id="salesBkTransitionChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Recurring Mix & ACV Trend</h3>
+                        <div style="display:flex;gap:0.75rem;margin-bottom:0.5rem;flex-wrap:wrap;">
+                            ${bkDisplay.trends.years.map(y => {
+                                const pct = bkDisplay.trends.recurringPct[y];
+                                return pct ? '<span style="font-size:0.72rem;color:var(--text-muted);">' + y + (y === '2026' ? ' YTD' : '') + ': <strong style="color:var(--text-heading);">' + pct + '%</strong> rec</span>' : '';
+                            }).filter(Boolean).join('')}
+                        </div>
+                        <div style="height:230px;"><canvas id="salesBkRecurringChart"></canvas></div>
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="bar-chart-3" style="width:16px;height:16px;"></i> ACV Deal Metrics</h3>
+                        <div style="height:220px;"><canvas id="salesBkAcvChart"></canvas></div>
+                    </div>
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Customer Growth</h3>
+                        <div style="height:220px;"><canvas id="salesBkCustGrowthChart"></canvas></div>
+                    </div>
+                </div>
+                ` : ''}
+
+                ${bk25 && bk26 ? `
+                <div class="sales-dashboard-grid">
+                    <div class="sales-chart-card" style="grid-column:1/-1;">
+                        <h3><i data-lucide="git-compare" style="width:16px;height:16px;"></i> 2025 vs 2026 — Weekly Bookings Comparison</h3>
+                        <div style="display:flex;gap:2rem;margin-bottom:0.5rem;font-size:0.78rem;">
+                            <span>2025 FY: <strong>$${salesFmtK(bk25.ytd.current / 1000)}k</strong> (${bk25.uniqueCustomers} customers)</span>
+                            <span>2026 YTD: <strong>$${salesFmtK(bk26.ytd.current / 1000)}k</strong> (${bk26.uniqueCustomers} customers)</span>
+                        </div>
+                        <div style="height:260px;"><canvas id="salesBkYoyChart"></canvas></div>
+                    </div>
+                </div>
+                ` : ''}
+                ` : '<div class="empty" style="padding:2rem;text-align:center;">No bookings data available for this product.</div>'}
+            </div>
+        `;
+
+        refreshIcons();
+
+        // ─── Sub-tab switching ────────────────────────────
+        document.querySelectorAll('.sales-sub-tab').forEach(btn => {
+            btn.addEventListener('click', () => {
+                salesProductSubTab = btn.dataset.subtab;
+                loadSalesProductDetail(productCode);
+            });
+        });
+
+        // ─── Charts ─────────────────────────────────────
+        const style = getComputedStyle(document.documentElement);
+        const muted = style.getPropertyValue('--text-muted').trim() || '#888';
+        const borderC = style.getPropertyValue('--border').trim() || '#333';
+        const chartOpts = { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } } } };
+        const yScale = { ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC }, beginAtZero: true };
+        const xScale = { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } };
+
+        // Helper to create a revenue trend chart
+        function renderRevenueTrend(canvasId) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx || !months.length) return;
+            salesCharts.push(new Chart(ctx, { type: 'line', data: { labels: months.map(mo => mo.label), datasets: [
+                { label: 'Actual', data: months.map(mo => mo.data.monthly?.actual || 0), borderColor: color.border, backgroundColor: color.bg, tension: 0.3, pointRadius: 4, fill: false },
+                { label: 'Prior Year', data: months.map(mo => mo.data.monthly?.py || 0), borderColor: 'rgba(160,160,160,0.5)', tension: 0.3, pointRadius: 4, borderDash: [5, 5], fill: false },
+            ]}, options: { ...chartOpts, scales: { x: xScale, y: yScale } } }));
+        }
+
+        function renderRevenueMix(canvasId) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx) return;
+            if (months.length > 1) {
+                salesCharts.push(new Chart(ctx, { type: 'bar', data: { labels: months.map(mo => mo.label), datasets: [
+                    { label: 'SaaS / Subs', data: months.map(mo => mo.data.revenue_mix?.saas || 0), backgroundColor: 'rgba(139,164,133,0.85)', borderRadius: 2 },
+                    { label: 'Maintenance', data: months.map(mo => mo.data.revenue_mix?.maintenance || 0), backgroundColor: 'rgba(100,149,237,0.7)', borderRadius: 2 },
+                    { label: 'Services', data: months.map(mo => mo.data.revenue_mix?.services || 0), backgroundColor: 'rgba(196,168,80,0.7)', borderRadius: 2 },
+                    { label: 'Perpetual', data: months.map(mo => mo.data.revenue_mix?.perpetual || 0), backgroundColor: 'rgba(160,160,160,0.5)', borderRadius: 2 },
+                ]}, options: { ...chartOpts, scales: { x: { ...xScale, stacked: true }, y: { ...yScale, stacked: true } } } }));
+            } else if (months.length === 1) {
+                salesCharts.push(new Chart(ctx, { type: 'doughnut', data: { labels: ['SaaS / Subs', 'Maintenance', 'Services', 'Perpetual'], datasets: [{ data: [mix.saas||0, mix.maintenance||0, mix.services||0, mix.perpetual||0], backgroundColor: ['rgba(139,164,133,0.85)','rgba(100,149,237,0.7)','rgba(196,168,80,0.7)','rgba(160,160,160,0.5)'], borderWidth: 0 }] },
+                    options: { ...chartOpts, plugins: { ...chartOpts.plugins, legend: { position: 'right', labels: { color: muted, padding: 10, usePointStyle: true, pointStyle: 'circle', font: { size: 10 } } }, tooltip: { callbacks: { label: ctx2 => ` $${salesFmtK(ctx2.parsed)}k` } } } } }));
+            }
+        }
+
+        function renderWeeklyBookings(canvasId, bkData) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx || !bkData?.byWeek?.length) return;
+            const w = bkData.byWeek;
+            const vals = w.map(x => x.value / 1000);
+            let cum = 0;
+            const cumVals = w.map(x => { cum += x.value / 1000; return Math.round(cum * 10) / 10; });
+            salesCharts.push(new Chart(ctx, { type: 'bar', data: { labels: w.map(x => 'W' + x.week), datasets: [
+                { label: 'Weekly', data: vals, backgroundColor: vals.map(v => v >= 0 ? color.bg : 'rgba(220,60,60,0.5)'), borderRadius: 2, yAxisID: 'y', order: 2 },
+                { label: 'Cumulative', data: cumVals, type: 'line', borderColor: 'rgba(196,168,80,0.8)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, yAxisID: 'y1', order: 1 },
+            ]}, options: { ...chartOpts, scales: { x: xScale, y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC } }, y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { display: false } } } } }));
+        }
+
+        function renderCountryChart(canvasId, bkData) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx || !bkData?.byCountry?.length) return;
+            const sorted = bkData.byCountry.slice(0, 12);
+            salesCharts.push(new Chart(ctx, { type: 'bar', data: { labels: sorted.map(c => c.country), datasets: [{ label: 'Bookings', data: sorted.map(c => c.value / 1000), backgroundColor: color.bg, borderRadius: 3 }] },
+                options: { ...chartOpts, indexAxis: 'y', plugins: { ...chartOpts.plugins, legend: { display: false } }, scales: { x: { ...xScale, ticks: { ...xScale.ticks, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: borderC }, beginAtZero: true }, y: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } } } } }));
+        }
+
+        function renderTopCustomers(canvasId, bkData) {
+            const ctx = document.getElementById(canvasId);
+            if (!ctx || !bkData?.topCustomers?.length) return;
+            const top5 = bkData.topCustomers.slice(0, 5);
+            salesCharts.push(new Chart(ctx, { type: 'bar', data: { labels: top5.map(c => c.name.length > 20 ? c.name.substring(0,18) + '...' : c.name), datasets: [{ label: 'Bookings', data: top5.map(c => c.value / 1000), backgroundColor: color.bg, borderRadius: 3 }] },
+                options: { ...chartOpts, indexAxis: 'y', plugins: { ...chartOpts.plugins, legend: { display: false } }, scales: { x: { ...xScale, ticks: { ...xScale.ticks, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: borderC }, beginAtZero: true }, y: { ticks: { color: muted, font: { size: 9 } }, grid: { display: false } } } } }));
+        }
+
+        // Render charts based on active tab
+        if (tab === 'overview') {
+            renderRevenueTrend('salesOvRevChart');
+            renderRevenueMix('salesOvMixChart');
+            renderWeeklyBookings('salesOvWeekChart', bk26);
+            renderTopCustomers('salesOvCustChart', bk26);
+        } else if (tab === 'revenue') {
+            const rd = window._revYrData;
+            if (rd) {
+                const { fullLabels, fullActual, fullPy, fullSaas, fullMaint, fullServ, fullPerp, selYear } = rd;
+                const shortLabels = fullLabels.map(l => l.split(' ')[0]); // Just month names
+
+                // Revenue trend (actual vs PY — 12-month window)
+                const revTrendCtx = document.getElementById('salesRevTrendChart');
+                if (revTrendCtx) {
+                    salesCharts.push(new Chart(revTrendCtx, { type: 'line', data: { labels: shortLabels, datasets: [
+                        { label: selYear + ' Actual', data: fullActual, borderColor: color.border, backgroundColor: color.bg, tension: 0.3, pointRadius: 4, fill: false, spanGaps: false },
+                        { label: (selYear - 1) + ' (PY)', data: fullPy, borderColor: 'rgba(160,160,160,0.5)', tension: 0.3, pointRadius: 4, borderDash: [5, 5], fill: false, spanGaps: false },
+                    ]}, options: { ...chartOpts, scales: { x: xScale, y: yScale } } }));
+                }
+
+                // YoY comparison — grouped bar (actual vs PY side by side)
+                const revYoyCtx = document.getElementById('salesRevYoyChart');
+                if (revYoyCtx) {
+                    salesCharts.push(new Chart(revYoyCtx, { type: 'bar', data: { labels: shortLabels, datasets: [
+                        { label: selYear + '', data: fullActual, backgroundColor: color.bg, borderRadius: 3 },
+                        { label: (selYear - 1) + '', data: fullPy, backgroundColor: 'rgba(160,160,160,0.35)', borderRadius: 3 },
+                    ]}, options: { ...chartOpts, scales: { x: xScale, y: yScale } } }));
+                }
+
+                // Revenue mix stacked bar (12 months)
+                const revMixCtx = document.getElementById('salesRevMixChart');
+                if (revMixCtx) {
+                    salesCharts.push(new Chart(revMixCtx, { type: 'bar', data: { labels: shortLabels, datasets: [
+                        { label: 'SaaS / Subs', data: fullSaas, backgroundColor: 'rgba(139,164,133,0.85)', borderRadius: 2 },
+                        { label: 'Maintenance', data: fullMaint, backgroundColor: 'rgba(100,149,237,0.7)', borderRadius: 2 },
+                        { label: 'Services', data: fullServ, backgroundColor: 'rgba(196,168,80,0.7)', borderRadius: 2 },
+                        { label: 'Perpetual', data: fullPerp, backgroundColor: 'rgba(220,60,60,0.5)', borderRadius: 2 },
+                    ]}, options: { ...chartOpts, scales: { x: { ...xScale, stacked: true }, y: { ...yScale, stacked: true } } } }));
+                }
+
+                // Recurring % (12 months)
+                const revRecCtx = document.getElementById('salesRevRecurringChart');
+                if (revRecCtx) {
+                    const recurPcts = fullActual.map((a, i) => {
+                        if (a == null) return null;
+                        const total = a || 1;
+                        return Math.round(((fullSaas[i] || 0) + (fullMaint[i] || 0)) / total * 1000) / 10;
+                    });
+                    salesCharts.push(new Chart(revRecCtx, { type: 'line', data: { labels: shortLabels, datasets: [
+                        { label: 'Recurring %', data: recurPcts, borderColor: 'rgba(196,168,80,0.9)', backgroundColor: 'rgba(196,168,80,0.1)', tension: 0.3, pointRadius: 4, fill: true, spanGaps: false },
+                    ]}, options: { ...chartOpts, scales: { x: xScale, y: { min: 0, max: 100, ticks: { color: muted, callback: v => v + '%', font: { size: 10 } }, grid: { color: borderC } } } } }));
+                }
+            }
+
+            // Year selector click handlers
+            document.querySelectorAll('.sales-rev-year').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    salesRevenueYear = parseInt(btn.dataset.revyear);
+                    loadSalesProductDetail(productCode);
+                });
+            });
+        } else if (tab === 'bookings') {
+            // Store raw rows for interactive filtering
+            const prefix = productCode.replace('PC', '');
+            const valKey = 'value_' + bkYear;
+            const rawRows = (allBookings || []).filter(r => r.product_code.startsWith(prefix) && r.year === bkYear);
+
+            // Function to update customer table with filtered data
+            function updateCustomerTable(filteredRows, filterLabel) {
+                const body = document.getElementById('salesBkCustomerBody');
+                const label = document.getElementById('salesBkFilterLabel');
+                if (!body) return;
+
+                const custMap = {};
+                filteredRows.forEach(r => {
+                    if (r.customer_name) custMap[r.customer_name] = (custMap[r.customer_name] || 0) + (r[valKey] || 0);
+                });
+                const sorted = Object.entries(custMap).filter(([,v]) => v !== 0).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 12);
+
+                body.innerHTML = sorted.map(([name, val]) => {
+                    const negClass = val < 0 ? 'color:rgba(220,60,60,0.9);' : '';
+                    return `<tr>
+                        <td>${esc(name.length > 30 ? name.substring(0, 28) + '...' : name)}</td>
+                        <td style="text-align:right;font-weight:500;${negClass}">$${salesFmtK(val / 1000)}k</td>
+                    </tr>`;
+                }).join('') || '<tr><td colspan="2" style="text-align:center;color:var(--text-muted);">No customers</td></tr>';
+
+                if (label) {
+                    if (filterLabel) {
+                        label.textContent = '✕ ' + filterLabel;
+                        label.style.display = '';
+                        label.onclick = () => {
+                            updateCustomerTable(rawRows, null);
+                        };
+                    } else {
+                        label.style.display = 'none';
+                    }
+                }
+            }
+
+            // Render weekly chart with click handler
+            const weekCtx = document.getElementById('salesBkWeekChart');
+            if (weekCtx && bkDisplay?.byWeek?.length) {
+                const w = bkDisplay.byWeek;
+                const vals = w.map(x => x.value / 1000);
+                let cum = 0;
+                const cumVals = w.map(x => { cum += x.value / 1000; return Math.round(cum * 10) / 10; });
+                const weekChart = new Chart(weekCtx, { type: 'bar', data: { labels: w.map(x => 'W' + x.week), datasets: [
+                    { label: 'Weekly', data: vals, backgroundColor: vals.map(v => v >= 0 ? color.bg : 'rgba(220,60,60,0.5)'), borderRadius: 2, yAxisID: 'y', order: 2 },
+                    { label: 'Cumulative', data: cumVals, type: 'line', borderColor: 'rgba(196,168,80,0.8)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, yAxisID: 'y1', order: 1 },
+                ]}, options: { ...chartOpts, onClick: (evt, elements) => {
+                    if (elements.length && elements[0].datasetIndex === 0) {
+                        const weekNum = w[elements[0].index].week;
+                        const filtered = rawRows.filter(r => r.week === weekNum);
+                        updateCustomerTable(filtered, 'Week ' + weekNum);
+                    }
+                }, scales: { x: xScale, y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC } }, y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { display: false } } } } });
+                salesCharts.push(weekChart);
+            }
+
+            // Render country chart with click handler
+            const countryCtx = document.getElementById('salesBkCountryChart');
+            if (countryCtx && bkDisplay?.byCountry?.length) {
+                const sorted = bkDisplay.byCountry.slice(0, 12);
+                const countryChart = new Chart(countryCtx, { type: 'bar', data: { labels: sorted.map(c => c.country), datasets: [{ label: 'Bookings', data: sorted.map(c => c.value / 1000), backgroundColor: color.bg, borderRadius: 3 }] },
+                    options: { ...chartOpts, indexAxis: 'y', onClick: (evt, elements) => {
+                        if (elements.length) {
+                            const country = sorted[elements[0].index].country;
+                            const filtered = rawRows.filter(r => r.country === country);
+                            updateCustomerTable(filtered, country);
+                        }
+                    }, plugins: { ...chartOpts.plugins, legend: { display: false } }, scales: { x: { ...xScale, ticks: { ...xScale.ticks, callback: v => '$' + salesFmtK(v) + 'k' }, grid: { color: borderC }, beginAtZero: true }, y: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } } } } });
+                salesCharts.push(countryChart);
+            }
+
+            // 2025 vs 2026 YoY comparison chart
+            const yoyCtx = document.getElementById('salesBkYoyChart');
+            if (yoyCtx && bk25 && bk26) {
+                // Build weekly cumulative for both years, aligned by week number
+                const maxWeek = Math.max(...[...bk25.byWeek, ...bk26.byWeek].map(w => w.week));
+                const labels = [];
+                const cum25 = [];
+                const cum26 = [];
+                let running25 = 0, running26 = 0;
+                const week25Map = {};
+                bk25.byWeek.forEach(w => { week25Map[w.week] = w.value; });
+                const week26Map = {};
+                bk26.byWeek.forEach(w => { week26Map[w.week] = w.value; });
+                for (let w = 1; w <= maxWeek; w++) {
+                    labels.push('W' + w);
+                    running25 += (week25Map[w] || 0) / 1000;
+                    running26 += (week26Map[w] || 0) / 1000;
+                    cum25.push(Math.round(running25 * 10) / 10);
+                    cum26.push(week26Map[w] !== undefined || w <= (bk26.byWeek.length ? bk26.byWeek[bk26.byWeek.length-1].week : 0) ? Math.round(running26 * 10) / 10 : null);
+                }
+                salesCharts.push(new Chart(yoyCtx, { type: 'line', data: { labels, datasets: [
+                    { label: '2026 Cumulative', data: cum26, borderColor: color.border, backgroundColor: color.bg, tension: 0.3, pointRadius: 2, fill: false, borderWidth: 2 },
+                    { label: '2025 Cumulative', data: cum25, borderColor: 'rgba(160,160,160,0.6)', tension: 0.3, pointRadius: 1, borderDash: [4, 4], fill: false, borderWidth: 1.5 },
+                ]}, options: { ...chartOpts, scales: { x: { ...xScale, ticks: { ...xScale.ticks, maxTicksLimit: 26 } }, y: yScale } } }));
+            }
+
+            // ─── Multi-year trend charts ───────────────────
+            const trends = bkDisplay?.trends;
+            if (trends) {
+                const yrs = trends.years.filter(y => trends.totals[y] > 0);
+                const yrLabels = yrs.map(y => y === '2026' ? '2026 YTD' : y);
+
+                // Business Transition — stacked bar by order type
+                const transCtx = document.getElementById('salesBkTransitionChart');
+                if (transCtx && yrs.length > 1) {
+                    const orderTypes = [
+                        { key: '2. SaaS', label: 'SaaS', bg: 'rgba(139,164,133,0.85)' },
+                        { key: '5. Subscriptions', label: 'Subscriptions', bg: 'rgba(100,149,237,0.7)' },
+                        { key: '4. Non-Recurring Services', label: 'Services', bg: 'rgba(196,168,80,0.7)' },
+                        { key: '1. System / License Sales', label: 'License Sales', bg: 'rgba(220,60,60,0.5)' },
+                    ];
+                    salesCharts.push(new Chart(transCtx, { type: 'bar', data: {
+                        labels: yrLabels,
+                        datasets: orderTypes.map(ot => ({
+                            label: ot.label,
+                            data: yrs.map(y => Math.round((trends.byOrderType[y]?.[ot.key] || 0) / 1000)),
+                            backgroundColor: ot.bg,
+                            borderRadius: 2,
+                        })),
+                    }, options: { ...chartOpts, scales: { x: { ...xScale, stacked: true }, y: { ...yScale, stacked: true } } } }));
+                }
+
+                // Recurring mix trend — dual axis: bars for recurring/non-rec, line for %
+                const recCtx = document.getElementById('salesBkRecurringChart');
+                if (recCtx && yrs.length > 1) {
+                    salesCharts.push(new Chart(recCtx, { type: 'bar', data: {
+                        labels: yrLabels,
+                        datasets: [
+                            { label: 'Recurring', data: yrs.map(y => Math.round(trends.recurring[y] / 1000)), backgroundColor: 'rgba(139,164,133,0.7)', borderRadius: 2, yAxisID: 'y', order: 2 },
+                            { label: 'Non-Recurring', data: yrs.map(y => Math.round(trends.nonRecurring[y] / 1000)), backgroundColor: 'rgba(160,160,160,0.4)', borderRadius: 2, yAxisID: 'y', order: 2 },
+                            { label: 'Recurring %', data: yrs.map(y => trends.recurringPct[y]), type: 'line', borderColor: 'rgba(196,168,80,0.9)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 4, yAxisID: 'y1', order: 1 },
+                        ],
+                    }, options: { ...chartOpts, scales: {
+                        x: xScale,
+                        y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC }, beginAtZero: true },
+                        y1: { position: 'right', min: 0, max: 100, ticks: { color: 'rgba(196,168,80,0.9)', callback: v => v + '%', font: { size: 10 } }, grid: { display: false } },
+                    } } }));
+                }
+
+                // ACV deal metrics trend
+                const acvCtx = document.getElementById('salesBkAcvChart');
+                if (acvCtx) {
+                    const acvYrs = yrs.filter(y => trends.acvTrend[y]);
+                    if (acvYrs.length > 1) {
+                        salesCharts.push(new Chart(acvCtx, { type: 'bar', data: {
+                            labels: acvYrs.map(y => y === '2026' ? '2026 YTD' : y),
+                            datasets: [
+                                { label: 'Avg ACV', data: acvYrs.map(y => Math.round(trends.acvTrend[y].average / 1000)), backgroundColor: color.bg, borderRadius: 3, yAxisID: 'y', order: 2 },
+                                { label: 'Deal Count', data: acvYrs.map(y => trends.acvTrend[y].count), type: 'line', borderColor: 'rgba(196,168,80,0.8)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 4, yAxisID: 'y1', order: 1 },
+                            ],
+                        }, options: { ...chartOpts, scales: {
+                            x: xScale,
+                            y: { position: 'left', ticks: { color: muted, callback: v => '$' + v + 'k', font: { size: 10 } }, grid: { color: borderC }, beginAtZero: true },
+                            y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', font: { size: 10 } }, grid: { display: false }, beginAtZero: true },
+                        } } }));
+                    }
+                }
+
+                // Customer growth
+                const custGCtx = document.getElementById('salesBkCustGrowthChart');
+                if (custGCtx) {
+                    const custYrs = yrs.filter(y => trends.customerTrend[y]?.unique > 0);
+                    if (custYrs.length > 1) {
+                        salesCharts.push(new Chart(custGCtx, { type: 'bar', data: {
+                            labels: custYrs.map(y => y === '2026' ? '2026 YTD' : y),
+                            datasets: [
+                                { label: 'Unique Customers', data: custYrs.map(y => trends.customerTrend[y].unique), backgroundColor: color.bg, borderRadius: 3, yAxisID: 'y', order: 2 },
+                                { label: 'Top 10 Share %', data: custYrs.map(y => trends.customerTrend[y].top10Share), type: 'line', borderColor: 'rgba(220,120,60,0.8)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 4, yAxisID: 'y1', order: 1 },
+                            ],
+                        }, options: { ...chartOpts, scales: {
+                            x: xScale,
+                            y: { position: 'left', ticks: { color: muted, font: { size: 10 } }, grid: { color: borderC }, beginAtZero: true },
+                            y1: { position: 'right', min: 0, max: 100, ticks: { color: 'rgba(220,120,60,0.8)', callback: v => v + '%', font: { size: 10 } }, grid: { display: false } },
+                        } } }));
+                    }
+                }
+            }
+        }
     }
 
     // ─── Support Dashboard ─────────────────────────────────────

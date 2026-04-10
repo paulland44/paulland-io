@@ -2540,6 +2540,903 @@ server.tool(
   }
 );
 
+// ─── Sales Report Tools (Extract / Write) ────────────────────
+
+server.tool(
+  'sales_report_extract',
+  'Fetch a sales report XLSX from the asset library and return parsed sheet data plus the prompt template so Claude can analyse revenue in-context. Returns CSV data for three sheets: Revenue by BU & products, Core by Geo, Tilia by Geo.',
+  {
+    asset_id: z.string().optional().describe('UUID of the uploaded sales report asset. If omitted, uses the most recent asset tagged "sales-report"'),
+    date: z.string().optional().describe('Review date in YYYY-MM-DD format (defaults to today)'),
+  },
+  async ({ asset_id, date }) => {
+    const reviewDate = date || new Date().toISOString().split('T')[0];
+
+    // 1. Find the asset
+    let asset: any;
+    if (asset_id) {
+      const rows = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type,r2_key,tags`);
+      asset = rows?.[0];
+    } else {
+      const rows = await supabaseGet('assets?tags=cs.{sales-report}&order=uploaded_at.desc&limit=1&select=id,filename,mime_type,r2_key,tags');
+      asset = rows?.[0];
+    }
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No sales report asset found. Upload an XLSX file to the asset library and tag it "sales-report".' }) }] };
+    }
+
+    // 2. Fetch prompt template
+    const prompts = await supabaseGet('prompts?slug=eq.sales-report&select=system_prompt,user_prompt_template');
+    const prompt = prompts?.[0];
+
+    // 3. Fetch file content via API
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    const sheetNames = ['Revenue by BU & products', 'Core by Geo', 'Tilia by Geo', 'Settings'];
+    const sheets: Record<string, string> = {};
+    let parseError = '';
+    let reportPeriod = { month: '', year: '' };
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      if (!resp.ok) {
+        parseError = `Failed to fetch file: ${resp.status}`;
+      } else {
+        const fileData = await resp.json();
+        if (fileData.encoding !== 'base64') {
+          parseError = 'Expected base64-encoded XLSX file';
+        } else {
+          try {
+            const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+            const workbook = XLSX.read(binary, { type: 'array' });
+
+            for (const name of sheetNames) {
+              const ws = workbook.Sheets[name];
+              if (ws) {
+                sheets[name] = XLSX.utils.sheet_to_csv(ws);
+              }
+            }
+
+            // Parse Settings sheet for period info
+            if (sheets['Settings']) {
+              const settingsLines = sheets['Settings'].split('\n');
+              for (const line of settingsLines) {
+                const cols = line.split(',');
+                if (cols[1]?.trim() === 'Current Month') reportPeriod.month = cols[2]?.trim() || '';
+                if (cols[1]?.trim() === 'Current Year') reportPeriod.year = cols[2]?.trim() || '';
+              }
+            }
+
+            if (!sheets['Revenue by BU & products']) {
+              parseError = 'Sheet "Revenue by BU & products" not found in workbook. Available: ' + workbook.SheetNames.join(', ');
+            }
+          } catch (xlsErr: any) {
+            parseError = `XLSX parse error: ${xlsErr.message}`;
+          }
+        }
+      }
+    } catch (err: any) {
+      parseError = `Fetch error: ${err.message}`;
+    }
+
+    // 4. Fetch known products for entity matching
+    const products = await supabaseGet('products?select=id,name&order=name');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          date: reviewDate,
+          asset_id: asset.id,
+          file_name: asset.filename,
+          report_period: reportPeriod,
+          sheets: {
+            revenue: sheets['Revenue by BU & products'] || null,
+            core_geo: sheets['Core by Geo'] || null,
+            tilia_geo: sheets['Tilia by Geo'] || null,
+          },
+          parse_error: parseError || undefined,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          known_products: products?.map((p: any) => ({ id: p.id, name: p.name })) || [],
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'sales_report_write',
+  'Write the structured results of a sales report analysis back to the database. Call this after processing sales_report_extract data.',
+  {
+    date: z.string().describe('Report date in YYYY-MM-DD format'),
+    period: z.string().describe('Report period string, e.g. "2026-01"'),
+    asset_id: z.string().optional().describe('UUID of the source sales report asset'),
+    review_data: z.object({
+      summary: z.string().optional().default(''),
+      period_label: z.string().describe('Human-readable period, e.g. "January 2026"'),
+      products: z.record(z.string(), z.object({
+        name: z.string(),
+        monthly: z.object({
+          actual: z.number(),
+          py: z.number(),
+          growth_dollar: z.number(),
+          growth_pct: z.number().nullable(),
+          fc: z.number().nullable().optional(),
+          fc_gap: z.number().nullable().optional(),
+        }),
+        revenue_mix: z.object({
+          perpetual: z.number(),
+          services: z.number(),
+          saas: z.number(),
+          maintenance: z.number(),
+        }),
+        recurring_pct: z.number().nullable(),
+        ytd: z.object({
+          actual: z.number(),
+          py: z.number(),
+          growth_pct: z.number().nullable(),
+        }).optional(),
+        observations: z.array(z.string()).optional().default([]),
+      })).describe('Product data keyed by product code (e.g. PC3675)'),
+      geo: z.object({
+        core: z.record(z.string(), z.object({
+          actual: z.number(),
+          py: z.number().optional(),
+          growth_pct: z.number().nullable().optional(),
+        })).optional(),
+        tilia: z.record(z.string(), z.object({
+          actual: z.number(),
+          py: z.number().optional(),
+          growth_pct: z.number().nullable().optional(),
+        })).optional(),
+      }).optional(),
+    }).describe('Structured sales report analysis'),
+  },
+  async ({ date, period, asset_id, review_data }) => {
+    // 1. Fetch product entity map
+    const products = await supabaseGet('products?select=id,name&order=name');
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
+
+    const sourceRef = { sales_report_date: date, period, asset_id };
+    const results = { product_evidence: 0 };
+
+    // 2. Build markdown body
+    const fmtK = (v: number) => {
+      if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}m`;
+      return `${Math.round(v)}`;
+    };
+    const fmtPct = (v: number | null) => v != null ? `${(v * 100).toFixed(1)}%` : 'N/A';
+    const fmtGrowth = (v: number) => v >= 0 ? `+${fmtK(v)}` : `${fmtK(v)}`;
+
+    let body = `# Sales Report — ${review_data.period_label}\n\n`;
+    if (review_data.summary) body += `${review_data.summary}\n\n`;
+
+    for (const [code, prod] of Object.entries(review_data.products)) {
+      const m = prod.monthly;
+      const mix = prod.revenue_mix;
+      body += `## ${prod.name} (${code})\n\n`;
+      body += `### Revenue Summary ($k)\n`;
+      body += `| Metric | ${review_data.period_label} | Prior Year | Growth $ | YoY % |\n|---|---:|---:|---:|---:|\n`;
+      body += `| **Total** | **${fmtK(m.actual)}** | **${fmtK(m.py)}** | **${fmtGrowth(m.growth_dollar)}** | **${fmtPct(m.growth_pct)}** |\n`;
+      body += `| Perpetual Sales | ${fmtK(mix.perpetual)} | — | — | — |\n`;
+      body += `| Non-Recurring Services | ${fmtK(mix.services)} | — | — | — |\n`;
+      body += `| SaaS / Subscriptions | ${fmtK(mix.saas)} | — | — | — |\n`;
+      body += `| Maintenance | ${fmtK(mix.maintenance)} | — | — | — |\n\n`;
+
+      const recurring = mix.saas + mix.maintenance;
+      const recurPct = m.actual > 0 ? (recurring / m.actual * 100).toFixed(1) : 'N/A';
+      body += `**Recurring mix**: ${recurPct}%`;
+      if (m.fc != null && m.fc_gap != null) {
+        body += ` | **vs Prior FC**: ${fmtGrowth(m.fc_gap)}k (${fmtPct(m.fc_gap / m.fc)})`;
+      }
+      body += '\n\n';
+
+      if (prod.observations?.length) {
+        body += `### Key Observations\n`;
+        body += prod.observations.map(o => `- ${o}`).join('\n');
+        body += '\n\n';
+      }
+    }
+
+    // Geo section
+    if (review_data.geo) {
+      body += `## Geographic Breakdown\n\n`;
+      if (review_data.geo.core) {
+        body += `### Core Software (AE proxy)\n`;
+        body += `| Region | Actual ($k) | Prior Year | YoY % |\n|---|---:|---:|---:|\n`;
+        for (const [region, data] of Object.entries(review_data.geo.core)) {
+          body += `| ${region} | ${fmtK(data.actual)} | ${data.py != null ? fmtK(data.py) : '—'} | ${fmtPct(data.growth_pct ?? null)} |\n`;
+        }
+        body += '\n';
+      }
+      if (review_data.geo.tilia) {
+        body += `### Tilia Software (Phoenix proxy)\n`;
+        body += `| Region | Actual ($k) | Prior Year | YoY % |\n|---|---:|---:|---:|\n`;
+        for (const [region, data] of Object.entries(review_data.geo.tilia)) {
+          body += `| ${region} | ${fmtK(data.actual)} | ${data.py != null ? fmtK(data.py) : '—'} | ${fmtPct(data.growth_pct ?? null)} |\n`;
+        }
+        body += '\n';
+      }
+    }
+
+    if (asset_id) body += `\n---\n*Source file: asset ${asset_id}*\n`;
+
+    // 3. Create/update content record (type=summary with sales-report tag)
+    const existing = await supabaseGet(`content?type=eq.summary&tags=cs.{sales-report}&metadata->>period=eq.${period}&limit=1`);
+
+    const metadata = {
+      report_type: 'sales-report',
+      period,
+      period_label: review_data.period_label,
+      products: review_data.products,
+      geo: review_data.geo || {},
+      asset_id,
+    };
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        body,
+        metadata,
+        status: 'reviewed',
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Sales Report — ${review_data.period_label}`,
+        body,
+        tags: ['sales-report', period],
+        status: 'reviewed',
+        metadata,
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // 4. Write product evidence entries
+    for (const [code, prod] of Object.entries(review_data.products)) {
+      const productId = productMap[prod.name.toLowerCase()];
+      if (!productId) continue;
+
+      const m = prod.monthly;
+      const mix = prod.revenue_mix;
+      const recurring = mix.saas + mix.maintenance;
+      const recurPct = m.actual > 0 ? (recurring / m.actual * 100).toFixed(1) : 'N/A';
+
+      await supabasePost('product_evidence', {
+        product_id: productId,
+        note_date: date,
+        evidence: `${review_data.period_label} revenue: $${fmtK(m.actual)}k (${fmtPct(m.growth_pct)} YoY). Recurring mix: ${recurPct}%. SaaS: $${fmtK(mix.saas)}k, Maintenance: $${fmtK(mix.maintenance)}k.`,
+        evidence_type: 'sales_report',
+        source_ref: sourceRef,
+      });
+      results.product_evidence++;
+    }
+
+    // 5. Create audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'sales_report',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary || `Sales report for ${review_data.period_label}`,
+      files_updated: { content_id: contentId, asset_id, period, ...results },
+      completed_at: new Date().toISOString(),
+    });
+
+    // 6. Embed the content
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          content_id: contentId,
+          asset_id,
+          period,
+          writes: results,
+          action: existing.length ? 'updated' : 'created',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Revenue Import Tool ──────────────────────────────────────
+
+server.tool(
+  'import_revenue',
+  'Import revenue data from a monthly Sales Report XLSX into the revenue table. Parses the "Revenue by BU & products" sheet for the 5 target products, reads month/year from the Settings sheet, and inserts rows for each product × revenue type. Idempotent — deletes existing rows for the same period before inserting.',
+  {
+    asset_id: z.string().describe('UUID of the uploaded sales report XLSX asset'),
+  },
+  async ({ asset_id }) => {
+    // 1. Fetch asset
+    const assets = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type`);
+    const asset = assets?.[0];
+    if (!asset) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Asset not found' }) }] };
+
+    // 2. Fetch and parse file
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    let parseError = '';
+    let revenueSheet: any = null;
+    let settingsSheet: any = null;
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset_id}/content`, { headers });
+      if (!resp.ok) { parseError = `Failed to fetch: ${resp.status}`; }
+      else {
+        const fileData = await resp.json();
+        if (fileData.encoding !== 'base64') { parseError = 'Expected base64 XLSX'; }
+        else {
+          const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+          const workbook = XLSX.read(binary, { type: 'array' });
+          // Try all known sheet name variants
+          revenueSheet = workbook.Sheets['Revenue by BU & products'] || workbook.Sheets['EskoTG Total'] || workbook.Sheets['Esko Total'];
+          settingsSheet = workbook.Sheets['Settings'];
+          if (!revenueSheet) parseError = 'Revenue sheet not found. Available: ' + workbook.SheetNames.join(', ');
+        }
+      }
+    } catch (err: any) { parseError = `Parse error: ${err.message}`; }
+
+    if (parseError) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: parseError }) }] };
+
+    // 3. Read month/year from Settings
+    let reportMonth = '';
+    let reportYear = '';
+    if (settingsSheet) {
+      const settingsRows = XLSX.utils.sheet_to_json(settingsSheet, { header: 1 }) as any[];
+      for (const row of settingsRows) {
+        if (row[1] === 'Current Month') reportMonth = String(row[2] || '');
+        if (row[1] === 'Current Year') reportYear = String(row[2] || '');
+      }
+    }
+
+    // Map month names to numbers
+    const monthMap: Record<string, number> = { Jan: 1, Feb: 2, Mar: 3, Apr: 4, May: 5, Jun: 6, Jul: 7, Aug: 8, Sep: 9, Oct: 10, Nov: 11, Dec: 12 };
+    const monthNum = monthMap[reportMonth] || parseInt(reportMonth) || 0;
+    const yearNum = parseInt(reportYear) || 0;
+    if (!monthNum || !yearNum) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Could not determine month/year from Settings: month=${reportMonth}, year=${reportYear}` }) }] };
+
+    const period = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
+
+    // 4. Parse revenue data
+    const rows = XLSX.utils.sheet_to_json(revenueSheet, { header: 1 }) as any[];
+
+    const targetProducts: Record<string, string> = {
+      PC3675: 'Automation Engine',
+      PC3753: 'WebCenter Pack',
+      PC3751: 'ECL Transactions',
+      PC3752: 'ECL Storage',
+      PC3360: 'Phoenix',
+    };
+
+    const ud2Map: Record<string, string> = {
+      Top2: 'total',
+      Sale_NR: 'perpetual',
+      Serv_NR: 'services',
+      Sale_Re: 'saas_subscriptions',
+      Serv_Re: 'maintenance',
+    };
+
+    const revenueRows: any[] = [];
+
+    // Auto-detect column layout by checking year labels in row 3
+    // 2026 format: actual=9, PY=10, 2YB=11, growth$=12, growth%=13, FC=16, FCgap=17
+    // 2025 format: actual=9, PY=13, 2YB=17, growth$=21, FC=25, FCgap=26
+    const yearRow = rows[3] || [];
+    const is2025Format = yearRow[13] && String(yearRow[13]).match(/^\d{4}$/) && !String(yearRow[10] || '').match(/^\d{4}$/);
+    const colMap = is2025Format
+      ? { actual: 9, py: 13, twoYB: 17, growthD: 21, growthP: -1, fc: 25, fcGap: 26 }
+      : { actual: 9, py: 10, twoYB: 11, growthD: 12, growthP: 13, fc: 16, fcGap: 17 };
+
+    for (const row of rows) {
+      const ud1 = String(row[4] || '');
+      const ud2 = String(row[5] || '');
+      const productCode = ud1;
+      const revenueType = ud2Map[ud2];
+
+      if (!targetProducts[productCode] || !revenueType) continue;
+
+      const actual = parseFloat(row[colMap.actual]) || 0;
+      const py = parseFloat(row[colMap.py]) || 0;
+      const twoYBack = parseFloat(row[colMap.twoYB]) || 0;
+      const growthDollar = parseFloat(row[colMap.growthD]) || 0;
+      const growthPct = colMap.growthP >= 0 && row[colMap.growthP] != null ? parseFloat(row[colMap.growthP]) || null : (py !== 0 ? (actual - py) / Math.abs(py) : null);
+      const fc = row[colMap.fc] != null && !isNaN(parseFloat(row[colMap.fc])) ? parseFloat(row[colMap.fc]) : null;
+      const fcGap = row[colMap.fcGap] != null && !isNaN(parseFloat(row[colMap.fcGap])) ? parseFloat(row[colMap.fcGap]) : null;
+
+      revenueRows.push({
+        period,
+        year: yearNum,
+        month: monthNum,
+        product_code: productCode,
+        product_name: targetProducts[productCode],
+        revenue_type: revenueType,
+        actual: Math.round(actual * 100) / 100,
+        prior_year: Math.round(py * 100) / 100,
+        two_year_back: Math.round(twoYBack * 100) / 100,
+        growth_dollar: Math.round(growthDollar * 100) / 100,
+        growth_pct: growthPct != null ? Math.round(growthPct * 10000) / 10000 : null,
+        fc,
+        fc_gap: fcGap,
+        source_file: asset_id,
+      });
+    }
+
+    if (!revenueRows.length) return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No matching product rows found in revenue sheet' }) }] };
+
+    // 5. Delete existing rows for this period (idempotent)
+    await supabaseDelete(`revenue?period=eq.${period}`);
+
+    // 6. Insert
+    const result = await supabasePost('revenue', revenueRows);
+
+    const byProduct: Record<string, number> = {};
+    revenueRows.forEach(r => { byProduct[r.product_code] = (byProduct[r.product_code] || 0) + 1; });
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          asset_id,
+          period,
+          year: yearNum,
+          month: monthNum,
+          format: is2025Format ? '2025 (EskoTG Total)' : '2026 (Revenue by BU & products)',
+          rows_inserted: revenueRows.length,
+          by_product: byProduct,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Bookings Import Tool ─────────────────────────────────────
+
+server.tool(
+  'import_bookings',
+  'Import bookings data from an adapted pivot-table XLSX into the bookings table. The XLSX should have columns: Week, Order Number, End User, Order Name, Subsegment, Bookings, Purpose Code + Description, Region, Subregion, Country, Channel, Type, Sales Rep, SalesOrg_L3, 2024, 2025, 2026. Each row is one order-line for one product. Appends rows to the bookings table.',
+  {
+    asset_id: z.string().describe('UUID of the uploaded bookings XLSX asset'),
+    replace_source: z.boolean().optional().default(false).describe('If true, deletes existing rows with same source_file before inserting. Use to re-import a corrected file.'),
+  },
+  async ({ asset_id, replace_source }) => {
+    // 1. Fetch asset info
+    const assets = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type`);
+    const asset = assets?.[0];
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Asset not found' }) }] };
+    }
+
+    // 2. Fetch file content
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    let rows: any[] = [];
+    let parseError = '';
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset_id}/content`, { headers });
+      if (!resp.ok) { parseError = `Failed to fetch: ${resp.status}`; }
+      else {
+        const fileData = await resp.json();
+        if (fileData.encoding !== 'base64') { parseError = 'Expected base64 XLSX'; }
+        else {
+          const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+          const workbook = XLSX.read(binary, { type: 'array' });
+          const ws = workbook.Sheets[workbook.SheetNames[0]];
+          if (!ws) { parseError = 'No sheets found'; }
+          else {
+            const jsonData = XLSX.utils.sheet_to_json(ws, { defval: 0 });
+            rows = jsonData;
+          }
+        }
+      }
+    } catch (err: any) { parseError = `Parse error: ${err.message}`; }
+
+    if (parseError) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: parseError }) }] };
+    }
+
+    // 3. If replace_source, delete existing rows for this asset
+    if (replace_source) {
+      await supabaseDelete(`bookings?source_file=eq.${asset_id}`);
+    }
+
+    // 4. Detect year columns dynamically (files may have 2023/2024/2025 or 2024/2025/2026)
+    const sampleRow = rows[0] || {};
+    const yearCols = ['2023', '2024', '2025', '2026'].filter(y => y in sampleRow);
+    const sortedYears = yearCols.map(Number).sort();
+
+    // 5. Map and insert rows
+    const targetProducts = ['3675', '3753', '3751', '3752', '3360'];
+    const results: Record<string, number> = {};
+    let inserted = 0;
+    let skipped = 0;
+
+    const batch: any[] = [];
+    for (const row of rows) {
+      const productCode = row['Purpose Code + Description'] || '';
+      const codePrefix = productCode.split(' ')[0];
+
+      if (!targetProducts.includes(codePrefix) && !targetProducts.some(t => productCode.includes(t))) {
+        if (targetProducts.length > 0 && !productCode) { skipped++; continue; }
+      }
+
+      const week = parseInt(row['Week']) || 0;
+      const v2023 = parseFloat(row['2023']) || 0;
+      const v2024 = parseFloat(row['2024']) || 0;
+      const v2025 = parseFloat(row['2025']) || 0;
+      const v2026 = parseFloat(row['2026']) || 0;
+
+      // Determine primary year from the latest year column with data
+      const year = v2026 ? 2026 : v2025 ? 2025 : v2024 ? 2024 : v2023 ? 2023 : (sortedYears[sortedYears.length - 1] || 2026);
+
+      batch.push({
+        week,
+        year,
+        order_number: String(row['Order Number'] || ''),
+        end_user: String(row['End User'] || ''),
+        customer_name: String(row['Order Name'] || ''),
+        subsegment: String(row['Subsegment'] || ''),
+        booking_type: String(row['Bookings'] || ''),
+        product_code: productCode,
+        region: String(row['Region'] || ''),
+        subregion: String(row['Subregion'] || ''),
+        country: String(row['Country'] || ''),
+        channel: String(row['Channel'] || ''),
+        order_type: String(row['Type'] || ''),
+        sales_rep: String(row['Sales Rep'] || ''),
+        sales_org: String(row['SalesOrg_L3'] || ''),
+        value_2023: v2023,
+        value_2024: v2024,
+        value_2025: v2025,
+        value_2026: v2026,
+        source_file: asset_id,
+      });
+
+      results[codePrefix] = (results[codePrefix] || 0) + 1;
+
+      // Insert in batches of 50
+      if (batch.length >= 50) {
+        const res = await supabasePost('bookings', batch);
+        if (res.ok) inserted += batch.length;
+        batch.length = 0;
+      }
+    }
+
+    // Insert remaining
+    if (batch.length > 0) {
+      const res = await supabasePost('bookings', batch);
+      if (res.ok) inserted += batch.length;
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          asset_id,
+          year_columns_detected: yearCols,
+          total_rows: rows.length,
+          inserted,
+          skipped,
+          by_product: results,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── Bookings Report Tools (Extract / Write) ─────────────────
+
+server.tool(
+  'bookings_report_extract',
+  'Fetch a bookings report XLSB/XLSX from the asset library and return parsed sheet data plus the prompt template so Claude can analyse bookings in-context. Returns CSV data for four sheets: Product analysis, Source Qview, Segment analysis, Source Weekly Tracker.',
+  {
+    asset_id: z.string().optional().describe('UUID of the uploaded bookings report asset. If omitted, uses the most recent asset tagged "bookings-report"'),
+    date: z.string().optional().describe('Review date in YYYY-MM-DD format (defaults to today)'),
+  },
+  async ({ asset_id, date }) => {
+    const reviewDate = date || new Date().toISOString().split('T')[0];
+
+    // 1. Find the asset
+    let asset: any;
+    if (asset_id) {
+      const rows = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type,r2_key,tags`);
+      asset = rows?.[0];
+    } else {
+      const rows = await supabaseGet('assets?tags=cs.{bookings-report}&order=uploaded_at.desc&limit=1&select=id,filename,mime_type,r2_key,tags');
+      asset = rows?.[0];
+    }
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No bookings report asset found. Upload a bookings report file to the asset library and tag it "bookings-report".' }) }] };
+    }
+
+    // 2. Fetch prompt template
+    const prompts = await supabaseGet('prompts?slug=eq.bookings-report&select=system_prompt,user_prompt_template');
+    const prompt = prompts?.[0];
+
+    // 3. Fetch file content via API
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    const targetSheets = ['Product analysis', 'Source Qview', 'Segment analysis', 'Source Weekly Tracker', 'Source Tilia'];
+    const sheets: Record<string, string> = {};
+    let parseError = '';
+    let reportContext = { year: '', month: '', week: '' };
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      if (!resp.ok) {
+        parseError = `Failed to fetch file: ${resp.status}`;
+      } else {
+        const fileData = await resp.json();
+        if (fileData.encoding !== 'base64') {
+          parseError = 'Expected base64-encoded file';
+        } else {
+          try {
+            const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+            const workbook = XLSX.read(binary, { type: 'array' });
+
+            for (const name of targetSheets) {
+              const ws = workbook.Sheets[name];
+              if (ws) {
+                sheets[name] = XLSX.utils.sheet_to_csv(ws);
+              }
+            }
+
+            // Parse Source Qview for report context (Year/Month at top)
+            if (sheets['Source Qview']) {
+              const lines = sheets['Source Qview'].split('\n');
+              for (const line of lines) {
+                const cols = line.split(',');
+                const key = cols[0]?.trim();
+                const val = cols[1]?.trim();
+                if (key === 'Year') reportContext.year = val || '';
+                if (key === 'Month') reportContext.month = val || '';
+              }
+            }
+
+            // Try to get week from filename (e.g. "week 02")
+            const weekMatch = asset.filename?.match(/week\s*(\d+)/i);
+            if (weekMatch) reportContext.week = weekMatch[1];
+
+            if (!sheets['Product analysis'] && !sheets['Source Qview']) {
+              parseError = 'Key sheets not found. Available: ' + workbook.SheetNames.join(', ');
+            }
+          } catch (xlsErr: any) {
+            parseError = `Parse error: ${xlsErr.message}`;
+          }
+        }
+      }
+    } catch (err: any) {
+      parseError = `Fetch error: ${err.message}`;
+    }
+
+    // 4. Fetch known products
+    const products = await supabaseGet('products?select=id,name&order=name');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          date: reviewDate,
+          asset_id: asset.id,
+          file_name: asset.filename,
+          report_context: reportContext,
+          sheets: {
+            product_analysis: sheets['Product analysis'] || null,
+            source_qview: sheets['Source Qview'] || null,
+            segment_analysis: sheets['Segment analysis'] || null,
+            weekly_tracker: sheets['Source Weekly Tracker'] || null,
+            source_tilia: sheets['Source Tilia'] || null,
+          },
+          parse_error: parseError || undefined,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+          known_products: products?.map((p: any) => ({ id: p.id, name: p.name })) || [],
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'bookings_report_write',
+  'Write the structured results of a bookings report analysis back to the database. Call this after processing bookings_report_extract data.',
+  {
+    date: z.string().describe('Report date in YYYY-MM-DD format'),
+    period: z.string().describe('Report period string, e.g. "2026-W02"'),
+    asset_id: z.string().optional().describe('UUID of the source bookings report asset'),
+    review_data: z.object({
+      summary: z.string().optional().default(''),
+      period_label: z.string().describe('Human-readable period, e.g. "Week 2, January 2026"'),
+      products: z.record(z.string(), z.object({
+        name: z.string(),
+        ytd_bookings: z.object({
+          y2024: z.number().optional(),
+          y2025: z.number().optional(),
+          y2026: z.number(),
+          growth_dollar: z.number(),
+          growth_pct: z.number().nullable(),
+        }),
+        by_type: z.object({
+          license: z.number().optional().default(0),
+          services: z.number().optional().default(0),
+        }).optional(),
+        by_country: z.array(z.object({
+          country: z.string(),
+          value: z.number(),
+        })).optional().default([]),
+      })).describe('Product bookings data keyed by product code'),
+      weekly_tracker: z.array(z.object({
+        week: z.number(),
+        europe: z.number().optional().default(0),
+        na: z.number().optional().default(0),
+        latam: z.number().optional().default(0),
+        apac: z.number().optional().default(0),
+        total: z.number(),
+      })).optional().default([]),
+      segments: z.array(z.object({
+        name: z.string(),
+        y2026: z.number(),
+        py: z.number().optional(),
+        growth_pct: z.number().nullable().optional(),
+      })).optional().default([]),
+    }).describe('Structured bookings report analysis'),
+  },
+  async ({ date, period, asset_id, review_data }) => {
+    // 1. Fetch product entity map
+    const products = await supabaseGet('products?select=id,name&order=name');
+    const productMap: Record<string, string> = {};
+    products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
+
+    const sourceRef = { bookings_report_date: date, period, asset_id };
+    const results = { product_evidence: 0 };
+
+    // 2. Build markdown body
+    const fmtK = (v: number) => {
+      if (Math.abs(v) >= 1000) return `${(v / 1000).toFixed(1)}m`;
+      return `${Math.round(v)}`;
+    };
+    const fmtPct = (v: number | null) => v != null ? `${(v * 100).toFixed(1)}%` : 'N/A';
+
+    let body = `# Bookings Report — ${review_data.period_label}\n\n`;
+    if (review_data.summary) body += `${review_data.summary}\n\n`;
+
+    for (const [code, prod] of Object.entries(review_data.products)) {
+      const b = prod.ytd_bookings;
+      body += `## ${prod.name} (${code})\n\n`;
+      body += `| Year | YTD Bookings ($k) | Growth $ | Growth % |\n|---|---:|---:|---:|\n`;
+      if (b.y2024) body += `| 2024 | ${fmtK(b.y2024)} | — | — |\n`;
+      if (b.y2025) body += `| 2025 | ${fmtK(b.y2025)} | — | — |\n`;
+      body += `| **2026** | **${fmtK(b.y2026)}** | **${b.growth_dollar >= 0 ? '+' : ''}${fmtK(b.growth_dollar)}** | **${fmtPct(b.growth_pct)}** |\n\n`;
+
+      if (prod.by_type && (prod.by_type.license || prod.by_type.services)) {
+        body += `**Booking type**: License $${fmtK(prod.by_type.license)}k | Services $${fmtK(prod.by_type.services)}k\n\n`;
+      }
+
+      if (prod.by_country.length) {
+        body += `### Top Countries\n`;
+        body += `| Country | Bookings ($k) |\n|---|---:|\n`;
+        const sorted = [...prod.by_country].sort((a, b) => b.value - a.value).slice(0, 10);
+        for (const c of sorted) {
+          body += `| ${c.country} | ${fmtK(c.value)} |\n`;
+        }
+        body += '\n';
+      }
+    }
+
+    if (review_data.segments.length) {
+      body += `## Bookings by Segment\n`;
+      body += `| Segment | 2026 YTD ($k) | Prior Year | Growth % |\n|---|---:|---:|---:|\n`;
+      const sorted = [...review_data.segments].sort((a, b) => b.y2026 - a.y2026);
+      for (const s of sorted.slice(0, 15)) {
+        body += `| ${s.name} | ${fmtK(s.y2026)} | ${s.py != null ? fmtK(s.py) : '—'} | ${fmtPct(s.growth_pct ?? null)} |\n`;
+      }
+      body += '\n';
+    }
+
+    if (asset_id) body += `\n---\n*Source file: asset ${asset_id}*\n`;
+
+    // 3. Create/update content record
+    const existing = await supabaseGet(`content?type=eq.summary&tags=cs.{bookings-report}&metadata->>period=eq.${period}&limit=1`);
+
+    const metadata = {
+      report_type: 'bookings-report',
+      period,
+      period_label: review_data.period_label,
+      products: review_data.products,
+      weekly_tracker: review_data.weekly_tracker,
+      segments: review_data.segments,
+      asset_id,
+    };
+
+    let contentId: string;
+    if (existing.length) {
+      contentId = existing[0].id;
+      await supabasePatch(`content?id=eq.${contentId}`, {
+        body,
+        metadata,
+        status: 'reviewed',
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: `Bookings Report — ${review_data.period_label}`,
+        body,
+        tags: ['bookings-report', period],
+        status: 'reviewed',
+        metadata,
+      }, true);
+      contentId = created.data?.[0]?.id || 'unknown';
+    }
+
+    // 4. Write product evidence
+    for (const [code, prod] of Object.entries(review_data.products)) {
+      const productId = productMap[prod.name.toLowerCase()];
+      if (!productId) continue;
+
+      const b = prod.ytd_bookings;
+      await supabasePost('product_evidence', {
+        product_id: productId,
+        note_date: date,
+        evidence: `${review_data.period_label} bookings: $${fmtK(b.y2026)}k YTD (${fmtPct(b.growth_pct)} YoY). License: $${fmtK(prod.by_type?.license || 0)}k, Services: $${fmtK(prod.by_type?.services || 0)}k.`,
+        evidence_type: 'bookings_report',
+        source_ref: sourceRef,
+      });
+      results.product_evidence++;
+    }
+
+    // 5. Audit record
+    await supabasePost('ai_reviews', {
+      review_type: 'bookings_report',
+      source_date: date,
+      status: 'completed',
+      output_summary: review_data.summary || `Bookings report for ${review_data.period_label}`,
+      files_updated: { content_id: contentId, asset_id, period, ...results },
+      completed_at: new Date().toISOString(),
+    });
+
+    // 6. Embed
+    if (contentId && contentId !== 'unknown') {
+      embedItem('content', contentId).catch(() => {});
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          content_id: contentId,
+          asset_id,
+          period,
+          writes: results,
+          action: existing.length ? 'updated' : 'created',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
 // ─── Embedding Tools ─────────────────────────────────────────
 
 server.tool(
