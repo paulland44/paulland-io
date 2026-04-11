@@ -14852,7 +14852,14 @@
             if (token) body.token = token;
 
             if (!body.name) throw new Error('Connection name is required');
-            if (apiVersion === 's2' && type === 'wcp' && !baseUrl) throw new Error('Base URL is required for S2 connections');
+            if (apiVersion === 's2' && type === 'wcp') {
+                if (!baseUrl) throw new Error('Base URL is required for S2 connections');
+                // Normalize: ensure https://, strip trailing slashes
+                let normalized = baseUrl;
+                if (!normalized.match(/^https?:\/\//i)) normalized = 'https://' + normalized;
+                normalized = normalized.replace(/\/+$/, '');
+                body.base_url = normalized;
+            }
 
             if (editId) {
                 await fetch(`/api/mis/connections/${editId}`, {

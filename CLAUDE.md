@@ -16,8 +16,7 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
                 │       └── WebCenter Pack / Automation Engine APIs (MIS proxy)
                 │
                 ├── index.html          (public homepage)
-                ├── admin/index.html    (admin dashboard SPA, ~8900 lines)
-                └── mis/index.html      (MIS simulator SPA, ~2500 lines)
+                └── admin/index.html    (admin dashboard SPA, ~9200 lines, includes MIS management)
 
 Claude ──→ Cloudflare Worker (MCP Remote Server)
   (web/mobile/       │
@@ -181,46 +180,6 @@ Single-page app, all inline (~8900 lines). No build step.
 - `captureFeedItem(btn, id)` — promote feed item to content
 - `refreshIcons()` — re-initialise Lucide icons after DOM updates
 - `renderBody(md)` — render markdown via Marked
-
-### MIS Simulator (`mis/index.html`)
-Single-page app for simulating a Management Information System. Creates jobs in Esko WebCenter Pack or Automation Engine. No build step.
-
-**Libraries** (CDN): Lucide icons
-
-**Views**: Overview, Create Job, Job Monitor, JSON Builder, Settings
-
-**Key Features**:
-- **Multi-connection support**: Configure multiple WCP and AE connections, switch between them
-- **Searchable dropdowns**: Customer and task template selects with type-to-search
-- **Job creation**: Build WCP job payloads with customer, tasks, templates, products
-- **Job monitoring**: Track jobs with status/phase sync from WCP API
-- **JSON builder**: Manual payload editor for advanced use
-- **Secure token storage**: Equipment Tokens encrypted at rest (AES-GCM) in Supabase
-
-**Connection Types**:
-- **WebCenter Pack (WCP)**: Cluster (eu/us/dev), ECAN, Repo ID, Equipment Token
-- **Automation Engine (AE)**: Server URL, Token (API integration planned)
-
-**Cluster Support**: Production clusters (`eu`/`us` → `w2p.{region}.esko.cloud`), dev/test clusters (e.g. `future.dev.cloudi.city`, `qa-eu-1.test.cloudi.city`)
-
-**Key JS Functions**:
-- `loadOverview()` — dashboard with job stats and connection status
-- `loadCreateJob()` — job creation form with searchable dropdowns
-- `loadJobMonitor()` — job list with refresh/delete/status update
-- `loadSettings()` — connection profile management (CRUD)
-- `createSearchableSelect()` — reusable searchable dropdown component
-- `misGet()` / `misPut()` / `misPost()` — API helpers with connection headers
-- `getStoredJobs()` — fetch jobs from Supabase (cached)
-- `storeJob()` / `updateStoredJob()` / `deleteStoredJob()` — Supabase job CRUD
-
-**Security Architecture**:
-- Tokens stored encrypted in Supabase (`encrypted_token` + `token_iv`, AES-GCM)
-- Encryption key (`MIS_ENCRYPTION_KEY`) only in Cloudflare env vars
-- Browser sends `X-MIS-Connection-Id` header → proxy decrypts token server-side → forwards to Esko API
-- Tokens never persist in the browser, never committed to git
-- Cloudflare Access JWT required for all MIS API routes
-
-**Known Limitation**: Esko APIs block requests from Cloudflare Worker IPs directly. The proxy works because tokens are decrypted and forwarded server-side, but Esko's gateway blocks some requests. Job creation works; job details retrieval may fail with `session.invalid` errors depending on the token/system.
 
 ## MCP Server (Cloud)
 

@@ -220,7 +220,7 @@ async function handleMisConnections(path, request, env) {
       repo_id: type === 'wcp' ? repo_id : null,
       server_url: type === 'ae' ? server_url : null,
       api_version: api_version || 'legacy',
-      base_url: base_url || null,
+      base_url: base_url ? base_url.replace(/\/+$/, '') : null,
       encrypted_token, token_iv,
     };
 
