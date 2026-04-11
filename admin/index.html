@@ -13319,6 +13319,23 @@
         return misGetTargetApiVersion() === 's2';
     }
 
+    function misRebuildWorkflowDropdown() {
+        const container = document.getElementById('s2WorkflowTemplate');
+        if (!container) return;
+        // S2 workflow templates come from cachedTaskTemplates via the compatibility shim
+        // S2 format: {total, items: [{id, name}]}, legacy format varies
+        const raw = cachedTaskTemplates?.items || [];
+        if (!raw.length) {
+            container.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);padding:0.35rem 0;">No workflow templates available on this connection.</div>';
+            return;
+        }
+        container.innerHTML = '';
+        createSearchableSelect('s2WorkflowTemplate',
+            raw.map(t => ({ value: t.id, label: t.name, searchText: t.name })),
+            { placeholder: 'Search workflow templates...', onchange: () => misUpdatePreview() }
+        );
+    }
+
     window.misOnConnectionChange = function() {
         const isS2 = misIsS2();
         const isAe = misGetTargetType() === 'ae';
@@ -13544,6 +13561,29 @@
                 project_node_id: isS2 ? (result.id || null) : null,
             });
             showToast(`${isS2 ? 'Project' : 'Job'} "${jobIdVal}" created!`, 'success');
+
+            // S2: launch workflow if one was selected
+            if (isS2 && result?.id) {
+                const wfEl = document.getElementById('s2WorkflowTemplate');
+                const wfTemplateId = wfEl?._ss ? wfEl._ss.getValue() : '';
+                if (wfTemplateId) {
+                    try {
+                        const wfResp = await fetch(`${MIS_API_BASE}/workflow-templates/${wfTemplateId}/launch`, {
+                            method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId },
+                            credentials: 'same-origin', body: JSON.stringify({ jobId: result.id, inputs: [] }),
+                        });
+                        if (wfResp.ok) {
+                            showToast('Workflow launched!', 'success');
+                        } else {
+                            const wfErr = await wfResp.text().catch(() => '');
+                            showToast(`Project created but workflow launch failed: ${wfErr.slice(0, 200)}`, 'error');
+                        }
+                    } catch (wfE) {
+                        showToast(`Project created but workflow launch failed: ${wfE.message}`, 'error');
+                    }
+                }
+            }
+
             misCloseJobDrawer();
             _cachedMisJobs = null;
             await loadMisMonitor();
@@ -13740,6 +13780,23 @@
                     </div>
                 </div>
 
+                <!-- S2 Workflow — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2WorkflowSection" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="git-branch"></i> Workflow <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body" style="max-height:2000px;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Workflow Template</div>
+                                <div id="s2WorkflowTemplate"></div>
+                                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Optional. Select a workflow to launch automatically after the project is created.</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Tasks (WCP) — collapsible -->
                 <div class="mis-card" id="misTasksSection">
                     <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
@@ -13842,6 +13899,9 @@
             );
         }
 
+        // Wire up S2 workflow template searchable select
+        misRebuildWorkflowDropdown();
+
         // Wire up live preview on all form fields
         ['misJobName','misJobId','misJobDueDate','misJobDescription','misJobCustomerCode','aeJobPartId','aeCategory','aeCustomField1',
          's2DescriptiveName','s2JobPartId','s2MisId','s2Status','s2PrintBuyerRef','s2ProjectId','s2ProjectType','s2ApprovalMethod','s2EditingInstructions'].forEach(id => {
@@ -13875,6 +13935,8 @@
                             }}
                         );
                     }
+                    // Rebuild S2 workflow dropdown
+                    misRebuildWorkflowDropdown();
                     // Rebuild task template selects on existing task cards
                     const newTemplates = getTaskTemplateList();
                     const tplOpts = newTemplates.map(t => ({ value: t.id, label: t.name, searchText: t.name }));
@@ -13967,7 +14029,7 @@
         const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
 
         // S2 sections: show/hide entirely
-        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes'].forEach(id => {
+        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2WorkflowSection'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
@@ -14148,6 +14210,28 @@
             });
             _cachedMisJobs = null;
             showToast(`${isS2 ? 'Project' : 'Job'} submitted successfully!`, 'success');
+
+            // S2: launch workflow if one was selected
+            if (isS2 && data?.id) {
+                const wfEl = document.getElementById('s2WorkflowTemplate');
+                const wfTemplateId = wfEl?._ss ? wfEl._ss.getValue() : '';
+                if (wfTemplateId) {
+                    try {
+                        const wfResp = await fetch(`${MIS_API_BASE}/workflow-templates/${wfTemplateId}/launch`, {
+                            method: 'POST', headers: { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId },
+                            credentials: 'same-origin', body: JSON.stringify({ jobId: data.id, inputs: [] }),
+                        });
+                        if (wfResp.ok) {
+                            showToast('Workflow launched!', 'success');
+                        } else {
+                            showToast('Project submitted but workflow launch failed', 'error');
+                        }
+                    } catch (wfE) {
+                        showToast(`Project submitted but workflow launch failed: ${wfE.message}`, 'error');
+                    }
+                }
+            }
+
             misCloseJobDrawer();
             await loadMisMonitor();
         } catch (e) {
