@@ -1,4 +1,4 @@
-<!-- v1775898147 -->
+<!-- v1775902173 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9512,6 +9512,11 @@
         rows.forEach(r => { if (r.week && r[valKey]) weekMap[r.week] = (weekMap[r.week] || 0) + r[valKey]; });
         const byWeek = Object.entries(weekMap).map(([w, v]) => ({ week: parseInt(w), value: v })).sort((a, b) => a.week - b.week);
 
+        // PY by week — from same primary file's PY column (consistent with ytdPy)
+        const pyWeekMapInt = {};
+        fileRows.forEach(r => { if (r.week && r[pyKey]) pyWeekMapInt[r.week] = (pyWeekMapInt[r.week] || 0) + r[pyKey]; });
+        const pyByWeek = Object.entries(pyWeekMapInt).map(([w, v]) => ({ week: parseInt(w), value: v })).sort((a, b) => a.week - b.week);
+
         const acvRows = rows.filter(r => r.booking_type && r.booking_type.includes('ACV') && r[valKey] > 0);
         const avgAcv = acvRows.length > 0 ? acvRows.reduce((s, r) => s + r[valKey], 0) / acvRows.length : 0;
 
@@ -9531,6 +9536,7 @@
             byOrderType,
             bySegment,
             byWeek,
+            pyByWeek,
             byRegion,
             channel: channelMap,
             acv: { count: acvRows.length, average: Math.round(avgAcv), total: Math.round(acvRows.reduce((s, r) => s + r[valKey], 0)) },
@@ -10552,10 +10558,10 @@
                     }
                 }
 
-                // Get PY weekly data
-                const pyBk = bkYear === 2026 ? bk25 : getProductBookings(allBookings, productCode, bkYear - 1);
+                // PY weekly data — use pyByWeek from the SAME source as the YTD KPI
+                // This ensures the chart cumulative matches the YTD growth %
                 const pyWeekMap = {};
-                (pyBk?.byWeek || []).forEach(w => { pyWeekMap[w.week] = w.value / 1000; });
+                (bkDisplay?.pyByWeek || []).forEach(w => { pyWeekMap[w.week] = w.value / 1000; });
 
                 // Full 52-week arrays — cap current year bars at the reporting week
                 const weekLabels = Array.from({ length: 52 }, (_, i) => 'W' + (i + 1));
