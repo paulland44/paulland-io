@@ -174,7 +174,7 @@ async function handleMisConnections(path, request, env) {
   // GET /api/mis/connections — list all (tokens excluded)
   if (request.method === 'GET' && !subPath) {
     const rows = await supabaseGet(supabaseUrl, serviceKey,
-      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,created_at,updated_at&order=created_at.desc'
+      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,created_at,updated_at&order=created_at.desc'
     );
     return json(rows);
   }
@@ -183,7 +183,7 @@ async function handleMisConnections(path, request, env) {
   if (request.method === 'GET' && subPath) {
     const id = subPath;
     const rows = await supabaseGet(supabaseUrl, serviceKey,
-      `mis_connections?id=eq.${id}&select=id,name,type,is_active,cluster,ecan,repo_id,server_url,created_at,updated_at`
+      `mis_connections?id=eq.${id}&select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,created_at,updated_at`
     );
     return json(rows[0] || null);
   }
@@ -191,7 +191,7 @@ async function handleMisConnections(path, request, env) {
   // POST /api/mis/connections — create new
   if (request.method === 'POST' && !subPath) {
     const body = await request.json();
-    const { name, type, cluster, ecan, repo_id, server_url, token, is_active } = body;
+    const { name, type, cluster, ecan, repo_id, server_url, token, is_active, api_version, base_url } = body;
 
     if (!name || !type) return json({ error: 'name and type are required' }, 400);
     if (type === 'wcp' && (!cluster || !ecan || !repo_id)) {
@@ -219,6 +219,8 @@ async function handleMisConnections(path, request, env) {
       ecan: type === 'wcp' ? ecan : null,
       repo_id: type === 'wcp' ? repo_id : null,
       server_url: type === 'ae' ? server_url : null,
+      api_version: api_version || 'legacy',
+      base_url: base_url || null,
       encrypted_token, token_iv,
     };
 
@@ -248,7 +250,7 @@ async function handleMisConnections(path, request, env) {
     const updates = {};
 
     // Copy non-token fields
-    for (const field of ['name', 'type', 'cluster', 'ecan', 'repo_id', 'server_url', 'is_active']) {
+    for (const field of ['name', 'type', 'cluster', 'ecan', 'repo_id', 'server_url', 'is_active', 'api_version', 'base_url']) {
       if (body[field] !== undefined) updates[field] = body[field];
     }
 
@@ -390,7 +392,7 @@ async function getConnectionToken(connectionId, env) {
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
   const rows = await supabaseGet(supabaseUrl, serviceKey,
-    `mis_connections?id=eq.${connectionId}&select=encrypted_token,token_iv,type,cluster,ecan,repo_id,server_url`
+    `mis_connections?id=eq.${connectionId}&select=encrypted_token,token_iv,type,cluster,ecan,repo_id,server_url,api_version,base_url`
   );
   if (!rows || !rows[0]) return null;
   const conn = rows[0];
@@ -408,7 +410,7 @@ async function getActiveConnection(env) {
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
   const rows = await supabaseGet(supabaseUrl, serviceKey,
-    `mis_connections?is_active=eq.true&select=id,name,type,encrypted_token,token_iv,cluster,ecan,repo_id,server_url`
+    `mis_connections?is_active=eq.true&select=id,name,type,encrypted_token,token_iv,cluster,ecan,repo_id,server_url,api_version,base_url`
   );
   if (!rows || !rows[0]) return null;
   const conn = rows[0];
@@ -467,6 +469,332 @@ async function handleAeRoute(subPath, request, conn, env) {
   return json({ error: `AE route not supported: ${subPath}` }, 404);
 }
 
+// ─── S2 MIS API Proxy Routes ─────────────────────────────────
+
+async function handleS2Route(subPath, request, conn, env) {
+  const repoId = conn.repo_id || '';
+  let token = conn.token || '';
+  const baseUrl = conn.base_url || '';
+
+  try { const p = JSON.parse(token); if (p.token) token = p.token; } catch {}
+
+  if (!baseUrl || !token || !repoId) {
+    return json({ error: 'S2 connection requires base_url, repo_id, and token' }, 503);
+  }
+
+  const s2Base = baseUrl.replace(/\/+$/, '');
+  const s2Headers = {
+    'EskoCloud-Token': token,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'User-Agent': 'PaulLand-MIS/2.0',
+  };
+
+  // Parse pagination params from request URL
+  const reqUrl = new URL(request.url);
+  const from = reqUrl.searchParams.get('from') || '0';
+  const pageSize = reqUrl.searchParams.get('pageSize') || '50';
+  const sortType = reqUrl.searchParams.get('sortType') || 'modificationDate';
+  const sortDir = reqUrl.searchParams.get('sortDir') || 'desc';
+  const paginationQS = `from=${from}&pageSize=${pageSize}&sortType=${sortType}&sortDir=${sortDir}`;
+
+  // ─── Customers ───
+  if (subPath === 'customers' && request.method === 'GET') {
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/customers?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath === 'customers' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/customers`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^customers\/[^/]+$/) && request.method === 'GET') {
+    const nodeId = subPath.replace('customers/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/customers/${nodeId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Projects ───
+  if (subPath === 'projects' && request.method === 'GET') {
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/projects?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath === 'projects' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/projects`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^projects\/[^/]+$/) && request.method === 'GET') {
+    const nodeId = subPath.replace('projects/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/projects/${nodeId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^projects\/[^/]+\/status$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('projects/', '').replace('/status', '');
+    const status = reqUrl.searchParams.get('status') || 'Active';
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/projects/${nodeId}/status?status=${encodeURIComponent(status)}`,
+      { method: 'POST', headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^projects\/[^/]+\/products$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('projects/', '').replace('/products', '');
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/projects/${nodeId}/products`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^projects\/[^/]+\/assets$/) && request.method === 'GET') {
+    const nodeId = subPath.replace('projects/', '').replace('/assets', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/projects/${nodeId}/assets`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^projects\/[^/]+\/assets$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('projects/', '').replace('/assets', '');
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/projects/${nodeId}/assets`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Products ───
+  if (subPath === 'products' && request.method === 'GET') {
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/products?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath === 'products' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/products`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^products\/[^/]+$/) && request.method === 'GET') {
+    const nodeId = subPath.replace('products/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/products/${nodeId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^products\/[^/]+\/status$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('products/', '').replace('/status', '');
+    // Forward all query params (status, partName, side, authorName, authorComment)
+    const statusParams = reqUrl.search;
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/products/${nodeId}/status${statusParams}`,
+      { method: 'POST', headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^products\/[^/]+\/shapeAsset$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('products/', '').replace('/shapeAsset', '');
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/products/${nodeId}/shapeAsset`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^products\/[^/]+\/graphicAssets$/) && request.method === 'POST') {
+    const nodeId = subPath.replace('products/', '').replace('/graphicAssets', '');
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/products/${nodeId}/graphicAssets`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Workflow Templates ───
+  if (subPath === 'workflow-templates' && request.method === 'GET') {
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/workflowTemplates?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^workflow-templates\/[^/]+$/) && request.method === 'GET') {
+    const templateId = subPath.replace('workflow-templates/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/workflowTemplates/${templateId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^workflow-templates\/[^/]+\/launch$/) && request.method === 'POST') {
+    const templateId = subPath.replace('workflow-templates/', '').replace('/launch', '');
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/workflowTemplates/${templateId}`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Workflow Instances ───
+  if (subPath === 'workflow-instances' && request.method === 'GET') {
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/workflowInstances?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^workflow-instances\/[^/]+$/) && request.method === 'GET') {
+    const instanceId = subPath.replace('workflow-instances/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/workflowInstances/${instanceId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^workflow-instances\/[^/]+\/cancel$/) && request.method === 'POST') {
+    const instanceId = subPath.replace('workflow-instances/', '').replace('/cancel', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/workflowInstances/${instanceId}?operation=Cancel`,
+      { method: 'POST', headers: s2Headers, body: '' }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Media ───
+  if (subPath === 'media' && request.method === 'GET') {
+    const predefined = reqUrl.searchParams.get('predefined') || '';
+    const extra = predefined ? `&predefined=${predefined}` : '';
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/media?${paginationQS}${extra}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath === 'media' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/media`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^media\/[^/]+$/) && request.method === 'GET') {
+    const nodeId = subPath.replace('media/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/media/${nodeId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Assets ───
+  if (subPath.match(/^assets\/[^/]+$/) && request.method === 'GET') {
+    const assetId = subPath.replace('assets/', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^assets\/[^/]+\/thumbnail$/) && request.method === 'GET') {
+    const assetId = subPath.replace('assets/', '').replace('/thumbnail', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}/thumbnail`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': resp.headers.get('Content-Type') || 'image/png', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^assets\/[^/]+\/content$/) && request.method === 'GET') {
+    const assetId = subPath.replace('assets/', '').replace('/content', '');
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}/content`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/octet-stream', ...corsHeaders() } });
+  }
+
+  if (subPath.match(/^assets\/[^/]+\/content$/) && request.method === 'POST') {
+    const assetId = subPath.replace('assets/', '').replace('/content', '');
+    const body = await request.arrayBuffer();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}/content`,
+      { method: 'POST', headers: { ...s2Headers, 'Content-Type': request.headers.get('Content-Type') || 'application/octet-stream' }, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // ─── Compatibility shim: map legacy routes for S2 connections ───
+  // list_customers → customers, list_task_templates → workflow-templates, create-job → projects
+  if (subPath === 'task-templates') {
+    // Redirect to workflow templates for S2
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/workflowTemplates?${paginationQS}`,
+      { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  if (subPath === 'create-job' && request.method === 'PUT') {
+    // Legacy create-job → S2 create project
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/projects`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  return json({ error: `S2 route not found: ${subPath}` }, 404);
+}
+
 // ─── MIS Proxy Routes ────────────────────────────────────────
 
 async function handleMisRoute(path, request, env) {
@@ -489,6 +817,11 @@ async function handleMisRoute(path, request, env) {
   if (connectionId) {
     const conn = await getConnectionToken(connectionId, env);
     if (!conn) return json({ error: 'Connection not found or token decryption failed' }, 403);
+
+    // Route S2 connections to dedicated S2 handler
+    if (conn.api_version === 's2') {
+      return handleS2Route(path.replace('mis/', ''), request, conn, env);
+    }
 
     // Route AE connections to dedicated handler
     if (conn.type === 'ae') {

@@ -897,6 +897,8 @@
                 ecan: r.ecan,
                 repoId: r.repo_id,
                 serverUrl: r.server_url,
+                apiVersion: r.api_version || 'legacy',
+                baseUrl: r.base_url || '',
                 hasToken: true, // If it exists in DB, it has an encrypted token
                 created_at: r.created_at,
                 updated_at: r.updated_at,
@@ -927,6 +929,8 @@
             ecan: profile.type === 'wcp' ? profile.ecan : null,
             repo_id: profile.type === 'wcp' ? profile.repoId : null,
             server_url: profile.type === 'ae' ? (profile.server_url || profile.serverUrl) : null,
+            api_version: profile.api_version || 'legacy',
+            base_url: profile.base_url || null,
             token: profile.token,
             is_active: getProfiles().length === 0, // Auto-activate if first
         };
@@ -947,8 +951,11 @@
         if (updates.cluster !== undefined) body.cluster = updates.cluster;
         if (updates.ecan !== undefined) body.ecan = updates.ecan;
         if (updates.repoId !== undefined) body.repo_id = updates.repoId;
+        if (updates.repo_id !== undefined) body.repo_id = updates.repo_id;
         if (updates.serverUrl !== undefined) body.server_url = updates.serverUrl;
         if (updates.server_url !== undefined) body.server_url = updates.server_url;
+        if (updates.api_version !== undefined) body.api_version = updates.api_version;
+        if (updates.base_url !== undefined) body.base_url = updates.base_url;
         if (updates.token) body.token = updates.token;
         await fetch(`/api/mis/connections/${id}`, {
             method: 'PATCH',
@@ -2418,14 +2425,17 @@
                             const isActive = p.id === activeId;
                             const hasToken = p.hasToken;
                             const isAE = p.type === 'ae';
+                            const isS2 = p.apiVersion === 's2';
                             const clusterLabel = CLUSTER_OPTIONS.find(c => c.value === p.cluster)?.label || p.cluster;
                             const details = isAE
                                 ? `<span style="font-size:0.78rem;">${p.serverUrl || '-'}</span>`
+                                : isS2
+                                ? `<span style="font-size:0.78rem;">${p.baseUrl || '-'}</span>`
                                 : `<span style="font-size:0.78rem;">${clusterLabel}</span> <span style="font-family:var(--mono);font-size:0.72rem;color:var(--text-muted);">${p.ecan ? p.ecan.slice(0, 14) + '...' : ''}</span>`;
                             return `
                             <tr class="${isActive ? 'active-profile' : ''}">
                                 <td style="font-weight:${isActive ? '600' : '400'};">${p.name}</td>
-                                <td><span class="badge">${(p.type || 'wcp').toUpperCase()}</span></td>
+                                <td><span class="badge">${(p.type || 'wcp').toUpperCase()}</span>${isS2 ? ' <span class="badge" style="background:var(--accent);color:var(--void);font-size:0.65rem;">S2</span>' : ''}</td>
                                 <td>${details}</td>
                                 <td>${hasToken ? '<span style="color:var(--green);">••••••</span>' : '<span style="color:var(--red);font-size:0.78rem;">No token</span>'}</td>
                                 <td>${isActive ? '<span class="badge badge-active">Active</span>' : ''}</td>
@@ -2458,6 +2468,21 @@
                                 <option value="wcp">WebCenter Pack</option>
                                 <option value="ae">Automation Engine</option>
                             </select>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">API Version</label>
+                            <select class="form-select" id="pfApiVersion" onchange="toggleApiVersion()">
+                                <option value="legacy">Legacy (WCP v0/v1)</option>
+                                <option value="s2">S2 MIS API</option>
+                            </select>
+                        </div>
+                    </div>
+                    <!-- S2-specific fields -->
+                    <div id="s2Fields" style="display:none;">
+                        <div class="form-group">
+                            <label class="form-label">Base URL *</label>
+                            <input type="text" class="form-input" id="pfBaseUrl" placeholder="e.g. https://ae.yourorg.esko.cloud">
+                            <p class="form-hint">The S2 base URL from your WebCenter Pack Prepress app URL (format: https://ae.{org}.esko.cloud).</p>
                         </div>
                     </div>
                     <!-- WCP-specific fields -->
@@ -2538,6 +2563,30 @@
             if (tokenLabel) tokenLabel.textContent = editingProfileId ? 'Equipment Token' : 'Equipment Token *';
             if (tokenInput) tokenInput.placeholder = 'Your Equipment Token from Global Admin';
         }
+        toggleApiVersion();
+    }
+
+    function toggleApiVersion() {
+        const apiVersion = document.getElementById('pfApiVersion')?.value || 'legacy';
+        const type = document.getElementById('pfType')?.value || 'wcp';
+        const s2Fields = document.getElementById('s2Fields');
+        const wcpFields = document.getElementById('wcpFields');
+
+        // S2 fields shown when api_version is s2 and type is wcp
+        if (s2Fields) s2Fields.style.display = (apiVersion === 's2' && type === 'wcp') ? '' : 'none';
+        // Legacy WCP cluster/ECAN fields hidden for S2 (S2 uses base_url + repo_id directly)
+        if (wcpFields && type === 'wcp') {
+            // For S2: hide cluster and ECAN, keep repo_id visible
+            const clusterRow = wcpFields.querySelector('.form-row:first-child');
+            const ecanGroup = document.getElementById('pfEcan')?.closest('.form-group');
+            if (apiVersion === 's2') {
+                if (clusterRow) clusterRow.style.display = 'none';
+                if (ecanGroup) ecanGroup.style.display = 'none';
+            } else {
+                if (clusterRow) clusterRow.style.display = '';
+                if (ecanGroup) ecanGroup.style.display = '';
+            }
+        }
     }
 
     function showProfileForm(profileId) {
@@ -2570,6 +2619,8 @@
             document.getElementById('pfEcan').value = p.ecan || '';
             document.getElementById('pfRepoId').value = p.repoId || '';
             document.getElementById('pfServerUrl').value = p.serverUrl || '';
+            document.getElementById('pfApiVersion').value = p.apiVersion || 'legacy';
+            document.getElementById('pfBaseUrl').value = p.baseUrl || '';
             toggleConnectionType();
             // Token: don't show existing, only allow replacement
             document.getElementById('pfToken').value = '';
@@ -2583,6 +2634,8 @@
             document.getElementById('pfName').value = '';
             document.getElementById('pfType').value = 'wcp';
             document.getElementById('pfCluster').value = 'eu';
+            document.getElementById('pfApiVersion').value = 'legacy';
+            document.getElementById('pfBaseUrl').value = '';
             toggleCustomCluster();
             toggleConnectionType();
             document.getElementById('pfEcan').value = '';
@@ -2608,6 +2661,8 @@
     async function saveProfileForm() {
         const name = document.getElementById('pfName')?.value?.trim();
         const type = document.getElementById('pfType')?.value || 'wcp';
+        const apiVersion = document.getElementById('pfApiVersion')?.value || 'legacy';
+        const baseUrl = document.getElementById('pfBaseUrl')?.value?.trim();
         const clusterSel = document.getElementById('pfCluster')?.value;
         const customCluster = document.getElementById('pfCustomCluster')?.value?.trim();
         const cluster = clusterSel === 'custom' ? customCluster : clusterSel;
@@ -2617,9 +2672,13 @@
         const token = document.getElementById('pfToken')?.value?.trim();
 
         if (!name) { showToast('Connection name is required.', 'error'); return; }
-        if (type === 'wcp') {
+        if (type === 'wcp' && apiVersion === 'legacy') {
             if (!cluster) { showToast('Cluster is required.', 'error'); return; }
             if (!ecan) { showToast('ECAN is required.', 'error'); return; }
+            if (!repoId) { showToast('Repository ID is required.', 'error'); return; }
+        }
+        if (type === 'wcp' && apiVersion === 's2') {
+            if (!baseUrl) { showToast('Base URL is required for S2 connections.', 'error'); return; }
             if (!repoId) { showToast('Repository ID is required.', 'error'); return; }
         }
         if (type === 'ae') {
@@ -2628,7 +2687,7 @@
 
         try {
             if (editingProfileId) {
-                const updates = { name, type };
+                const updates = { name, type, api_version: apiVersion, base_url: baseUrl || null };
                 if (type === 'wcp') { updates.cluster = cluster; updates.ecan = ecan; updates.repo_id = repoId; }
                 if (type === 'ae') { updates.server_url = serverUrl; }
                 if (token) updates.token = token;
@@ -2636,7 +2695,7 @@
                 showToast(`Connection "${name}" updated.`, 'success');
             } else {
                 if (!token) { showToast('Token is required for new connections.', 'error'); return; }
-                const profile = { name, type, token };
+                const profile = { name, type, token, api_version: apiVersion, base_url: baseUrl || null };
                 if (type === 'wcp') { profile.cluster = cluster; profile.ecan = ecan; profile.repoId = repoId; }
                 if (type === 'ae') { profile.server_url = serverUrl; }
                 await addProfile(profile);

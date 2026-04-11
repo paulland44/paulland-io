@@ -118,7 +118,7 @@ Job Management:
 | PATCH | `mis/jobs/:id` | `handleMisJobs` | Update job (status, phase, etc.) |
 | DELETE | `mis/jobs/:id` | `handleMisJobs` | Delete job from monitor |
 
-WCP Proxy Routes (proxied to Esko APIs with server-side token):
+WCP Proxy Routes (legacy connections, proxied to Esko APIs with server-side token):
 | Method | Route | Purpose |
 |--------|-------|---------|
 | GET | `mis/customers` | Fetch partners from IAM API |
@@ -129,6 +129,26 @@ WCP Proxy Routes (proxied to Esko APIs with server-side token):
 | PUT | `mis/create-job` | Create job in WCP via W2P API |
 | POST | `mis/edit-job` | Update job status/phase in WCP |
 | GET | `mis/debug` | Debug endpoint for WCP connectivity |
+
+S2 MIS API Routes (S2 connections, proxied to Esko S2 `/MISapi/v0/` endpoints):
+| Method | Route | Purpose |
+|--------|-------|---------|
+| GET/POST | `mis/customers`, `mis/customers/:id` | List/create/update/get customers |
+| GET/POST | `mis/projects`, `mis/projects/:id` | List/create/update/get projects (jobs) |
+| POST | `mis/projects/:id/status` | Update project status |
+| POST | `mis/projects/:id/products` | Link products to project |
+| GET/POST | `mis/projects/:id/assets` | List/create project assets |
+| GET/POST | `mis/products`, `mis/products/:id` | List/create/get products |
+| POST | `mis/products/:id/status` | Update product status (per-part) |
+| POST | `mis/products/:id/shapeAsset` | Attach shape asset to product |
+| POST | `mis/products/:id/graphicAssets` | Attach graphic asset to product |
+| GET | `mis/workflow-templates`, `mis/workflow-templates/:id` | List/get workflow templates |
+| POST | `mis/workflow-templates/:id/launch` | Launch workflow on project |
+| GET | `mis/workflow-instances`, `mis/workflow-instances/:id` | List/get workflow instances |
+| POST | `mis/workflow-instances/:id/cancel` | Cancel running workflow |
+| GET/POST | `mis/media`, `mis/media/:id` | List/create/get media (substrates) |
+| GET | `mis/assets/:id`, `mis/assets/:id/thumbnail`, `mis/assets/:id/content` | Asset info/preview/download |
+| POST | `mis/assets/:id/content` | Upload asset content |
 
 ## Frontend
 
@@ -232,7 +252,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (59 tools)
+### Tool Groups (68 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -248,7 +268,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Assets | list_assets, upload_asset, get_asset_content | 3 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
-| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates | 6 |
+| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 15 |
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
 | Utility | get_system_status | 1 |

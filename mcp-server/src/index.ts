@@ -3697,7 +3697,7 @@ server.tool(
   {},
   async () => {
     const rows = await supabaseGet(
-      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,created_at&order=created_at.desc'
+      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,created_at&order=created_at.desc'
     );
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(rows, null, 2) }],
@@ -4008,6 +4008,206 @@ server.tool(
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }],
     };
+  }
+);
+
+// ─── S2 MIS API Tools ────────────────────────────────────────
+
+server.tool(
+  'list_projects',
+  'List projects (jobs) from S2. Returns paginated list with project names, IDs, and modification dates. Requires an S2 connection.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
+    pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+  },
+  async ({ connection_id, from, pageSize }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const params = new URLSearchParams();
+    if (from !== undefined) params.set('from', String(from));
+    if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const result = await callMisProxy('GET', `projects${qs}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list projects (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'get_project_info',
+  'Get full details of a project (job) by its node ID. Works with S2 connections to retrieve project status, attributes, linked products, and assets.',
+  {
+    project_node_id: z.string().describe('S2 node ID of the project'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ project_node_id, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('GET', `projects/${project_node_id}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to get project (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'update_project_status',
+  'Update the status of a project (e.g. Created → Active). Requires an S2 connection.',
+  {
+    project_node_id: z.string().describe('S2 node ID of the project'),
+    status: z.string().describe('New status value (e.g. "Active", "Created", "Completed")'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ project_node_id, status, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('POST', `projects/${project_node_id}/status?status=${encodeURIComponent(status)}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update project status (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, project_node_id, new_status: status }, null, 2) }] };
+  }
+);
+
+server.tool(
+  'launch_workflow',
+  'Launch a workflow template against a project with input assets. Returns the workflow instance ID for monitoring. Requires an S2 connection.',
+  {
+    template_id: z.string().describe('Workflow template node ID (from list_task_templates)'),
+    project_node_id: z.string().describe('S2 node ID of the project (job) to run the workflow on'),
+    input_asset_ids: z.array(z.string()).optional().describe('Array of asset node IDs to use as workflow inputs'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ template_id, project_node_id, input_asset_ids, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const body = {
+      jobId: project_node_id,
+      inputs: input_asset_ids || [],
+    };
+
+    const result = await callMisProxy('POST', `workflow-templates/${template_id}/launch`, conn.id, body);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to launch workflow (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'list_workflow_instances',
+  'List running and completed workflow instances. Useful for monitoring workflow progress. Requires an S2 connection.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
+    pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+  },
+  async ({ connection_id, from, pageSize }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const params = new URLSearchParams();
+    if (from !== undefined) params.set('from', String(from));
+    if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const result = await callMisProxy('GET', `workflow-instances${qs}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list workflow instances (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'get_workflow_instance',
+  'Get the status and details of a specific workflow instance. Use after launch_workflow to monitor progress.',
+  {
+    instance_id: z.string().describe('Workflow instance node ID'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ instance_id, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('GET', `workflow-instances/${instance_id}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to get workflow instance (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'cancel_workflow',
+  'Cancel a running workflow instance. Use with caution — this cannot be undone.',
+  {
+    instance_id: z.string().describe('Workflow instance node ID to cancel'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ instance_id, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('POST', `workflow-instances/${instance_id}/cancel`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to cancel workflow (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, instance_id, status: 'cancelled' }, null, 2) }] };
+  }
+);
+
+server.tool(
+  'list_products',
+  'List products from S2. Returns paginated list with product names, types, and node IDs. Requires an S2 connection.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
+    pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+  },
+  async ({ connection_id, from, pageSize }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const params = new URLSearchParams();
+    if (from !== undefined) params.set('from', String(from));
+    if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const result = await callMisProxy('GET', `products${qs}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list products (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'create_product',
+  'Create a new product in S2 with specifications (type, parts, printing intents, media references). Requires an S2 connection.',
+  {
+    name: z.string().describe('Product name (unique identifier)'),
+    properties: z.record(z.any()).describe('Product properties object including descriptiveName, productType, parts[], customers[], etc.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ name, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('POST', 'products', conn.id, { name, properties });
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to create product (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
   }
 );
 

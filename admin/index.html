@@ -12998,7 +12998,8 @@
             _misProfilesCache = rows.map(r => ({
                 id: r.id, name: r.name, type: r.type, is_active: r.is_active,
                 cluster: r.cluster, ecan: r.ecan, repoId: r.repo_id,
-                serverUrl: r.server_url, hasToken: true,
+                serverUrl: r.server_url, apiVersion: r.api_version || 'legacy',
+                baseUrl: r.base_url || '', hasToken: true,
             }));
             return _misProfilesCache;
         } catch (e) {
@@ -14367,13 +14368,16 @@
                     <tbody id="connTableBody">
                         ${profiles.map(p => {
                             const isActive = p.id === activeId;
+                            const isS2 = p.apiVersion === 's2';
                             const details = p.type === 'ae'
                                 ? `<span style="font-size:0.78rem;">${esc(p.serverUrl || '-')}</span>`
+                                : isS2
+                                ? `<span style="font-size:0.78rem;">${esc(p.baseUrl || '-')}</span>`
                                 : `<span style="font-size:0.78rem;">${esc(CLUSTER_OPTIONS.find(c => c.value === p.cluster)?.label || p.cluster || '')}</span>
                                    <span style="font-family:var(--mono); font-size:0.72rem; color:var(--text-muted);">${p.ecan ? esc(p.ecan.slice(0, 18)) + '...' : ''}</span>`;
                             return `<tr${isActive ? ' style="background:var(--accent-dim);"' : ''}>
                                 <td style="font-weight:${isActive ? '600' : '400'};">${esc(p.name)}</td>
-                                <td><span class="type-badge">${esc((p.type || 'wcp').toUpperCase())}</span></td>
+                                <td><span class="type-badge">${esc((p.type || 'wcp').toUpperCase())}</span>${isS2 ? ' <span class="type-badge" style="border-color:var(--accent); color:var(--accent);">S2</span>' : ''}</td>
                                 <td>${details}</td>
                                 <td>${p.hasToken ? '<span style="color:var(--accent);">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>' : '<span style="color:var(--red); font-size:0.78rem;">No token</span>'}</td>
                                 <td>${isActive ? '<span class="type-badge" style="border-color:var(--accent); color:var(--accent);">Active</span>' : ''}</td>
@@ -14402,6 +14406,20 @@
                             <option value="wcp">WebCenter Pack</option>
                             <option value="ae">Automation Engine</option>
                         </select>
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">API Version</div>
+                        <select class="modal-edit-select" id="connApiVersion" onchange="toggleConnType()">
+                            <option value="legacy">Legacy (WCP v0/v1)</option>
+                            <option value="s2">S2 MIS API</option>
+                        </select>
+                    </div>
+                </div>
+                <div id="connS2Fields" style="display:none;">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Base URL *</div>
+                        <input class="modal-edit-input" id="connBaseUrl" placeholder="e.g. https://ae.future.dev.cloudi.city">
+                        <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.25rem;">The S2 base URL from your WebCenter Pack Prepress app URL.</div>
                     </div>
                 </div>
                 <div id="connWcpFields">
@@ -14457,9 +14475,19 @@
 
     // Global functions for connection management (called from onclick)
     window.toggleConnType = function() {
-        const isAE = document.getElementById('connType').value === 'ae';
+        const type = document.getElementById('connType').value;
+        const apiVersion = document.getElementById('connApiVersion')?.value || 'legacy';
+        const isAE = type === 'ae';
+        const isS2 = apiVersion === 's2' && !isAE;
         document.getElementById('connWcpFields').style.display = isAE ? 'none' : '';
         document.getElementById('connAeFields').style.display = isAE ? '' : 'none';
+        const s2Fields = document.getElementById('connS2Fields');
+        if (s2Fields) s2Fields.style.display = isS2 ? '' : 'none';
+        // For S2: hide cluster and ECAN rows (uses base_url instead), keep repo_id
+        const clusterRow = document.getElementById('connWcpFields')?.querySelector('div:first-child');
+        const ecanField = document.getElementById('connEcan')?.closest('.modal-edit-field');
+        if (clusterRow) clusterRow.style.display = isS2 ? 'none' : '';
+        if (ecanField) ecanField.style.display = isS2 ? 'none' : '';
     };
 
     window.activateMisConn = async function(id) {
@@ -14497,6 +14525,8 @@
         document.getElementById('connEditId').value = id;
         document.getElementById('connName').value = p.name || '';
         document.getElementById('connType').value = p.type || 'wcp';
+        document.getElementById('connApiVersion').value = p.apiVersion || 'legacy';
+        document.getElementById('connBaseUrl').value = p.baseUrl || '';
         toggleConnType();
         if (p.type === 'wcp') {
             const clusterMatch = CLUSTER_OPTIONS.find(c => c.value === p.cluster);
@@ -14528,6 +14558,8 @@
         try {
             const editId = document.getElementById('connEditId').value;
             const type = document.getElementById('connType').value;
+            const apiVersion = document.getElementById('connApiVersion')?.value || 'legacy';
+            const baseUrl = document.getElementById('connBaseUrl')?.value?.trim() || null;
             const cluster = type === 'wcp'
                 ? (document.getElementById('connCluster').value === 'custom'
                     ? document.getElementById('connCustomCluster').value.trim()
@@ -14536,6 +14568,8 @@
             const body = {
                 name: document.getElementById('connName').value.trim(),
                 type,
+                api_version: apiVersion,
+                base_url: baseUrl,
                 cluster,
                 ecan: type === 'wcp' ? document.getElementById('connEcan').value.trim() : null,
                 repo_id: type === 'wcp' ? document.getElementById('connRepoId').value.trim() : null,
@@ -14545,6 +14579,7 @@
             if (token) body.token = token;
 
             if (!body.name) throw new Error('Connection name is required');
+            if (apiVersion === 's2' && type === 'wcp' && !baseUrl) throw new Error('Base URL is required for S2 connections');
 
             if (editId) {
                 await fetch(`/api/mis/connections/${editId}`, {
