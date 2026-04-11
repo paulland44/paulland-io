@@ -3745,7 +3745,7 @@ server.tool(
   async ({ job_name, customer_code, customer_name, description, due_date, connection_id, tasks, job_part_id, category, custom_field_1 }) => {
     // Resolve connection
     let connection: any = null;
-    const connSelect = 'id,name,type,cluster,ecan,repo_id,server_url';
+    const connSelect = 'id,name,type,cluster,ecan,repo_id,server_url,api_version,base_url';
     if (connection_id) {
       const rows = await supabaseGet(
         `mis_connections?id=eq.${connection_id}&select=${connSelect}&limit=1`
@@ -3759,6 +3759,7 @@ server.tool(
     }
 
     const isAe = connection?.type === 'ae';
+    const isS2 = connection?.api_version === 's2';
 
     // Auto-generate job_id
     const code = customer_code || 'GEN';
@@ -3772,7 +3773,7 @@ server.tool(
     }
     const job_id = `MIS-${code}-${String(seq).padStart(4, '0')}`;
 
-    // Build payload — different structure for AE vs WCP
+    // Build payload — different structure for AE vs S2 vs legacy WCP
     let payload: any;
     if (isAe) {
       payload = {
@@ -3784,6 +3785,22 @@ server.tool(
         category: category || 'Production',
         customField1: custom_field_1 || '',
       };
+    } else if (isS2) {
+      // S2 Create Project payload
+      const properties: any = {
+        MISId: 'MyMIS',
+        jobId: job_id,
+        projectName: job_name,
+        status: { type: 'ProjectStatus', status: 'Created' },
+      };
+      if (description) properties.description = description;
+      if (job_part_id) properties.jobPartId = job_part_id;
+      if (due_date) properties.dueDate = due_date;
+      else properties.dueDate = new Date(Date.now() + 7 * 86400000).toISOString();
+      if (customer_code) {
+        properties.customers = [{ ref: customer_code, type: 'Reference' }];
+      }
+      payload = { properties };
     } else {
       payload = {
         siteName: connection?.ecan || 'Home',
@@ -3807,7 +3824,55 @@ server.tool(
       }
     }
 
-    // Insert job record
+    // For S2: submit directly to S2 API (no draft step needed)
+    if (isS2 && connection?.id) {
+      const result = await callMisProxy('POST', 'projects', connection.id, payload);
+      if (!result.ok) {
+        return {
+          content: [{ type: 'text' as const, text: `Failed to create S2 project: ${JSON.stringify(result.data)}` }],
+          isError: true,
+        };
+      }
+
+      // Store job record with S2 project node ID
+      const jobRecord = {
+        job_id,
+        job_name,
+        customer_code: customer_code || null,
+        customer_name: customer_name || null,
+        status: 'Created',
+        phase: 'Created',
+        due_date: payload.properties?.dueDate || null,
+        description: description || null,
+        connection_id: connection.id,
+        connection_name: connection.name || null,
+        solution: 's2',
+        cluster: connection.cluster || null,
+        payload,
+        wcp_response: result.data,
+        project_node_id: result.data?.id || null,
+      };
+
+      await supabasePost('mis_jobs', jobRecord, true);
+
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            ok: true,
+            job_id,
+            job_name,
+            status: 'Created',
+            type: 's2',
+            project_node_id: result.data?.id || null,
+            connection: connection.name || 'none',
+            note: 'Project created in S2. Use list_projects or get_project_info to check status. Use launch_workflow to start a workflow.',
+          }, null, 2),
+        }],
+      };
+    }
+
+    // Legacy: Insert job record as Draft
     const jobRecord = {
       job_id,
       job_name,

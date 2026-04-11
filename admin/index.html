@@ -13310,8 +13310,39 @@
         return sel?.selectedOptions?.[0]?.dataset?.type || 'wcp';
     }
 
+    function misGetTargetApiVersion() {
+        const sel = document.getElementById('misTargetConnection');
+        return sel?.selectedOptions?.[0]?.dataset?.apiVersion || 'legacy';
+    }
+
+    function misIsS2() {
+        return misGetTargetApiVersion() === 's2';
+    }
+
+    window.misOnConnectionChange = function() {
+        const isS2 = misIsS2();
+        const isAe = misGetTargetType() === 'ae';
+        // S2 sections
+        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
+        });
+        // Legacy WCP-only sections: hide for S2
+        const tasksSection = document.getElementById('misTasksSection');
+        if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
+        // Site field: hide for S2
+        const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
+        if (siteField) siteField.style.display = isS2 ? 'none' : '';
+        // AE section
+        const aeSection = document.getElementById('misAeSection');
+        if (aeSection) aeSection.style.display = isAe ? '' : 'none';
+        // Update preview
+        misUpdatePreview();
+    };
+
     function misBuildPayload() {
         const isAe = misGetTargetType() === 'ae';
+        const isS2 = misIsS2();
 
         // Common fields
         const jobName = document.getElementById('misJobName')?.value || '';
@@ -13328,10 +13359,62 @@
             };
         }
 
-        // WCP payload
+        // Customer — for S2 use nodeId from searchable select, for legacy use partnerId
         const custEl = document.getElementById('misJobCustomer');
         const customerCode = custEl?._ss ? custEl._ss.getValue() : (document.getElementById('misJobCustomerCode')?.value || '');
         const dueDate = document.getElementById('misJobDueDate')?.value;
+
+        if (isS2) {
+            // S2 Create Project payload
+            const properties = {
+                MISId: document.getElementById('s2MisId')?.value || 'MyMIS',
+                jobId,
+                projectName: jobName,
+                description,
+            };
+
+            // Optional fields — only include if set
+            const jobPartId = document.getElementById('s2JobPartId')?.value;
+            if (jobPartId) properties.jobPartId = jobPartId;
+
+            const descriptiveName = document.getElementById('s2DescriptiveName')?.value;
+            if (descriptiveName) properties.descriptiveName = descriptiveName;
+
+            if (dueDate) properties.dueDate = new Date(dueDate).toISOString();
+
+            // General IDs
+            const printBuyerRef = document.getElementById('s2PrintBuyerRef')?.value;
+            const projectId = document.getElementById('s2ProjectId')?.value;
+            if (printBuyerRef || projectId) {
+                properties.generalIDs = {};
+                if (printBuyerRef) properties.generalIDs.PrintBuyerReference = printBuyerRef;
+                if (projectId) properties.generalIDs.Project = projectId;
+            }
+
+            // Attributes
+            const projectType = document.getElementById('s2ProjectType')?.value;
+            const approvalMethod = document.getElementById('s2ApprovalMethod')?.value;
+            const editingInstructions = document.getElementById('s2EditingInstructions')?.value;
+            if (projectType || approvalMethod || editingInstructions) {
+                properties.attributes = { string: {} };
+                if (projectType) properties.attributes.string.projectType = projectType;
+                if (approvalMethod) properties.attributes.string.ApprovalMethod = approvalMethod;
+                if (editingInstructions) properties.attributes.string.EditingInstructions = editingInstructions;
+            }
+
+            // Status
+            const status = document.getElementById('s2Status')?.value || 'Created';
+            properties.status = { type: 'ProjectStatus', status };
+
+            // Customer reference (S2 uses nodeId refs)
+            if (customerCode) {
+                properties.customers = [{ ref: customerCode, type: 'Reference' }];
+            }
+
+            return { properties };
+        }
+
+        // Legacy WCP payload
         const prods = document.getElementById('misJobProducts');
         const selProds = prods ? Array.from(prods.selectedOptions).map(o => o.value) : [];
         const payload = {
@@ -13403,40 +13486,64 @@
         const connSel = document.getElementById('misTargetConnection');
         const connOpt = connSel?.selectedOptions?.[0];
         const targetType = connOpt?.dataset?.type || 'wcp';
+        const apiVersion = connOpt?.dataset?.apiVersion || 'legacy';
         const connId = connSel?.value || null;
         const connName = connOpt?.dataset?.name || '';
         const connCluster = connOpt?.dataset?.cluster || '';
         const isWcp = targetType !== 'ae';
+        const isS2 = apiVersion === 's2';
 
         const payload = misBuildPayload();
-        if (!payload.jobName) return showToast('Enter a job name', 'error');
-        if (!payload.jobId) return showToast('Enter a job ID', 'error');
-        if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
-        if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
-        if (isWcp) for (const t of payload.tasks) {
-            if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
-            if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+
+        // Validation
+        if (isS2) {
+            if (!payload.properties?.projectName) return showToast('Enter a project name', 'error');
+            if (!payload.properties?.jobId) return showToast('Enter a job ID', 'error');
+        } else {
+            if (!payload.jobName) return showToast('Enter a job name', 'error');
+            if (!payload.jobId) return showToast('Enter a job ID', 'error');
+            if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
+            if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+            if (isWcp) for (const t of payload.tasks) {
+                if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
+                if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+            }
         }
         if (!connId) return showToast('Select a connection to submit to', 'error');
 
         btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Creating...';
         try {
             const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId };
-            const resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+
+            let resp, result;
+            if (isS2) {
+                // S2: POST directly to /projects
+                resp = await fetch(`${MIS_API_BASE}/projects`, { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            } else {
+                // Legacy: PUT to /create-job
+                resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            }
             const text = await resp.text().catch(() => '');
-            let result; try { result = JSON.parse(text); } catch { result = { rawResponse: text.slice(0, 500) }; }
+            try { result = JSON.parse(text); } catch { result = { rawResponse: text.slice(0, 500) }; }
             if (!resp.ok) throw new Error(result.error || result.message || `HTTP ${resp.status}`);
 
             const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent || '';
+            const jobIdVal = isS2 ? payload.properties.jobId : payload.jobId;
+            const jobNameVal = isS2 ? payload.properties.projectName : payload.jobName;
+            const custCode = isS2 ? (payload.properties.customers?.[0]?.ref || '') : payload.customerCode;
+            const dueDateVal = isS2 ? (payload.properties.dueDate || null) : (payload.dueDate || null);
+            const descVal = isS2 ? (payload.properties.description || '') : (payload.description || '');
+
             await storeMisJob({
-                job_id: payload.jobId, job_name: payload.jobName, customer_code: payload.customerCode,
+                job_id: jobIdVal, job_name: jobNameVal, customer_code: custCode,
                 customer_name: custDisplay.replace(/\s*\(.*\)$/, '') || document.getElementById('misJobCustomerCode')?.value || '',
-                status: 'Created', phase: 'Draft',
-                due_date: payload.dueDate || null, description: payload.description || '',
-                connection_id: connId, connection_name: connName, solution: targetType,
+                status: 'Created', phase: isS2 ? (payload.properties.status?.status || 'Created') : 'Draft',
+                due_date: dueDateVal, description: descVal,
+                connection_id: connId, connection_name: connName, solution: isS2 ? 's2' : targetType,
                 cluster: connCluster, payload, wcp_response: result,
+                project_node_id: isS2 ? (result.id || null) : null,
             });
-            showToast(`Job "${payload.jobId}" created!`, 'success');
+            showToast(`${isS2 ? 'Project' : 'Job'} "${jobIdVal}" created!`, 'success');
             misCloseJobDrawer();
             _cachedMisJobs = null;
             await loadMisMonitor();
@@ -13466,7 +13573,12 @@
 
         // Load WCP ref data — prefer the default connection for this job, then any WCP connection
         try { await misLoadRefData(defaultConnId); } catch (e) { console.warn('[MIS] Ref data load error:', e.message); }
-        const customers = cachedCustomers?.data || [];
+        // Normalize customers: S2 returns {total, items: [{id, name}]}, legacy returns {data: [{partnerId, partnerName}]}
+        const rawCust = cachedCustomers?.items || cachedCustomers?.data || (Array.isArray(cachedCustomers) ? cachedCustomers : []);
+        const customers = rawCust.map(c => ({
+            value: c.id || c.partnerId || '',
+            label: c.name || c.partnerName || '',
+        }));
         const taskTemplates = getTaskTemplateList();
         const productTemplates = getProductTemplateList();
         const preflightProfiles = cachedPreflightProfiles || [];
@@ -13482,7 +13594,7 @@
 
         // Connection selector options
         const connOpts = connections.map(c =>
-            `<option value="${c.id}" data-type="${c.type || 'wcp'}" data-name="${esc(c.name)}" data-cluster="${c.cluster || ''}" ${c.id === defaultConnId ? 'selected' : ''}>${esc(c.name)} (${(c.type || 'wcp').toUpperCase()})</option>`
+            `<option value="${c.id}" data-type="${c.type || 'wcp'}" data-api-version="${c.apiVersion || 'legacy'}" data-name="${esc(c.name)}" data-cluster="${c.cluster || ''}" ${c.id === defaultConnId ? 'selected' : ''}>${esc(c.name)} (${(c.type || 'wcp').toUpperCase()}${c.apiVersion === 's2' ? ' S2' : ''})</option>`
         ).join('');
 
         // Create overlay + drawer
@@ -13535,6 +13647,97 @@
                         <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
                     </div>
                     ${isView && job ? `<div style="margin-top:0.75rem;">${misStatusBadge(job.status)} ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''}</div>` : ''}
+                </div>
+
+                <!-- S2 Project Details — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2Section" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="layers"></i> S2 Project Details</div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body" style="max-height:2000px;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-row">
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Descriptive Name</div>
+                                    <input class="modal-edit-input" id="s2DescriptiveName" placeholder="Longer descriptive name" ${dis}>
+                                </div>
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Job Part ID</div>
+                                    <input class="modal-edit-input" id="s2JobPartId" placeholder="e.g. jobPartId_01" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
+                                </div>
+                            </div>
+                            <div class="mis-form-row">
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">MIS ID</div>
+                                    <input class="modal-edit-input" id="s2MisId" placeholder="External MIS identifier" style="font-family:var(--mono);font-size:0.78rem;" value="MyMIS" ${dis}>
+                                </div>
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Initial Status</div>
+                                    <select class="modal-edit-select" id="s2Status" ${dis}>
+                                        <option value="Created" selected>Created</option>
+                                        <option value="Active">Active</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- S2 General IDs — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2GeneralIds" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="hash"></i> General IDs <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-row">
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Print Buyer Reference</div>
+                                    <input class="modal-edit-input" id="s2PrintBuyerRef" placeholder="MIS Job Reference" ${dis}>
+                                </div>
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Project ID</div>
+                                    <input class="modal-edit-input" id="s2ProjectId" placeholder="External project ID" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- S2 Attributes — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2Attributes" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="sliders-horizontal"></i> Attributes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <div class="mis-form-row">
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Project Type</div>
+                                    <select class="modal-edit-select" id="s2ProjectType" ${dis}>
+                                        <option value="">None</option>
+                                        <option value="Prepress">Prepress</option>
+                                        <option value="Production">Production</option>
+                                    </select>
+                                </div>
+                                <div class="mis-form-group">
+                                    <div class="mis-form-label">Approval Method</div>
+                                    <select class="modal-edit-select" id="s2ApprovalMethod" ${dis}>
+                                        <option value="">None</option>
+                                        <option value="MIS">MIS</option>
+                                        <option value="WebCenter">WebCenter</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Editing Instructions</div>
+                                <textarea class="mis-form-textarea" id="s2EditingInstructions" placeholder="Instructions for the prepress operator..." ${dis}></textarea>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Tasks (WCP) — collapsible -->
@@ -13626,10 +13829,10 @@
         `;
         document.body.appendChild(drawer);
 
-        // Wire up searchable customer select
+        // Wire up searchable customer select (normalized format: {value, label})
         if (customers.length) {
             window._misCustomerSS = createSearchableSelect('misJobCustomer',
-                customers.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+                customers.map(c => ({ value: c.value, label: `${c.label} (${c.value})`, searchText: c.label })),
                 { placeholder: 'Search customers...', onchange: (val) => {
                     const codeInput = document.getElementById('misJobCustomerCode');
                     if (codeInput) codeInput.value = val;
@@ -13640,7 +13843,8 @@
         }
 
         // Wire up live preview on all form fields
-        ['misJobName','misJobId','misJobDueDate','misJobDescription','misJobCustomerCode','aeJobPartId','aeCategory','aeCustomField1'].forEach(id => {
+        ['misJobName','misJobId','misJobDueDate','misJobDescription','misJobCustomerCode','aeJobPartId','aeCategory','aeCustomField1',
+         's2DescriptiveName','s2JobPartId','s2MisId','s2Status','s2PrintBuyerRef','s2ProjectId','s2ProjectType','s2ApprovalMethod','s2EditingInstructions'].forEach(id => {
             const el = document.getElementById(id);
             if (el) { el.addEventListener('input', misUpdatePreview); el.addEventListener('change', misUpdatePreview); }
         });
@@ -13657,12 +13861,13 @@
                     clearCachedRefData();
                     await misLoadRefData(newConnId);
                     // Rebuild customer searchable select
-                    const custs = cachedCustomers?.data || [];
+                    const rawCusts = cachedCustomers?.items || cachedCustomers?.data || (Array.isArray(cachedCustomers) ? cachedCustomers : []);
+                    const custs = rawCusts.map(c => ({ value: c.id || c.partnerId || '', label: c.name || c.partnerName || '' }));
                     const custContainer = document.getElementById('misJobCustomer');
                     if (custContainer && custs.length) {
                         custContainer.innerHTML = '';
                         window._misCustomerSS = createSearchableSelect('misJobCustomer',
-                            custs.map(c => ({ value: c.partnerId, label: `${c.partnerName} (${c.partnerId})`, searchText: c.partnerName })),
+                            custs.map(c => ({ value: c.value, label: `${c.label} (${c.value})`, searchText: c.label })),
                             { placeholder: 'Search customers...', onchange: (val) => {
                                 const codeInput = document.getElementById('misJobCustomerCode');
                                 if (codeInput) codeInput.value = val;
@@ -13705,6 +13910,21 @@
                 if (aeCat && job.payload.category) aeCat.value = job.payload.category;
             }
 
+            // S2 fields from payload
+            if (job.payload?.properties) {
+                const p = job.payload.properties;
+                const setVal = (id, val) => { const el = document.getElementById(id); if (el && val) el.value = val; };
+                setVal('s2DescriptiveName', p.descriptiveName);
+                setVal('s2JobPartId', p.jobPartId);
+                setVal('s2MisId', p.MISId);
+                setVal('s2Status', p.status?.status);
+                setVal('s2PrintBuyerRef', p.generalIDs?.PrintBuyerReference);
+                setVal('s2ProjectId', p.generalIDs?.Project);
+                setVal('s2ProjectType', p.attributes?.string?.projectType);
+                setVal('s2ApprovalMethod', p.attributes?.string?.ApprovalMethod);
+                setVal('s2EditingInstructions', p.attributes?.string?.EditingInstructions);
+            }
+
             // Populate tasks from payload
             if (job.payload?.tasks?.length) {
                 for (const t of job.payload.tasks) {
@@ -13741,16 +13961,46 @@
     // Toggle collapsible sections based on selected connection type
     function misUpdateDrawerSections() {
         const type = misGetTargetType();
+        const isS2 = misIsS2();
+        const isAe = type === 'ae';
         const tasksBody = document.querySelector('#misTasksSection .mis-collapsible-body');
         const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
-        if (type === 'ae') {
-            // Collapse tasks, expand AE
+
+        // S2 sections: show/hide entirely
+        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
+        });
+
+        // Site field: hide for S2
+        const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
+        if (siteField) siteField.style.display = isS2 ? 'none' : '';
+
+        // Tasks section: hide for S2 (uses workflows) and AE
+        const tasksSection = document.getElementById('misTasksSection');
+        if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
+
+        // Products & Preflight: hide for S2
+        const prodSection = tasksSection?.nextElementSibling?.nextElementSibling; // The products card after AE section
+        // Use the AE section visibility toggle instead
+
+        if (isAe) {
             if (tasksBody && !tasksBody.classList.contains('collapsed')) { tasksBody.style.maxHeight = '0'; tasksBody.classList.add('collapsed'); }
             if (aeBody && aeBody.classList.contains('collapsed')) { aeBody.classList.remove('collapsed'); aeBody.style.maxHeight = aeBody.scrollHeight + 'px'; }
+            const aeSection = document.getElementById('misAeSection');
+            if (aeSection) aeSection.style.display = '';
+        } else if (isS2) {
+            // S2: hide tasks and AE, show S2 sections
+            if (tasksBody && !tasksBody.classList.contains('collapsed')) { tasksBody.style.maxHeight = '0'; tasksBody.classList.add('collapsed'); }
+            if (aeBody && !aeBody.classList.contains('collapsed')) { aeBody.style.maxHeight = '0'; aeBody.classList.add('collapsed'); }
+            const aeSection = document.getElementById('misAeSection');
+            if (aeSection) aeSection.style.display = 'none';
         } else {
-            // Expand tasks, collapse AE
+            // Legacy WCP: show tasks, hide AE and S2
             if (aeBody && !aeBody.classList.contains('collapsed')) { aeBody.style.maxHeight = '0'; aeBody.classList.add('collapsed'); }
             if (tasksBody && tasksBody.classList.contains('collapsed')) { tasksBody.classList.remove('collapsed'); tasksBody.style.maxHeight = tasksBody.scrollHeight + 'px'; }
+            const aeSection = document.getElementById('misAeSection');
+            if (aeSection) aeSection.style.display = '';
         }
     }
 
@@ -13815,39 +14065,54 @@
         const connOpt = connSel?.selectedOptions?.[0];
         const connId = connSel?.value;
         const targetType = connOpt?.dataset?.type || 'wcp';
+        const apiVersion = connOpt?.dataset?.apiVersion || 'legacy';
         const connName = connOpt?.dataset?.name || '';
         const connCluster = connOpt?.dataset?.cluster || '';
         const isWcp = targetType !== 'ae';
+        const isS2 = apiVersion === 's2';
 
         if (!connId) return showToast('Select a connection to submit to', 'error');
 
         const payload = misBuildPayload();
-        if (!payload.jobName) return showToast('Enter a job name', 'error');
-        if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
-        if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
-        if (isWcp) for (const t of payload.tasks) {
-            if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
-            if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+
+        // Validation — different for S2 vs legacy
+        if (isS2) {
+            if (!payload.properties?.projectName) return showToast('Enter a project name', 'error');
+            if (!payload.properties?.jobId) return showToast('Enter a job ID', 'error');
+        } else {
+            if (!payload.jobName) return showToast('Enter a job name', 'error');
+            if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
+            if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+            if (isWcp) for (const t of payload.tasks) {
+                if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
+                if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
+            }
         }
 
         const btn = document.getElementById('misDrawerSubmitBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Submitting...'; }
 
-        // Save draft with updated payload + connection info
+        // Extract values from payload for job record (S2 vs legacy format)
+        const jobNameVal = isS2 ? (payload.properties?.projectName || '') : (payload.jobName || '');
+        const custCode = isS2 ? (payload.properties?.customers?.[0]?.ref || '') : (payload.customerCode || document.getElementById('misJobCustomerCode')?.value || '');
         const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '';
+        const dueDateVal = isS2 ? (payload.properties?.dueDate || null) : (payload.dueDate || null);
+        const descVal = isS2 ? (payload.properties?.description || '') : (payload.description || '');
+
+        // Save draft with updated payload + connection info
         try {
             await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
                 body: JSON.stringify({
-                    job_name: payload.jobName,
-                    customer_code: payload.customerCode || document.getElementById('misJobCustomerCode')?.value || '',
+                    job_name: jobNameVal,
+                    customer_code: custCode,
                     customer_name: custDisplay || document.getElementById('misJobCustomerCode')?.value || '',
-                    due_date: payload.dueDate || null,
-                    description: payload.description,
+                    due_date: dueDateVal,
+                    description: descVal,
                     payload,
-                    solution: targetType,
+                    solution: isS2 ? 's2' : targetType,
                     connection_id: connId,
                     connection_name: connName,
                     cluster: connCluster,
@@ -13859,22 +14124,30 @@
             return;
         }
 
-        // Submit to WCP/AE using selected connection
+        // Submit to S2/WCP/AE using selected connection
         try {
             const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connId };
-            const resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            let resp;
+            if (isS2) {
+                resp = await fetch(`${MIS_API_BASE}/projects`, { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            } else {
+                resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
+            }
             const text = await resp.text().catch(() => '');
             let data; try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
             if (!resp.ok) { const detail = data.error || data.message || `HTTP ${resp.status}`; throw new Error(typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)); }
+
+            const updateFields = { status: 'Created', wcp_response: data };
+            if (isS2 && data?.id) updateFields.project_node_id = data.id;
 
             await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'same-origin',
-                body: JSON.stringify({ status: 'Created', wcp_response: data }),
+                body: JSON.stringify(updateFields),
             });
             _cachedMisJobs = null;
-            showToast('Job submitted successfully!', 'success');
+            showToast(`${isS2 ? 'Project' : 'Job'} submitted successfully!`, 'success');
             misCloseJobDrawer();
             await loadMisMonitor();
         } catch (e) {
