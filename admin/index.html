@@ -13316,12 +13316,16 @@
 
     function misGetTargetType() {
         const sel = document.getElementById('misTargetConnection');
-        return sel?.selectedOptions?.[0]?.dataset?.type || 'wcp';
+        if (sel) return sel.selectedOptions?.[0]?.dataset?.type || 'wcp';
+        // Fallback: check drawer data attribute (set for view mode)
+        return document.getElementById('misDrawer')?.dataset?.connType || 'wcp';
     }
 
     function misGetTargetApiVersion() {
         const sel = document.getElementById('misTargetConnection');
-        return sel?.selectedOptions?.[0]?.dataset?.apiVersion || 'legacy';
+        if (sel) return sel.selectedOptions?.[0]?.dataset?.apiVersion || 'legacy';
+        // Fallback: check drawer data attribute (set for view mode)
+        return document.getElementById('misDrawer')?.dataset?.apiVersion || 'legacy';
     }
 
     function misIsS2() {
@@ -13666,9 +13670,16 @@
         overlay.onclick = misCloseJobDrawer;
         document.body.appendChild(overlay);
 
+        // Determine API version for this job/connection (needed for view mode where no dropdown exists)
+        const drawerConnProfile = (_misProfilesCache || []).find(p => p.id === defaultConnId);
+        const drawerApiVersion = drawerConnProfile?.apiVersion || (hasJob && (job?.solution === 's2' || job?.project_node_id) ? 's2' : 'legacy');
+        const drawerConnType = drawerConnProfile?.type || (hasJob ? (job?.solution || 'wcp') : 'wcp');
+
         const drawer = document.createElement('div');
         drawer.className = 'mis-drawer';
         drawer.id = 'misDrawer';
+        drawer.dataset.apiVersion = drawerApiVersion;
+        drawer.dataset.connType = drawerConnType === 's2' ? 'wcp' : drawerConnType;
         drawer.onclick = (e) => e.stopPropagation();
         drawer.innerHTML = `
             <div class="mis-drawer-header">
@@ -13875,6 +13886,19 @@
                     </div>
                 </div>
 
+                <!-- S2 Assets — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2AssetsSection" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="image"></i> Assets <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body" style="max-height:2000px;">
+                        <div style="padding-top:0.75rem;">
+                            <div id="misDrawerAssets"></div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- Payload Preview — collapsible -->
                 <div class="mis-card">
                     <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
@@ -14035,6 +14059,17 @@
         // Set initial collapsible states based on selected connection
         misUpdateDrawerSections();
 
+        // Load S2 assets/thumbnails if this is an S2 job with a project node ID
+        if (hasJob && job) {
+            const jobConnProfile = (_misProfilesCache || []).find(p => p.id === job.connection_id);
+            const jobIsS2 = job.solution === 's2' || job.project_node_id || jobConnProfile?.apiVersion === 's2';
+            const jobNodeId = job.project_node_id || job.wcp_response?.id;
+            if (jobIsS2 && jobNodeId && job.connection_id) {
+                const assetsContainer = document.getElementById('misDrawerAssets');
+                if (assetsContainer) misLoadProjectThumbnails(jobNodeId, job.connection_id, assetsContainer);
+            }
+        }
+
         // Animate open
         requestAnimationFrame(() => { overlay.classList.add('open'); drawer.classList.add('open'); });
         refreshIcons();
@@ -14051,7 +14086,7 @@
         const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
 
         // S2 sections: show/hide entirely
-        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2WorkflowSection'].forEach(id => {
+        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2WorkflowSection', 'misS2AssetsSection'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
@@ -14331,7 +14366,10 @@
                         <th>Job ID</th><th>Name</th><th>Customer</th><th>Type</th><th>Status</th><th>Phase</th><th>Due</th><th style="width:80px;"></th>
                     </tr></thead>
                     <tbody>${jobs.map(j => {
-                        const hasS2Preview = !!(j.project_node_id && j.connection_id);
+                        const connProf = (_misProfilesCache || []).find(p => p.id === j.connection_id);
+                        const isS2Job = j.solution === 's2' || j.project_node_id || connProf?.apiVersion === 's2';
+                        const s2NodeId = j.project_node_id || j.wcp_response?.id || '';
+                        const hasS2Preview = !!(isS2Job && j.connection_id && s2NodeId);
                         return `
                         <tr data-job-row="${j.id}">
                             <td><input type="checkbox" class="mis-checkbox mis-job-select" value="${j.id}" data-jobid="${esc(j.job_id || '')}" onchange="misUpdateSelection()"></td>
@@ -14343,7 +14381,7 @@
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;white-space:nowrap;">
-                                ${hasS2Preview ? `<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0.2rem;" onclick="misToggleThumbnails('${j.id}','${j.project_node_id}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye" style="width:14px;height:14px;"></i></button>` : ''}
+                                ${hasS2Preview ? `<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0.2rem;" onclick="misToggleThumbnails('${j.id}','${s2NodeId}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye" style="width:14px;height:14px;"></i></button>` : ''}
                                 ${j.status === 'Draft' ? `<button class="action-btn" onclick="misSubmitDraftJob('${j.id}')" title="Submit job" style="color:var(--accent);"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i></button>` : ''}
                                 <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
                             </td>
@@ -14403,11 +14441,16 @@
         const errors = [];
         const results = await Promise.allSettled(jobs.map(async ({ id, job_id }) => {
             const job = (_cachedMisJobs || []).find(j => j.id === id);
-            const isS2 = job?.solution === 's2' || job?.project_node_id;
+            // Determine if this is an S2 connection by checking the connection's api_version
+            const connProfile = (_misProfilesCache || []).find(p => p.id === job?.connection_id);
+            const isS2 = job?.solution === 's2' || job?.project_node_id || connProfile?.apiVersion === 's2';
 
-            if (isS2 && job?.project_node_id && job?.connection_id) {
+            if (isS2 && job?.connection_id) {
                 // S2: fetch project info via S2 API
-                const details = await misGetForConnection('projects/' + job.project_node_id, job.connection_id);
+                // Use project_node_id if available, otherwise try wcp_response.id
+                const nodeId = job.project_node_id || job.wcp_response?.id;
+                if (!nodeId) throw new Error(`${job_id}: S2 project but no project_node_id stored. Re-create the job.`);
+                const details = await misGetForConnection('projects/' + nodeId, job.connection_id);
                 if (!details || details.error) throw new Error(`${job_id}: ${details?.error || 'S2 API returned no data'}`);
                 const status = details.properties?.status?.status;
                 const phase = details.properties?.status?.phase;
@@ -14522,14 +14565,16 @@
                 headers: { 'Accept': 'application/json', 'X-MIS-Connection-Id': connectionId },
                 credentials: 'same-origin',
             });
-            if (!resp.ok) throw new Error('Failed to fetch assets');
+            if (!resp.ok) throw new Error(`Failed to fetch assets (HTTP ${resp.status})`);
             const data = await resp.json();
-            const assets = data?.items || data || [];
-            if (!assets.length && !Array.isArray(assets)) {
-                container.innerHTML = '<div class="mis-thumb-empty">No assets found for this project.</div>';
-                return;
-            }
-            const assetList = Array.isArray(assets) ? assets : [];
+            console.log('[MIS] Project assets response:', JSON.stringify(data).slice(0, 500));
+            // Normalize: S2 may return {items:[]}, an array, or {children:[]} etc.
+            let assetList = [];
+            if (Array.isArray(data)) assetList = data;
+            else if (data?.items && Array.isArray(data.items)) assetList = data.items;
+            else if (data?.children && Array.isArray(data.children)) assetList = data.children;
+            // Filter to items that have an id and are not folders
+            assetList = assetList.filter(a => a && (a.id || a.nodeId) && a.nodeType !== 'Folder');
             if (!assetList.length) {
                 container.innerHTML = '<div class="mis-thumb-empty">No assets found for this project.</div>';
                 return;
@@ -14541,15 +14586,16 @@
 
             // Load thumbnails in parallel
             await Promise.allSettled(assetList.map(async (asset) => {
+                const assetId = asset.id || asset.nodeId;
                 const card = document.createElement('div');
                 card.className = 'mis-thumb-card';
                 const img = document.createElement('img');
-                img.alt = asset.name || asset.id || 'Asset';
+                img.alt = asset.name || assetId || 'Asset';
                 img.style.background = 'var(--void)';
 
                 // Fetch thumbnail with auth header, convert to blob URL
                 try {
-                    const thumbResp = await fetch(`${MIS_API_BASE}/assets/${asset.id}/thumbnail`, {
+                    const thumbResp = await fetch(`${MIS_API_BASE}/assets/${assetId}/thumbnail`, {
                         headers: { 'X-MIS-Connection-Id': connectionId },
                         credentials: 'same-origin',
                     });
@@ -14565,8 +14611,8 @@
 
                 const name = document.createElement('div');
                 name.className = 'mis-thumb-name';
-                name.textContent = asset.name || asset.id || 'Unknown';
-                name.title = asset.name || asset.id || '';
+                name.textContent = asset.name || assetId || 'Unknown';
+                name.title = asset.name || assetId || '';
 
                 card.appendChild(img);
                 card.appendChild(name);
