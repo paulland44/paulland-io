@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- v1775898147 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9407,11 +9407,21 @@
 
     async function fetchBookingsData() {
         if (bookingsDataCache) return bookingsDataCache;
-        const { data, error } = await db
-            .from('bookings')
-            .select('product_code, customer_name, country, subsegment, booking_type, order_type, week, year, channel, value_2024, value_2025, value_2026');
-        if (error || !data) return null;
-        bookingsDataCache = data;
+        // Supabase defaults to 1000 rows — we have 9000+, need pagination
+        let allData = [];
+        let offset = 0;
+        const pageSize = 1000;
+        while (true) {
+            const { data, error } = await db
+                .from('bookings')
+                .select('product_code, customer_name, country, subsegment, booking_type, order_type, week, year, channel, value_2023, value_2024, value_2025, value_2026, source_file')
+                .range(offset, offset + pageSize - 1);
+            if (error || !data || !data.length) break;
+            allData = allData.concat(data);
+            if (data.length < pageSize) break;
+            offset += pageSize;
+        }
+        bookingsDataCache = allData;
         return bookingsDataCache;
     }
 
@@ -9422,18 +9432,45 @@
         const allRows = allBookings.filter(r => r.product_code.startsWith(prefix));
         if (!allRows.length) return null;
 
-        // If targetYear specified, filter rows to that year; otherwise use all
+        // Use the target year's value column — don't filter by r.year since it's unreliable
+        // (import sets year based on which value column has data, so a row with value_2025
+        // might have year=2024 if it also had prior year data)
         const yr = targetYear || 2026;
         const valKey = 'value_' + yr;
         const pyKey = 'value_' + (yr - 1);
         const py2Key = 'value_' + (yr - 2);
 
-        // Use rows from the target year's dataset (year column matches)
-        const rows = targetYear ? allRows.filter(r => r.year === targetYear) : allRows;
+        // Find the reporting period cutoff (first week gap across all products)
+        let reportCutoff = 52;
+        if (yr >= new Date().getFullYear()) {
+            const allWeeksInYear = new Set();
+            allBookings.forEach(r => { if (r['value_' + yr]) allWeeksInYear.add(r.week); });
+            for (let w = 1; w <= 52; w++) {
+                if (!allWeeksInYear.has(w)) { reportCutoff = w - 1; break; }
+            }
+        }
+
+        // Identify the primary source file for the target year
+        // Each year's data must come from ONE file to avoid double-counting
+        // The primary file is the one where the target year is the LATEST year column
+        const sourceFiles = [...new Set(allRows.map(r => r.source_file).filter(Boolean))];
+        const primaryFile = sourceFiles.find(f => {
+            if (!allRows.some(r => r.source_file === f && r[valKey])) return false;
+            const laterKey = 'value_' + (yr + 1);
+            return !allRows.some(r => r.source_file === f && r[laterKey]);
+        }) || sourceFiles[0];
+
+        // All rows from the primary file within reporting period
+        const fileRows = allRows.filter(r => r.source_file === primaryFile && r.week <= reportCutoff);
+        // Rows with current year data (for aggregations)
+        const rows = fileRows.filter(r => r[valKey] != null && r[valKey] !== 0);
 
         const ytdCurrent = rows.reduce((s, r) => s + (r[valKey] || 0), 0);
-        const ytdPy = rows.reduce((s, r) => s + (r[pyKey] || 0), 0);
-        const ytdPy2 = rows.reduce((s, r) => s + (r[py2Key] || 0), 0);
+
+        // PY: sum from ALL rows in the primary file (not just those with current year data)
+        // This includes orders that existed last year but didn't renew this year
+        const ytdPy = fileRows.reduce((s, r) => s + (r[pyKey] || 0), 0);
+        const ytdPy2 = fileRows.reduce((s, r) => s + (r[py2Key] || 0), 0);
         const growthPct = ytdPy > 0 ? (ytdCurrent - ytdPy) / Math.abs(ytdPy) : (ytdCurrent > 0 ? 1 : null);
 
         // Aggregate using the target year's value
@@ -9453,10 +9490,22 @@
         const countryMap = agg('country');
         const byCountry = Object.entries(countryMap).map(([c, v]) => ({ country: c, value: v })).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
 
-        const byBookingType = agg('booking_type');
+        // Normalise booking type variants (3.1 ACV New / 3.2 ACV New are the same concept)
+        const rawBkType = agg('booking_type');
+        const byBookingType = {};
+        Object.entries(rawBkType).forEach(([k, v]) => {
+            const norm = k.replace(/^3\.\d\s+ACV\s+/i, 'ACV ').replace('1. Sales Orders', 'Sales Orders');
+            byBookingType[norm] = (byBookingType[norm] || 0) + v;
+        });
         const byOrderType = agg('order_type');
 
-        const segMap = agg('subsegment');
+        // Segments — aggregate to top-level (before the dash): "Brand Owner - FMCG" → "Brand Owner"
+        const rawSegMap = agg('subsegment');
+        const segMap = {};
+        Object.entries(rawSegMap).forEach(([k, v]) => {
+            const topLevel = k.includes(' - ') ? k.split(' - ')[0].trim() : k;
+            segMap[topLevel] = (segMap[topLevel] || 0) + v;
+        });
         const bySegment = Object.entries(segMap).map(([s, v]) => ({ segment: s, value: v })).filter(s => s.value > 0).sort((a, b) => b.value - a.value);
 
         const weekMap = {};
@@ -9494,12 +9543,16 @@
 
     // Build 4-year trends from prior-year columns across both file imports
     function buildMultiYearTrends(allRows, prefix) {
-        const rows25 = allRows.filter(r => r.year === 2025); // 2025 file: has value_2023/2024/2025
-        const rows26 = allRows.filter(r => r.year === 2026); // 2026 file: has value_2024/2025/2026
+        // Use rows from the PRIMARY source file for each year to avoid double-counting
+        const sourceFiles = [...new Set(allRows.map(r => r.source_file).filter(Boolean))];
+        // 2025 file = primary for 2023/2024/2025, 2026 file = primary for 2026
+        const file25 = sourceFiles.find(f => !allRows.some(r => r.source_file === f && r.value_2026)) || sourceFiles[0];
+        const file26 = sourceFiles.find(f => allRows.some(r => r.source_file === f && r.value_2026)) || sourceFiles[0];
+        const rows25 = allRows.filter(r => r.source_file === file25);
+        const rows26 = allRows.filter(r => r.source_file === file26);
         if (!rows25.length && !rows26.length) return null;
 
         const years = ['2023', '2024', '2025', '2026'];
-        // For each year, pick the best source: 2023 from 2025-file, 2024/2025 from 2025-file (full year), 2026 from 2026-file
         const sourceRows = { '2023': rows25, '2024': rows25, '2025': rows25, '2026': rows26 };
 
         // Order type totals per year
@@ -9893,6 +9946,9 @@
 
     let salesProductSubTab = 'overview'; // 'overview' | 'revenue' | 'bookings'
     let salesRevenueYear = 0; // 0 = auto (latest), otherwise 2025 or 2026
+    let salesBookingsYear = 0; // 0 = auto (latest), otherwise 2025 or 2026
+    let salesOverviewYear = 0; // 0 = auto (latest)
+    let salesSegmentFilter = ''; // '' = all, otherwise top-level segment name e.g. 'Brand Owner'
 
     async function loadSalesProductDetail(productCode) {
         destroySalesCharts();
@@ -9979,10 +10035,18 @@
             </div>`;
         };
 
-        // Use the best available bookings data for the bookings tab (prefer 2026, show both)
-        const bkDisplay = bk26 || bk25;
-        const bkYear = bk26 ? 2026 : 2025;
-        const bkYearLabel = bk26 ? '2026 YTD' : '2025 Full Year';
+        // Segment filter — if active, filter the bookings data before analysis
+        const filteredBookings = salesSegmentFilter
+            ? allBookings.filter(r => r.subsegment && r.subsegment.startsWith(salesSegmentFilter))
+            : allBookings;
+        const bk26f = getProductBookings(filteredBookings, productCode, 2026);
+        const bk25f = getProductBookings(filteredBookings, productCode, 2025);
+
+        // Bookings year selection — respect salesBookingsYear if set
+        const bkAvailYears = [bk25f ? 2025 : null, bk26f ? 2026 : null].filter(Boolean);
+        const bkYear = salesBookingsYear && bkAvailYears.includes(salesBookingsYear) ? salesBookingsYear : (bk26f ? 2026 : 2025);
+        const bkDisplay = bkYear === 2026 ? bk26f : bk25f;
+        const bkYearLabel = bkYear === 2026 ? '2026 YTD' : '2025 Full Year';
 
         main.innerHTML = `
             <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
@@ -10045,10 +10109,44 @@
                         <div style="height:220px;"><canvas id="salesOvMixChart"></canvas></div>
                     </div>
                     <div class="sales-chart-card">
-                        <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Top 5 Customers (2026 Bookings)</h3>
+                        <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Top 5 Customers (${bkYear} Bookings)</h3>
                         <div style="height:220px;"><canvas id="salesOvCustChart"></canvas></div>
                     </div>
                 </div>
+                ${rev && bkDisplay ? (() => {
+                    // Revenue vs Bookings correlation by type
+                    const revYr = rev.monthlyData.filter(m => m.year === bkYear);
+                    const revSaas = revYr.reduce((s, m) => s + m.saas, 0);
+                    const revMaint = revYr.reduce((s, m) => s + m.maintenance, 0);
+                    const revServ = revYr.reduce((s, m) => s + m.services, 0);
+                    const revPerp = revYr.reduce((s, m) => s + m.perpetual, 0);
+                    const revTotal = revYr.reduce((s, m) => s + m.actual, 0);
+
+                    const bkSaas = ((bkDisplay.byOrderType?.['2. SaaS'] || 0) + (bkDisplay.byOrderType?.['5. Subscriptions'] || 0)) / 1000;
+                    const bkServ = ((bkDisplay.byOrderType?.['4. Non-Recurring Services'] || 0)) / 1000;
+                    const bkPerp = ((bkDisplay.byOrderType?.['1. System / License Sales'] || 0)) / 1000;
+                    const bkTotal = bkDisplay.ytd.current / 1000;
+
+                    const ratio = (v1, v2) => v2 > 0 ? (v1 / v2).toFixed(2) + 'x' : '—';
+                    const ratioClass = (v1, v2) => v2 > 0 ? (v1 / v2 >= 1 ? 'positive' : 'negative') : '';
+
+                    return `
+                <div class="sales-dashboard-grid" style="grid-template-columns: 1fr;">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="git-compare" style="width:16px;height:16px;"></i> Revenue vs Bookings — ${bkYearLabel}</h3>
+                        <table class="support-table" style="font-size:0.82rem;">
+                            <thead><tr><th>Type</th><th style="text-align:right;">Revenue</th><th style="text-align:right;">Bookings</th><th style="text-align:right;">B:R Ratio</th><th>Note</th></tr></thead>
+                            <tbody>
+                                <tr><td style="font-weight:500;">SaaS / Subscriptions</td><td style="text-align:right;">$${salesFmtK(revSaas)}k</td><td style="text-align:right;">$${salesFmtK(bkSaas)}k</td><td style="text-align:right;"><span class="sales-growth ${ratioClass(bkSaas, revSaas)}">${ratio(bkSaas, revSaas)}</span></td><td style="color:var(--text-muted);font-size:0.75rem;">Bookings ≈ Revenue — new subscriptions booked</td></tr>
+                                <tr><td style="font-weight:500;">Maintenance</td><td style="text-align:right;">$${salesFmtK(revMaint)}k</td><td style="text-align:right;color:var(--text-muted);">—</td><td style="text-align:right;color:var(--text-muted);">N/A</td><td style="color:var(--text-muted);font-size:0.75rem;">Auto-renewal from installed base, not in bookings</td></tr>
+                                <tr><td style="font-weight:500;">Non-Recurring Services</td><td style="text-align:right;">$${salesFmtK(revServ)}k</td><td style="text-align:right;">$${salesFmtK(bkServ)}k</td><td style="text-align:right;"><span class="sales-growth ${ratioClass(bkServ, revServ)}">${ratio(bkServ, revServ)}</span></td><td style="color:var(--text-muted);font-size:0.75rem;">>1.0 = services booked but not yet delivered</td></tr>
+                                <tr><td style="font-weight:500;">Perpetual / License</td><td style="text-align:right;">$${salesFmtK(revPerp)}k</td><td style="text-align:right;">$${salesFmtK(bkPerp)}k</td><td style="text-align:right;"><span class="sales-growth ${ratioClass(bkPerp, revPerp)}">${ratio(bkPerp, revPerp)}</span></td><td style="color:var(--text-muted);font-size:0.75rem;">Declining as business transitions to SaaS</td></tr>
+                                <tr style="border-top:2px solid var(--border);"><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">$${salesFmtK(revTotal)}k</td><td style="text-align:right;font-weight:700;">$${salesFmtK(bkTotal)}k</td><td style="text-align:right;font-weight:700;"><span class="sales-growth ${ratioClass(bkTotal, revTotal)}">${ratio(bkTotal, revTotal)}</span></td><td style="color:var(--text-muted);font-size:0.75rem;">Below 1.0 due to maintenance (${revTotal > 0 ? Math.round(revMaint / revTotal * 100) : 0}% of revenue)</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>`;
+                })() : ''}
             </div>
 
             <!-- ═══ REVENUE TAB ═══ -->
@@ -10124,6 +10222,19 @@
             <!-- ═══ BOOKINGS TAB ═══ -->
             <div id="salesTabBookings" style="${tab !== 'bookings' ? 'display:none;' : ''}">
                 ${bkDisplay ? `
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        <div style="font-size:0.85rem;color:var(--text-muted);">${bkYearLabel} · ${bkDisplay.uniqueCustomers} customers · ${bkDisplay.uniqueCountries} countries</div>
+                        ${salesSegmentFilter ? `<span style="font-size:0.75rem;background:var(--accent);color:var(--void);padding:0.15rem 0.5rem;border-radius:var(--radius-pill);font-weight:600;cursor:pointer;" class="sales-seg-clear" title="Clear filter">✕ ${esc(salesSegmentFilter)}</span>` : ''}
+                    </div>
+                    <div style="display:flex;gap:0.25rem;align-items:center;">
+                        <select class="sales-period-select" id="salesSegmentSelect" style="font-size:0.78rem;padding:0.25rem 0.5rem;min-width:100px;">
+                            <option value="">All Segments</option>
+                            ${(bk ? (getProductBookings(allBookings, productCode, bkYear)?.bySegment || []) : []).map(s => `<option value="${esc(s.segment)}" ${salesSegmentFilter === s.segment ? 'selected' : ''}>${esc(s.segment)}</option>`).join('')}
+                        </select>
+                        ${bkAvailYears.map(y => `<button class="sales-period-select sales-bk-year ${y === bkYear ? 'active' : ''}" data-bkyear="${y}" style="cursor:pointer;${y === bkYear ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">${y}</button>`).join('')}
+                    </div>
+                </div>
                 <div class="sales-metrics" style="grid-template-columns: repeat(5, 1fr);">
                     <div class="sales-product-card">
                         <div class="product-code">${bkYearLabel}</div>
@@ -10152,7 +10263,7 @@
 
                 <div class="sales-dashboard-grid">
                     <div class="sales-chart-card">
-                        <h3><i data-lucide="activity" style="width:16px;height:16px;"></i> Weekly Bookings (${bkYear})</h3>
+                        <h3><i data-lucide="activity" style="width:16px;height:16px;"></i> Weekly Bookings — ${bkYear} vs ${bkYear - 1}</h3>
                         <div style="height:260px;"><canvas id="salesBkWeekChart"></canvas></div>
                     </div>
                     <div class="sales-chart-card">
@@ -10323,13 +10434,22 @@
                 const { fullLabels, fullActual, fullPy, fullSaas, fullMaint, fullServ, fullPerp, selYear } = rd;
                 const shortLabels = fullLabels.map(l => l.split(' ')[0]); // Just month names
 
-                // Revenue trend (actual vs PY — 12-month window)
+                // Revenue trend — monthly bars + cumulative lines (like bookings)
+                let cumCur = 0, cumPy = 0;
+                const cumActual = fullActual.map(v => { if (v != null) cumCur += v; return v != null ? Math.round(cumCur) : null; });
+                const cumPyArr = fullPy.map(v => { if (v != null) cumPy += v; return v != null ? Math.round(cumPy) : null; });
+
                 const revTrendCtx = document.getElementById('salesRevTrendChart');
                 if (revTrendCtx) {
-                    salesCharts.push(new Chart(revTrendCtx, { type: 'line', data: { labels: shortLabels, datasets: [
-                        { label: selYear + ' Actual', data: fullActual, borderColor: color.border, backgroundColor: color.bg, tension: 0.3, pointRadius: 4, fill: false, spanGaps: false },
-                        { label: (selYear - 1) + ' (PY)', data: fullPy, borderColor: 'rgba(160,160,160,0.5)', tension: 0.3, pointRadius: 4, borderDash: [5, 5], fill: false, spanGaps: false },
-                    ]}, options: { ...chartOpts, scales: { x: xScale, y: yScale } } }));
+                    salesCharts.push(new Chart(revTrendCtx, { type: 'bar', data: { labels: shortLabels, datasets: [
+                        { label: selYear + ' Monthly', data: fullActual, backgroundColor: color.bg, borderRadius: 2, yAxisID: 'y', order: 3 },
+                        { label: selYear + ' Cumulative', data: cumActual, type: 'line', borderColor: 'rgba(196,168,80,0.9)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, yAxisID: 'y1', order: 1, spanGaps: false },
+                        { label: (selYear - 1) + ' Cumulative', data: cumPyArr, type: 'line', borderColor: 'rgba(160,160,160,0.5)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1, borderDash: [4, 4], yAxisID: 'y1', order: 2, spanGaps: false },
+                    ]}, options: { ...chartOpts, scales: {
+                        x: xScale,
+                        y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC }, beginAtZero: true },
+                        y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { display: false }, beginAtZero: true },
+                    } } }));
                 }
 
                 // YoY comparison — grouped bar (actual vs PY side by side)
@@ -10377,7 +10497,7 @@
             // Store raw rows for interactive filtering
             const prefix = productCode.replace('PC', '');
             const valKey = 'value_' + bkYear;
-            const rawRows = (allBookings || []).filter(r => r.product_code.startsWith(prefix) && r.year === bkYear);
+            const rawRows = (filteredBookings || []).filter(r => r.product_code.startsWith(prefix) && r[valKey]);
 
             // Function to update customer table with filtered data
             function updateCustomerTable(filteredRows, filterLabel) {
@@ -10412,23 +10532,57 @@
                 }
             }
 
-            // Render weekly chart with click handler
+            // Render weekly chart — full 52-week x-axis with PY overlay and click handler
             const weekCtx = document.getElementById('salesBkWeekChart');
-            if (weekCtx && bkDisplay?.byWeek?.length) {
-                const w = bkDisplay.byWeek;
-                const vals = w.map(x => x.value / 1000);
-                let cum = 0;
-                const cumVals = w.map(x => { cum += x.value / 1000; return Math.round(cum * 10) / 10; });
-                const weekChart = new Chart(weekCtx, { type: 'bar', data: { labels: w.map(x => 'W' + x.week), datasets: [
-                    { label: 'Weekly', data: vals, backgroundColor: vals.map(v => v >= 0 ? color.bg : 'rgba(220,60,60,0.5)'), borderRadius: 2, yAxisID: 'y', order: 2 },
-                    { label: 'Cumulative', data: cumVals, type: 'line', borderColor: 'rgba(196,168,80,0.8)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2, yAxisID: 'y1', order: 1 },
+            if (weekCtx) {
+                // Build full 52-week data for current year
+                const curWeekMap = {};
+                (bkDisplay?.byWeek || []).forEach(w => { curWeekMap[w.week] = w.value / 1000; });
+
+                // For current/partial year: find the reporting period cutoff
+                // Use ALL products' data to find the contiguous reporting period (not per-product,
+                // since smaller products have sparse weeks). Find first gap across all products.
+                let maxReportWeek = 52;
+                if (bkYear >= new Date().getFullYear()) {
+                    const valK = 'value_' + bkYear;
+                    const allWeeksSet = new Set();
+                    (allBookings || []).forEach(r => { if (r[valK]) allWeeksSet.add(r.week); });
+                    for (let w = 1; w <= 52; w++) {
+                        if (!allWeeksSet.has(w)) { maxReportWeek = w - 1; break; }
+                    }
+                }
+
+                // Get PY weekly data
+                const pyBk = bkYear === 2026 ? bk25 : getProductBookings(allBookings, productCode, bkYear - 1);
+                const pyWeekMap = {};
+                (pyBk?.byWeek || []).forEach(w => { pyWeekMap[w.week] = w.value / 1000; });
+
+                // Full 52-week arrays — cap current year bars at the reporting week
+                const weekLabels = Array.from({ length: 52 }, (_, i) => 'W' + (i + 1));
+                const curVals = weekLabels.map((_, i) => (i + 1) <= maxReportWeek ? (curWeekMap[i + 1] ?? null) : null);
+                const pyVals = weekLabels.map((_, i) => pyWeekMap[i + 1] ?? null);
+
+                // Cumulative lines
+                let cumCur = 0, cumPy = 0;
+                const cumCurVals = curVals.map(v => { if (v != null) cumCur += v; return v != null ? Math.round(cumCur * 10) / 10 : null; });
+                const cumPyVals = pyVals.map(v => { if (v != null) cumPy += v; return v != null ? Math.round(cumPy * 10) / 10 : null; });
+
+                const weekChart = new Chart(weekCtx, { type: 'bar', data: { labels: weekLabels, datasets: [
+                    { label: bkYear + ' Weekly', data: curVals, backgroundColor: curVals.map(v => v != null && v >= 0 ? color.bg : v != null ? 'rgba(220,60,60,0.5)' : 'transparent'), borderRadius: 2, yAxisID: 'y', order: 3 },
+                    { label: bkYear + ' Cumulative', data: cumCurVals, type: 'line', borderColor: 'rgba(196,168,80,0.9)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 1, yAxisID: 'y1', order: 1, spanGaps: false },
+                    { label: (bkYear - 1) + ' Cumulative', data: cumPyVals, type: 'line', borderColor: 'rgba(160,160,160,0.5)', backgroundColor: 'transparent', tension: 0.3, pointRadius: 0, borderDash: [4, 4], yAxisID: 'y1', order: 2, spanGaps: false },
                 ]}, options: { ...chartOpts, onClick: (evt, elements) => {
                     if (elements.length && elements[0].datasetIndex === 0) {
-                        const weekNum = w[elements[0].index].week;
+                        const weekNum = elements[0].index + 1;
                         const filtered = rawRows.filter(r => r.week === weekNum);
                         updateCustomerTable(filtered, 'Week ' + weekNum);
                     }
-                }, scales: { x: xScale, y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC } }, y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { display: false } } } } });
+                }, plugins: { ...chartOpts.plugins, legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 9 } } } },
+                scales: {
+                    x: { ...xScale, ticks: { ...xScale.ticks, maxTicksLimit: 26 } },
+                    y: { position: 'left', ticks: { color: muted, callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { color: borderC } },
+                    y1: { position: 'right', ticks: { color: 'rgba(196,168,80,0.8)', callback: v => '$' + salesFmtK(v) + 'k', font: { size: 10 } }, grid: { display: false } },
+                } } });
                 salesCharts.push(weekChart);
             }
 
@@ -10554,6 +10708,24 @@
                     }
                 }
             }
+
+            // Bookings year selector
+            document.querySelectorAll('.sales-bk-year').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    salesBookingsYear = parseInt(btn.dataset.bkyear);
+                    loadSalesProductDetail(productCode);
+                });
+            });
+
+            // Segment filter
+            document.getElementById('salesSegmentSelect')?.addEventListener('change', (e) => {
+                salesSegmentFilter = e.target.value;
+                loadSalesProductDetail(productCode);
+            });
+            document.querySelector('.sales-seg-clear')?.addEventListener('click', () => {
+                salesSegmentFilter = '';
+                loadSalesProductDetail(productCode);
+            });
         }
     }
 
