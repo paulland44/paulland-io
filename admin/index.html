@@ -1,4 +1,4 @@
-<!-- v1775903797 -->
+<!-- v1775904188 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9393,6 +9393,10 @@
                 maintenance: maint?.actual || 0,
                 services: services?.actual || 0,
                 perpetual: perpetual?.actual || 0,
+                pySaas: saas?.prior_year || 0,
+                pyMaint: maint?.prior_year || 0,
+                pyServ: services?.prior_year || 0,
+                pyPerp: perpetual?.prior_year || 0,
             };
         });
 
@@ -10184,16 +10188,23 @@
                     // Store for chart rendering
                     window._revYrData = { selYear, fullLabels, fullActual, fullPy, fullSaas, fullMaint, fullServ, fullPerp, yrData, availYears };
 
+                    // PY per revenue type for growth indicators
+                    const revPySaas = yrData.reduce((s, m) => s + (m.pySaas || 0), 0);
+                    const revPyMaint = yrData.reduce((s, m) => s + (m.pyMaint || 0), 0);
+                    const revPyServ = yrData.reduce((s, m) => s + (m.pyServ || 0), 0);
+                    const revPyPerp = yrData.reduce((s, m) => s + (m.pyPerp || 0), 0);
+                    const typeGrowth = (cur, py) => py > 0 ? (cur - py) / py : (cur > 0 ? 1 : null);
+
                     // Build cards — only show revenue types with data
                     const revCards = [
                         { label: selYear + ' YTD', value: revYtdTotal, growth: revYtdGrowth, showGrowth: true },
-                        { label: 'Prior Year', value: revYtdPy, sub: selYear - 1 },
+                        { label: 'Prior Year', value: revYtdPy, sub: String(selYear - 1) },
                         { label: 'Recurring', value: null, pct: revRecurring },
                     ];
-                    if (revYtdSaas) revCards.push({ label: 'SaaS / Subs', value: revYtdSaas });
-                    if (revYtdMaint) revCards.push({ label: 'Maintenance', value: revYtdMaint });
-                    if (revYtdServ) revCards.push({ label: 'Services', value: revYtdServ });
-                    if (revYtdPerp) revCards.push({ label: 'Perpetual', value: revYtdPerp });
+                    if (revYtdSaas) revCards.push({ label: 'SaaS / Subs', value: revYtdSaas, growth: typeGrowth(revYtdSaas, revPySaas), showGrowth: revPySaas > 0 });
+                    if (revYtdMaint) revCards.push({ label: 'Maintenance', value: revYtdMaint, growth: typeGrowth(revYtdMaint, revPyMaint), showGrowth: revPyMaint > 0 });
+                    if (revYtdServ) revCards.push({ label: 'Services', value: revYtdServ, growth: typeGrowth(revYtdServ, revPyServ), showGrowth: revPyServ > 0 });
+                    if (revYtdPerp) revCards.push({ label: 'Perpetual', value: revYtdPerp, growth: typeGrowth(revYtdPerp, revPyPerp), showGrowth: revPyPerp > 0 });
 
                     return `
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
