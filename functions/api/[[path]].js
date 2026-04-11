@@ -792,6 +792,11 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // Legacy routes not applicable to S2 — return empty arrays instead of 404
+  if (['product-templates', 'preflight-profiles', 'config', 'debug'].includes(subPath)) {
+    return json([]);
+  }
+
   return json({ error: `S2 route not found: ${subPath}` }, 404);
 }
 

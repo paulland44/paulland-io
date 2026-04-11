@@ -4143,6 +4143,25 @@ server.tool(
 );
 
 server.tool(
+  'list_project_assets',
+  'List assets (files) for an S2 project. Returns asset IDs, names, and metadata. Use asset IDs with the thumbnail/content proxy routes.',
+  {
+    project_node_id: z.string().describe('S2 node ID of the project'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ project_node_id, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('GET', `projects/${project_node_id}/assets`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list project assets (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
   'launch_workflow',
   'Launch a workflow template against a project with input assets. Returns the workflow instance ID for monitoring. Requires an S2 connection.',
   {

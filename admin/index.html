@@ -3326,6 +3326,15 @@
         .mis-detail-desc { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; font-size: 0.82rem; line-height: 1.6; white-space: pre-wrap; max-height: 300px; overflow-y: auto; }
         .mis-detail-json { background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem; font-family: var(--mono); font-size: 0.75rem; line-height: 1.5; max-height: 250px; overflow: auto; white-space: pre; }
 
+        /* MIS Thumbnail strip */
+        .mis-thumb-row td { padding: 0 !important; border-top: none !important; background: var(--void-lighter); }
+        .mis-thumb-strip { display: flex; gap: 0.75rem; padding: 0.75rem 1rem; overflow-x: auto; align-items: flex-start; }
+        .mis-thumb-card { flex: 0 0 auto; width: 120px; text-align: center; }
+        .mis-thumb-card img { width: 120px; height: 100px; object-fit: contain; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--void); }
+        .mis-thumb-card .mis-thumb-name { font-size: 0.68rem; color: var(--text-muted); margin-top: 0.25rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .mis-thumb-empty { padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text-muted); }
+        .mis-thumb-loading { padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted); }
+
         /* MIS Drawer */
         .mis-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 500; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
         .mis-drawer-overlay.open { opacity: 1; pointer-events: auto; }
@@ -13323,17 +13332,30 @@
         const container = document.getElementById('s2WorkflowTemplate');
         if (!container) return;
         // S2 workflow templates come from cachedTaskTemplates via the compatibility shim
-        // S2 format: {total, items: [{id, name}]}, legacy format varies
-        const raw = cachedTaskTemplates?.items || [];
+        let raw = cachedTaskTemplates?.items;
+        if (!raw || !raw.length) {
+            const parsed = getTaskTemplateList();
+            raw = parsed.filter(t => t.id !== 'Default');
+        }
+        console.log('[MIS] Workflow dropdown rebuild:', raw?.length || 0, 'templates');
         if (!raw.length) {
             container.innerHTML = '<div style="font-size:0.82rem;color:var(--text-muted);padding:0.35rem 0;">No workflow templates available on this connection.</div>';
             return;
         }
+        // Use a native select for reliability (searchable select can fail in hidden containers)
         container.innerHTML = '';
-        createSearchableSelect('s2WorkflowTemplate',
-            raw.map(t => ({ value: t.id, label: t.name, searchText: t.name })),
-            { placeholder: 'Search workflow templates...', onchange: () => misUpdatePreview() }
-        );
+        const sel = document.createElement('select');
+        sel.className = 'modal-edit-select';
+        sel.id = 's2WorkflowSelect';
+        sel.innerHTML = '<option value="">None (create project only)</option>' +
+            raw.map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+        sel.addEventListener('change', misUpdatePreview);
+        container.appendChild(sel);
+        // Store getValue/setValue interface for consistency
+        container._ss = {
+            getValue: () => sel.value,
+            setValue: (v) => { sel.value = v; },
+        };
     }
 
     window.misOnConnectionChange = function() {
@@ -13829,7 +13851,7 @@
                 </div>
 
                 <!-- Products & Preflight (WCP) — collapsible -->
-                <div class="mis-card">
+                <div class="mis-card" id="misProductsSection">
                     <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
                         <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
                         <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
@@ -14041,6 +14063,10 @@
         // Tasks section: hide for S2 (uses workflows) and AE
         const tasksSection = document.getElementById('misTasksSection');
         if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
+
+        // Products & Preflight: hide for S2 and AE (WCP-only)
+        const productsSection = document.getElementById('misProductsSection');
+        if (productsSection) productsSection.style.display = (isS2 || isAe) ? 'none' : '';
 
         // Products & Preflight: hide for S2
         const prodSection = tasksSection?.nextElementSibling?.nextElementSibling; // The products card after AE section
@@ -14304,7 +14330,9 @@
                         <th style="width:36px;"><input type="checkbox" id="misSelectAll" class="mis-checkbox" title="Select all"></th>
                         <th>Job ID</th><th>Name</th><th>Customer</th><th>Type</th><th>Status</th><th>Phase</th><th>Due</th><th style="width:80px;"></th>
                     </tr></thead>
-                    <tbody>${jobs.map(j => `
+                    <tbody>${jobs.map(j => {
+                        const hasS2Preview = !!(j.project_node_id && j.connection_id);
+                        return `
                         <tr data-job-row="${j.id}">
                             <td><input type="checkbox" class="mis-checkbox mis-job-select" value="${j.id}" data-jobid="${esc(j.job_id || '')}" onchange="misUpdateSelection()"></td>
                             <td><code style="font-size:0.78rem;">${esc(j.job_id || '')}</code></td>
@@ -14315,10 +14343,15 @@
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;white-space:nowrap;">
+                                ${hasS2Preview ? `<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0.2rem;" onclick="misToggleThumbnails('${j.id}','${j.project_node_id}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye" style="width:14px;height:14px;"></i></button>` : ''}
                                 ${j.status === 'Draft' ? `<button class="action-btn" onclick="misSubmitDraftJob('${j.id}')" title="Submit job" style="color:var(--accent);"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i></button>` : ''}
                                 <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
                             </td>
-                        </tr>`).join('')}
+                        </tr>
+                        <tr class="mis-thumb-row" id="mis-thumb-row-${j.id}" style="display:none;">
+                            <td colspan="9"><div id="mis-thumb-container-${j.id}"></div></td>
+                        </tr>`;
+                    }).join('')}
                     </tbody>
                 </table>
             </div>`}`;
@@ -14369,8 +14402,28 @@
         let ok = 0, fail = 0;
         const errors = [];
         const results = await Promise.allSettled(jobs.map(async ({ id, job_id }) => {
-            // Try fetching from WCP — also try with nodeId from wcp_response
             const job = (_cachedMisJobs || []).find(j => j.id === id);
+            const isS2 = job?.solution === 's2' || job?.project_node_id;
+
+            if (isS2 && job?.project_node_id && job?.connection_id) {
+                // S2: fetch project info via S2 API
+                const details = await misGetForConnection('projects/' + job.project_node_id, job.connection_id);
+                if (!details || details.error) throw new Error(`${job_id}: ${details?.error || 'S2 API returned no data'}`);
+                const status = details.properties?.status?.status;
+                const phase = details.properties?.status?.phase;
+                const updates = {};
+                if (status) updates.status = status;
+                if (phase) updates.phase = phase;
+                if (Object.keys(updates).length) {
+                    await fetch(`${MIS_API_BASE}/jobs/${id}`, {
+                        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(updates),
+                    });
+                }
+                return { job_id, status, phase };
+            }
+
+            // Legacy WCP: try fetching job details — also try with nodeId from wcp_response
             const nodeId = job?.wcp_response?.job?.nodeId;
             const idsToTry = [job_id, ...(nodeId ? [nodeId] : [])];
             let details = null;
@@ -14390,8 +14443,7 @@
             if (phase) updates.phase = phase;
             if (Object.keys(updates).length) {
                 await fetch(`${MIS_API_BASE}/jobs/${id}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(updates),
                 });
             }
@@ -14401,9 +14453,9 @@
             if (r.status === 'fulfilled') ok++;
             else { fail++; errors.push(r.reason?.message || 'Unknown error'); }
         });
-        if (fail && !ok) showToast(`WCP sync failed: ${errors[0]}`, 'error');
+        if (fail && !ok) showToast(`Sync failed: ${errors[0]}`, 'error');
         else if (fail) showToast(`Synced ${ok}/${ok + fail} jobs. Failed: ${errors.join('; ')}`, 'error');
-        else showToast(`Synced ${ok} job${ok !== 1 ? 's' : ''} from WCP`, 'success');
+        else showToast(`Synced ${ok} job${ok !== 1 ? 's' : ''}`, 'success');
         _cachedMisJobs = null;
         loadMisMonitor();
     }
@@ -14445,6 +14497,90 @@
             showToast('Job removed', 'success');
         } catch (e) { showToast('Failed to delete: ' + e.message, 'error'); }
     };
+
+    // ─── MIS: Thumbnail Preview ──────────────────────────────────
+
+    window.misToggleThumbnails = function(jobId, projectNodeId, connectionId) {
+        const row = document.getElementById('mis-thumb-row-' + jobId);
+        if (!row) return;
+        if (row.style.display === 'none') {
+            row.style.display = '';
+            const container = document.getElementById('mis-thumb-container-' + jobId);
+            if (container && !container.dataset.loaded) {
+                container.dataset.loaded = '1';
+                misLoadProjectThumbnails(projectNodeId, connectionId, container);
+            }
+        } else {
+            row.style.display = 'none';
+        }
+    };
+
+    async function misLoadProjectThumbnails(projectNodeId, connectionId, container) {
+        container.innerHTML = '<div class="mis-thumb-loading"><span class="mis-spinner"></span> Loading assets...</div>';
+        try {
+            const resp = await fetch(`${MIS_API_BASE}/projects/${projectNodeId}/assets`, {
+                headers: { 'Accept': 'application/json', 'X-MIS-Connection-Id': connectionId },
+                credentials: 'same-origin',
+            });
+            if (!resp.ok) throw new Error('Failed to fetch assets');
+            const data = await resp.json();
+            const assets = data?.items || data || [];
+            if (!assets.length && !Array.isArray(assets)) {
+                container.innerHTML = '<div class="mis-thumb-empty">No assets found for this project.</div>';
+                return;
+            }
+            const assetList = Array.isArray(assets) ? assets : [];
+            if (!assetList.length) {
+                container.innerHTML = '<div class="mis-thumb-empty">No assets found for this project.</div>';
+                return;
+            }
+            container.innerHTML = '';
+            const strip = document.createElement('div');
+            strip.className = 'mis-thumb-strip';
+            container.appendChild(strip);
+
+            // Load thumbnails in parallel
+            await Promise.allSettled(assetList.map(async (asset) => {
+                const card = document.createElement('div');
+                card.className = 'mis-thumb-card';
+                const img = document.createElement('img');
+                img.alt = asset.name || asset.id || 'Asset';
+                img.style.background = 'var(--void)';
+
+                // Fetch thumbnail with auth header, convert to blob URL
+                try {
+                    const thumbResp = await fetch(`${MIS_API_BASE}/assets/${asset.id}/thumbnail`, {
+                        headers: { 'X-MIS-Connection-Id': connectionId },
+                        credentials: 'same-origin',
+                    });
+                    if (thumbResp.ok) {
+                        const blob = await thumbResp.blob();
+                        img.src = URL.createObjectURL(blob);
+                    } else {
+                        img.style.display = 'none';
+                    }
+                } catch {
+                    img.style.display = 'none';
+                }
+
+                const name = document.createElement('div');
+                name.className = 'mis-thumb-name';
+                name.textContent = asset.name || asset.id || 'Unknown';
+                name.title = asset.name || asset.id || '';
+
+                card.appendChild(img);
+                card.appendChild(name);
+                strip.appendChild(card);
+            }));
+
+            // If no thumbnails rendered, show message
+            if (!strip.querySelector('img[src]')) {
+                container.innerHTML = '<div class="mis-thumb-empty">Assets found but no thumbnails available.</div>';
+            }
+        } catch (e) {
+            container.innerHTML = `<div class="mis-thumb-empty">Failed to load assets: ${e.message}</div>`;
+        }
+    }
 
     // ─── MIS: Job Detail Modal ──────────────────────────────────
 
