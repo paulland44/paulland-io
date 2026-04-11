@@ -1,4 +1,4 @@
-<!-- v1775902173 -->
+<!-- v1775903797 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10171,14 +10171,45 @@
                     const fullMaint = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.maintenance : null; });
                     const fullServ = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.services : null; });
                     const fullPerp = monthNames.map((_, i) => { const m = yrData.find(d => d.month === i + 1); return m ? m.perpetual : null; });
+                    // Compute YTD totals for KPI cards
+                    const revYtdTotal = yrData.reduce((s, m) => s + m.actual, 0);
+                    const revYtdPy = yrData.reduce((s, m) => s + m.py, 0);
+                    const revYtdGrowth = revYtdPy > 0 ? (revYtdTotal - revYtdPy) / revYtdPy : null;
+                    const revYtdSaas = yrData.reduce((s, m) => s + m.saas, 0);
+                    const revYtdMaint = yrData.reduce((s, m) => s + m.maintenance, 0);
+                    const revYtdServ = yrData.reduce((s, m) => s + m.services, 0);
+                    const revYtdPerp = yrData.reduce((s, m) => s + m.perpetual, 0);
+                    const revRecurring = revYtdTotal > 0 ? ((revYtdSaas + revYtdMaint) / revYtdTotal * 100).toFixed(1) : '—';
+
                     // Store for chart rendering
                     window._revYrData = { selYear, fullLabels, fullActual, fullPy, fullSaas, fullMaint, fullServ, fullPerp, yrData, availYears };
+
+                    // Build cards — only show revenue types with data
+                    const revCards = [
+                        { label: selYear + ' YTD', value: revYtdTotal, growth: revYtdGrowth, showGrowth: true },
+                        { label: 'Prior Year', value: revYtdPy, sub: selYear - 1 },
+                        { label: 'Recurring', value: null, pct: revRecurring },
+                    ];
+                    if (revYtdSaas) revCards.push({ label: 'SaaS / Subs', value: revYtdSaas });
+                    if (revYtdMaint) revCards.push({ label: 'Maintenance', value: revYtdMaint });
+                    if (revYtdServ) revCards.push({ label: 'Services', value: revYtdServ });
+                    if (revYtdPerp) revCards.push({ label: 'Perpetual', value: revYtdPerp });
+
                     return `
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
                     <div style="font-size:0.85rem;color:var(--text-muted);">${yrData.length} month${yrData.length !== 1 ? 's' : ''} of data · PY = ${selYear - 1}</div>
                     <div style="display:flex;gap:0.25rem;">
                         ${availYears.map(y => `<button class="sales-period-select sales-rev-year ${y === selYear ? 'active' : ''}" data-revyear="${y}" style="cursor:pointer;${y === selYear ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">${y}</button>`).join('')}
                     </div>
+                </div>
+                <div class="sales-metrics" style="grid-template-columns: repeat(${revCards.length}, 1fr);">
+                    ${revCards.map(c => `<div class="sales-product-card">
+                        <div class="product-code">${c.label}</div>
+                        ${c.pct != null ? `<div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${c.pct}<span class="currency">%</span></div>`
+                        : `<div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(c.value)}<span class="currency">k</span></div>`}
+                        ${c.showGrowth && c.growth != null ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${c.growth >= 0 ? 'positive' : 'negative'}">${c.growth >= 0 ? '&#9650;' : '&#9660;'} ${salesFmtPct(c.growth)}</span></div>` : ''}
+                        ${c.sub ? `<div style="font-size:0.7rem;color:var(--text-muted);">${c.sub}</div>` : ''}
+                    </div>`).join('')}
                 </div>
                 <div class="sales-dashboard-grid">
                     <div class="sales-chart-card">
