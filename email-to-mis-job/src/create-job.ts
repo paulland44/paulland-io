@@ -142,7 +142,7 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
   // Only include if partnerId looks like an S2 node ID
   const custId = extracted.customer_match?.partnerId;
   if (custId && custId.includes('-') && custId.length > 20) {
-    properties.customers = [{ ref: custId, type: 'Reference' }];
+    properties.customers = [{ ref: custId, type: 'Reference', version: 0, page: 0 }];
   } else if (custId) {
     // Legacy partnerId — include as empty array (S2 requires the field)
     properties.customers = [];

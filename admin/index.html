@@ -13533,7 +13533,7 @@
 
             // Customer reference (S2 uses nodeId refs) — always include array (S2 requires it)
             properties.customers = customerCode
-                ? [{ ref: customerCode, type: 'Reference' }]
+                ? [{ ref: customerCode, type: 'Reference', version: 0, page: 0 }]
                 : [];
 
             // Barcodes
