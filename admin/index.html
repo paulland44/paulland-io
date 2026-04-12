@@ -14245,8 +14245,9 @@
     }
 
     window.misOpenJob = function(id, status) {
-        currentSubView = { type: status === 'Draft' ? 'mis-edit' : 'mis-view', id };
-        navigateToView(status === 'Draft' ? 'mis-edit' : 'mis-view');
+        const mode = status === 'Draft' ? 'edit' : 'view';
+        currentView = 'mis-' + mode;
+        loadMisJobForm(mode, id);
     };
 
     window.misSaveExistingDraft = async function(jobId) {
