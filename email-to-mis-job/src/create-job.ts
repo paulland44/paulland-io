@@ -165,7 +165,8 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
 export async function createMisJob(
   env: Env,
   extracted: ExtractedJob,
-  r2Uploads: R2Upload[]
+  r2Uploads: R2Upload[],
+  autoSubmit = false
 ): Promise<any> {
   const jobId = generateJobId();
   const description = buildDescription(extracted, r2Uploads);
@@ -294,5 +295,44 @@ export async function createMisJob(
     throw new Error(`Failed to create MIS job: ${response.status} ${errorText}`);
   }
 
-  return response.json();
+  const createdJob = await response.json();
+
+  // Auto-submit WCP job if requested (A: prefix in subject)
+  if (autoSubmit && !isS2) {
+    console.log(`[email-to-mis] Auto-submitting WCP job ${jobId}...`);
+    try {
+      const submitResp = await fetch(`${apiUrl}/mis/create-job`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+          'X-MIS-Connection-Id': connectionId,
+        },
+        body: JSON.stringify(wcpPayload),
+      });
+      const submitText = await submitResp.text();
+      let submitResult: any;
+      try { submitResult = JSON.parse(submitText); } catch { submitResult = { rawResponse: submitText.slice(0, 500) }; }
+
+      if (submitResp.ok) {
+        // Update job record to Created status
+        const jobDbId = Array.isArray(createdJob) ? (createdJob[0] as any)?.id : (createdJob as any)?.id;
+        if (jobDbId) {
+          await fetch(`${apiUrl}/mis/jobs/${jobDbId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
+            body: JSON.stringify({ status: 'Created', wcp_response: submitResult }),
+          });
+        }
+        console.log(`[email-to-mis] WCP job ${jobId} auto-submitted successfully`);
+      } else {
+        console.warn(`[email-to-mis] WCP auto-submit failed (${submitResp.status}): ${submitText.slice(0, 300)}`);
+      }
+    } catch (err: any) {
+      console.warn(`[email-to-mis] WCP auto-submit error: ${err.message}`);
+    }
+  }
+
+  return createdJob;
 }

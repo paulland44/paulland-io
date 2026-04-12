@@ -55,10 +55,13 @@ async function processEmail(
   // For v1, we note text PDFs and docs but don't extract their text
   const attachmentTexts = buildAttachmentNotes(textPdfs, textDocs);
 
+  // Strip auto-submit prefix from subject for AI extraction
+  const cleanSubject = parsed.subject.replace(/^(A:|AUTO:)\s*/i, '').trim();
+
   const promptData: PromptData = {
     from_name: parsed.from.name,
     from_email: parsed.from.address,
-    subject: parsed.subject,
+    subject: cleanSubject,
     date: parsed.date,
     body_text: parsed.textBody || stripHtml(parsed.htmlBody),
     attachment_texts: attachmentTexts,
@@ -76,9 +79,13 @@ async function processEmail(
     log('No customer match found');
   }
 
-  // 7. Create Draft job in Supabase via Pages API
-  log('Creating Draft MIS job...');
-  const jobRecord = await createMisJob(env, extracted, r2Uploads);
+  // 7. Check for auto-submit prefix (A: or AUTO: in subject)
+  const autoSubmit = /^(A:|AUTO:)\s*/i.test(parsed.subject);
+  if (autoSubmit) log('Auto-submit detected from subject prefix');
+
+  // 8. Create job (S2: creates project directly; WCP: creates Draft, then optionally submits)
+  log(autoSubmit ? 'Creating and submitting MIS job...' : 'Creating Draft MIS job...');
+  const jobRecord = await createMisJob(env, extracted, r2Uploads, autoSubmit);
   log(`Job created: ${JSON.stringify(jobRecord)}`);
 
   return { extracted, jobRecord, r2Uploads, logs };
