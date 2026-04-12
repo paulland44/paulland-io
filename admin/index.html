@@ -12202,7 +12202,54 @@
         { name: 'list_customers', desc: 'List customers/partners from WCP', group: 'MIS', params: 1, paramDetails: [
             { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
         ]},
-        { name: 'list_task_templates', desc: 'List task templates from WCP', group: 'MIS', params: 1, paramDetails: [
+        { name: 'list_task_templates', desc: 'List task/workflow templates', group: 'MIS', params: 1, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'list_projects', desc: 'List S2 projects (jobs)', group: 'MIS', params: 3, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+            { name: 'from', type: 'number?', desc: 'Pagination offset' },
+            { name: 'pageSize', type: 'number?', desc: 'Max items' },
+        ]},
+        { name: 'get_project_info', desc: 'Get S2 project details', group: 'MIS', params: 2, paramDetails: [
+            { name: 'project_node_id', type: 'string', desc: 'S2 node ID' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'update_project_status', desc: 'Update S2 project status', group: 'MIS', params: 3, paramDetails: [
+            { name: 'project_node_id', type: 'string', desc: 'S2 node ID' },
+            { name: 'status', type: 'string', desc: 'New status (Active, Created, etc.)' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'list_project_assets', desc: 'List assets for an S2 project', group: 'MIS', params: 2, paramDetails: [
+            { name: 'project_node_id', type: 'string', desc: 'S2 node ID' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'launch_workflow', desc: 'Launch workflow on S2 project', group: 'MIS', params: 4, paramDetails: [
+            { name: 'template_id', type: 'string', desc: 'Workflow template ID' },
+            { name: 'project_node_id', type: 'string', desc: 'S2 project node ID' },
+            { name: 'input_asset_ids', type: 'string[]?', desc: 'Input asset IDs' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'list_workflow_instances', desc: 'List running/completed workflows', group: 'MIS', params: 3, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+            { name: 'from', type: 'number?', desc: 'Pagination offset' },
+            { name: 'pageSize', type: 'number?', desc: 'Max items' },
+        ]},
+        { name: 'get_workflow_instance', desc: 'Get workflow instance status', group: 'MIS', params: 2, paramDetails: [
+            { name: 'instance_id', type: 'string', desc: 'Workflow instance ID' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'cancel_workflow', desc: 'Cancel running workflow', group: 'MIS', params: 2, paramDetails: [
+            { name: 'instance_id', type: 'string', desc: 'Workflow instance ID' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'list_products', desc: 'List S2 products', group: 'MIS', params: 3, paramDetails: [
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+            { name: 'from', type: 'number?', desc: 'Pagination offset' },
+            { name: 'pageSize', type: 'number?', desc: 'Max items' },
+        ]},
+        { name: 'create_product', desc: 'Create S2 product with specs', group: 'MIS', params: 3, paramDetails: [
+            { name: 'name', type: 'string', desc: 'Product name' },
+            { name: 'properties', type: 'object', desc: 'Product properties' },
             { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
         ]},
         { name: 'link_content', desc: 'Create a link between two content items', group: 'Content Linking', params: 4, paramDetails: [
