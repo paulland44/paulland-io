@@ -132,7 +132,7 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
   const properties: any = {
     MISId: 'MyMIS',
     jobId,
-    projectName: extracted.job_name,
+    projectName: `${extracted.job_name} ${jobId}`,
     description: extracted.description || '',
     dueDate: dueDateIso,
     status: { type: 'ProjectStatus', status: 'Created' },
