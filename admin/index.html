@@ -13219,6 +13219,22 @@
         if (preflights) cachedPreflightProfiles = preflights;
         _refDataConnectionId = connId;
         console.log('[MIS] Ref data loaded. Customers:', !!cachedCustomers, 'Tasks:', !!cachedTaskTemplates, 'connId:', connId);
+
+        // Enrich S2 customers with full names from detail endpoint
+        if (cachedCustomers?.items?.length) {
+            try {
+                const enrichResults = await Promise.allSettled(
+                    cachedCustomers.items.slice(0, 50).map(async (c) => {
+                        const detail = await misGetForConnection(`customers/${c.id}`, connId);
+                        return { ...c, partnerName: detail?.partnerName || c.name, partnerId: detail?.partnerId || c.name };
+                    })
+                );
+                cachedCustomers.items = enrichResults.map((r, i) =>
+                    r.status === 'fulfilled' ? r.value : cachedCustomers.items[i]
+                );
+                console.log('[MIS] Enriched', cachedCustomers.items.filter(c => c.partnerName).length, 'customer names');
+            } catch (e) { console.warn('[MIS] Customer enrichment failed:', e.message); }
+        }
     }
 
     function getTaskTemplateList() {
@@ -13828,7 +13844,11 @@
         const rawCust = cachedCustomers?.items || cachedCustomers?.data || (Array.isArray(cachedCustomers) ? cachedCustomers : []);
         const customers = rawCust.map(c => ({
             value: c.id || c.partnerId || '',
-            label: c.name || c.partnerName || '',
+            label: c.partnerName
+                ? `${c.partnerName} (${c.partnerId || c.name || ''})`
+                : (c.name || c.partnerName || ''),
+            partnerName: c.partnerName || '',
+            partnerId: c.partnerId || c.name || '',
         }));
         const taskTemplates = getTaskTemplateList();
         const productTemplates = getProductTemplateList();
@@ -14167,7 +14187,11 @@
                     await misLoadRefData(newConnId);
                     // Rebuild customer searchable select
                     const rawCusts = cachedCustomers?.items || cachedCustomers?.data || (Array.isArray(cachedCustomers) ? cachedCustomers : []);
-                    const custs = rawCusts.map(c => ({ value: c.id || c.partnerId || '', label: c.name || c.partnerName || '' }));
+                    const custs = rawCusts.map(c => ({
+                        value: c.id || c.partnerId || '',
+                        label: c.partnerName ? `${c.partnerName} (${c.partnerId || c.name || ''})` : (c.name || c.partnerName || ''),
+                        partnerName: c.partnerName || '', partnerId: c.partnerId || c.name || '',
+                    }));
                     const custContainer = document.getElementById('misJobCustomer');
                     if (custContainer && custs.length) {
                         custContainer.innerHTML = '';

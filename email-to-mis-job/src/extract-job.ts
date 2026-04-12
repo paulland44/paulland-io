@@ -96,6 +96,14 @@ Extract the following as JSON. Use null for any field you cannot determine:
     "reasoning": "Brief explanation of why this person was chosen"
   },
   "project_type": "Prepress | Production | null (Prepress if job involves artwork/design/proofing, Production if it involves printing/manufacturing)",
+  "packaging_type": "Label | FoldingCarton | FlexiblePackaging | CorrugatedBox | Sleeve | Pouch | null",
+  "dimensions": { "width": 100, "height": 80, "depth": null, "unit": "mm" },
+  "num_colours": "Number of colours or description like 'CMYK + 2 spot' or null",
+  "colour_specs": ["CMYK", "Pantone 485C", "Pantone 300C"],
+  "finishing": ["Matt lamination", "Spot UV varnish", "Embossing", "Hot foil"],
+  "substrate_weight": "Weight like '300gsm' or '12pt' or null",
+  "bleed": "Bleed specification like '3mm' or null",
+  "order_reference": "PO number, order reference, or purchase order if mentioned, otherwise null",
   "barcodes": [
     {
       "encoding": "GS1-QR | EAN-13 | UPC-A | Code128 | GS1-128 | GS1-DataMatrix | GS1-DataBar | ITF-14 | QR Code",
@@ -105,7 +113,12 @@ Extract the following as JSON. Use null for any field you cannot determine:
   ]
 }
 
-Note: barcodes should be an array of barcode specs if any are mentioned in the email (e.g. "EAN-13: 5012345678900" or "include a QR code linking to example.com"). Set to null if no barcodes are mentioned.
+Notes:
+- dimensions: extract width, height, and optionally depth. Use mm if not specified. Set to null if no dimensions mentioned.
+- colour_specs: list individual colours/inks mentioned (e.g. CMYK, specific Pantone numbers). Set to null if not mentioned.
+- finishing: list all finishing processes mentioned (lamination, varnish, UV, embossing, foiling, die-cutting). Set to null if not mentioned.
+- packaging_type: infer from context — "label" for self-adhesive/roll-fed, "FoldingCarton" for boxes/cartons, "FlexiblePackaging" for pouches/wrappers.
+- barcodes: array of barcode specs if mentioned. Set to null if no barcodes mentioned.
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 }
@@ -161,6 +174,14 @@ function parseExtraction(raw: string): ExtractedJob {
     task_assignee: null,
     project_type: null,
     barcodes: null,
+    packaging_type: null,
+    dimensions: null,
+    num_colours: null,
+    colour_specs: null,
+    finishing: null,
+    substrate_weight: null,
+    bleed: null,
+    order_reference: null,
   };
 }
 
@@ -179,5 +200,13 @@ function validateExtraction(obj: any): ExtractedJob {
     barcodes: Array.isArray(obj.barcodes) && obj.barcodes.length > 0
       ? obj.barcodes.filter((b: any) => b.encoding || b.value?.length)
       : null,
+    packaging_type: obj.packaging_type || null,
+    dimensions: obj.dimensions?.width || obj.dimensions?.height ? obj.dimensions : null,
+    num_colours: obj.num_colours ? String(obj.num_colours) : null,
+    colour_specs: Array.isArray(obj.colour_specs) && obj.colour_specs.length > 0 ? obj.colour_specs : null,
+    finishing: Array.isArray(obj.finishing) && obj.finishing.length > 0 ? obj.finishing : null,
+    substrate_weight: obj.substrate_weight || null,
+    bleed: obj.bleed || null,
+    order_reference: obj.order_reference || null,
   };
 }

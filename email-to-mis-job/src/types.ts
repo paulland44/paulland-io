@@ -64,6 +64,13 @@ export interface BarcodeSpec {
   value: string[];
 }
 
+export interface Dimensions {
+  width: number | null;
+  height: number | null;
+  depth: number | null;
+  unit: string; // mm, cm, in
+}
+
 export interface ExtractedJob {
   job_name: string;
   customer_match: CustomerMatch | null;
@@ -76,6 +83,15 @@ export interface ExtractedJob {
   task_assignee: TaskAssignee | null;
   project_type: string | null; // Prepress | Production
   barcodes: BarcodeSpec[] | null;
+  // Enriched packaging fields
+  packaging_type: string | null; // Label, FoldingCarton, FlexiblePackaging, CorrugatedBox, Sleeve, Pouch
+  dimensions: Dimensions | null;
+  num_colours: string | null; // e.g. "4" or "CMYK + 2 spot"
+  colour_specs: string[] | null; // e.g. ["CMYK", "Pantone 485C"]
+  finishing: string[] | null; // e.g. ["Matt lamination", "Spot UV varnish"]
+  substrate_weight: string | null; // e.g. "300gsm"
+  bleed: string | null; // e.g. "3mm"
+  order_reference: string | null; // PO number or order ref
 }
 
 export interface PromptData {

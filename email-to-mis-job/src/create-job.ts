@@ -21,10 +21,21 @@ function buildDescription(extracted: ExtractedJob, r2Uploads: R2Upload[]): strin
 
   // Add spec details not already in the description
   const specs: string[] = [];
+  if (extracted.packaging_type) specs.push(`Packaging: ${extracted.packaging_type}`);
   if (extracted.print_process) specs.push(`Print process: ${extracted.print_process}`);
   if (extracted.substrate) specs.push(`Substrate: ${extracted.substrate}`);
+  if (extracted.substrate_weight) specs.push(`Substrate weight: ${extracted.substrate_weight}`);
   if (extracted.quantity) specs.push(`Quantity: ${extracted.quantity}`);
+  if (extracted.dimensions) {
+    const d = extracted.dimensions;
+    specs.push(`Dimensions: ${d.width || '?'}x${d.height || '?'}${d.depth ? 'x' + d.depth : ''} ${d.unit || 'mm'}`);
+  }
+  if (extracted.num_colours) specs.push(`Colours: ${extracted.num_colours}`);
+  if (extracted.colour_specs?.length) specs.push(`Colour specs: ${extracted.colour_specs.join(', ')}`);
+  if (extracted.finishing?.length) specs.push(`Finishing: ${extracted.finishing.join(', ')}`);
+  if (extracted.bleed) specs.push(`Bleed: ${extracted.bleed}`);
   if (extracted.is_reprint !== null) specs.push(`Reprint: ${extracted.is_reprint ? 'Yes' : 'No'}`);
+  if (extracted.order_reference) specs.push(`Order ref: ${extracted.order_reference}`);
 
   if (specs.length > 0) {
     parts.push('\n--- Extracted Specs ---');
@@ -158,15 +169,38 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
       if (custResp.ok) {
         const custData = await custResp.json() as any;
         const customers = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
-        const match = customers.find((c: any) => {
-          const name = (c.name || c.partnerName || '').toLowerCase();
+
+        // Enrich with full names from detail endpoint for better matching
+        const enriched = await Promise.allSettled(
+          customers.slice(0, 50).map(async (c: any) => {
+            try {
+              const detail = await fetch(
+                `${apiUrl}/mis/customers/${c.id}`,
+                { headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': connectionId } }
+              );
+              if (detail.ok) {
+                const d = await detail.json() as any;
+                return { ...c, partnerName: d.partnerName || c.name, partnerId: d.partnerId || c.name };
+              }
+            } catch {}
+            return c;
+          })
+        );
+        const enrichedCustomers = enriched.map((r, i) =>
+          r.status === 'fulfilled' ? r.value : customers[i]
+        );
+
+        const term = searchTerm.toLowerCase();
+        const match = enrichedCustomers.find((c: any) => {
+          const name = (c.name || '').toLowerCase();
+          const fullName = (c.partnerName || '').toLowerCase();
           const id = (c.partnerId || '').toLowerCase();
-          const term = searchTerm.toLowerCase();
-          return name === term || id === term || name.includes(term) || term.includes(name);
+          return name === term || fullName === term || id === term
+            || name.includes(term) || fullName.includes(term) || term.includes(name) || term.includes(fullName);
         });
         if (match) {
           s2CustomerRef = match.id || match.nodeId;
-          console.log(`[email-to-mis] Matched S2 customer: "${searchTerm}" → ${match.name} (${s2CustomerRef})`);
+          console.log(`[email-to-mis] Matched S2 customer: "${searchTerm}" → ${match.partnerName || match.name} (${s2CustomerRef})`);
         }
       }
     } catch (err: any) {
@@ -180,12 +214,30 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
   // Note: if no customer found, omit customers field entirely — the "no customer"
   // path in createMisJob will create a Draft instead of submitting to S2
 
-  // Attributes
+  // Attributes — map all extracted packaging specs
   const attrs: Record<string, string> = {};
   if (extracted.project_type) attrs.projectType = extracted.project_type;
-  else attrs.projectType = 'Prepress'; // default
+  else attrs.projectType = 'Prepress';
+  if (extracted.packaging_type) attrs.packagingType = extracted.packaging_type;
+  if (extracted.dimensions) {
+    const d = extracted.dimensions;
+    attrs.dimensions = `${d.width || '?'}x${d.height || '?'}${d.depth ? 'x' + d.depth : ''} ${d.unit || 'mm'}`;
+  }
+  if (extracted.num_colours) attrs.numColours = extracted.num_colours;
+  if (extracted.colour_specs?.length) attrs.colourSpecs = extracted.colour_specs.join(', ');
+  if (extracted.finishing?.length) attrs.finishing = extracted.finishing.join(', ');
+  if (extracted.substrate_weight) attrs.substrateWeight = extracted.substrate_weight;
+  if (extracted.substrate) attrs.substrate = extracted.substrate;
+  if (extracted.bleed) attrs.bleed = extracted.bleed;
+  if (extracted.print_process) attrs.printProcess = extracted.print_process;
+  if (extracted.quantity) attrs.quantity = extracted.quantity;
   if (Object.keys(attrs).length) {
     properties.attributes = { string: attrs };
+  }
+
+  // General IDs — order reference
+  if (extracted.order_reference) {
+    properties.generalIDs = { PrintBuyerReference: extracted.order_reference };
   }
 
   // Barcodes
