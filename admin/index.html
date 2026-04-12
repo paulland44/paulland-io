@@ -13531,10 +13531,10 @@
             const status = document.getElementById('s2Status')?.value || 'Created';
             properties.status = { type: 'ProjectStatus', status };
 
-            // Customer reference (S2 uses nodeId refs)
-            if (customerCode) {
-                properties.customers = [{ ref: customerCode, type: 'Reference' }];
-            }
+            // Customer reference (S2 uses nodeId refs) — always include array (S2 requires it)
+            properties.customers = customerCode
+                ? [{ ref: customerCode, type: 'Reference' }]
+                : [];
 
             // Barcodes
             const barcodes = jobBarcodes.filter(b => b.encoding || b.value);

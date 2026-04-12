@@ -139,8 +139,8 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
   };
 
   // Customer reference — S2 requires node IDs (format: repoId-xxxxx), not partner codes like "DFG"
-  // Skip customer ref for now — the email extraction has legacy partner IDs, not S2 node IDs
-  // Customer info is captured in the description for reference
+  // Always include customers array (S2 may require it, even if empty)
+  properties.customers = [];
 
   // Attributes
   const attrs: Record<string, string> = {};
