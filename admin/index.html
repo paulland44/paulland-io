@@ -14125,16 +14125,27 @@
         if (hasJob && job) {
             // Customer searchable select — try by code first, then by name/code fuzzy match
             const custEl = document.getElementById('misJobCustomer');
-            if (custEl?._ss && job.customer_code) {
+            if (custEl?._ss && (job.customer_code || job.customer_name)) {
                 custEl._ss.setValue(job.customer_code);
-                // If setValue didn't match (e.g. legacy partnerId "DFG" vs S2 nodeId), try matching by name
-                if (!custEl._ss.getValue() && (job.customer_name || job.customer_code)) {
-                    const searchTerm = (job.customer_name || job.customer_code).toLowerCase();
-                    const match = customers.find(c =>
-                        c.label.toLowerCase().includes(searchTerm) ||
-                        c.value.toLowerCase().includes(searchTerm) ||
-                        searchTerm.includes(c.label.toLowerCase())
-                    );
+                // If setValue didn't match (e.g. legacy partnerId "DFG" vs S2 nodeId), try fuzzy matching
+                if (!custEl._ss.getValue()) {
+                    const code = (job.customer_code || '').toLowerCase();
+                    const name = (job.customer_name || '').toLowerCase();
+                    const match = customers.find(c => {
+                        const lbl = c.label.toLowerCase();
+                        const val = c.value.toLowerCase();
+                        // Exact label match (e.g. "DFG" === "DFG")
+                        if (lbl === code || lbl === name) return true;
+                        // Label contains code or name
+                        if (code && lbl.includes(code)) return true;
+                        if (name && lbl.includes(name)) return true;
+                        // Code or name contains label (e.g. "Dancing Fish Granola Co." contains "DFG" won't work, but handles longer names)
+                        if (code && code.includes(lbl)) return true;
+                        if (name && name.includes(lbl)) return true;
+                        // Value matches
+                        if (val === code) return true;
+                        return false;
+                    });
                     if (match) {
                         custEl._ss.setValue(match.value);
                         const codeInput = document.getElementById('misJobCustomerCode');
