@@ -5,7 +5,9 @@ export interface Env {
   PAULLAND_INTERNAL_API_KEY: string;
   TEST_SECRET: string;
   DEFAULT_MIS_CONNECTION_ID?: string;
-  DEFAULT_MIS_API_VERSION?: string; // 'legacy' | 's2'
+  DEFAULT_MIS_API_VERSION?: string; // 'legacy' | 's2' (deprecated, use email_prefix on connections)
+  SUPABASE_URL?: string;
+  SUPABASE_SERVICE_KEY?: string;
 }
 
 export interface ParsedEmail {

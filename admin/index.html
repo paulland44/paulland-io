@@ -13005,7 +13005,8 @@
                 id: r.id, name: r.name, type: r.type, is_active: r.is_active,
                 cluster: r.cluster, ecan: r.ecan, repoId: r.repo_id,
                 serverUrl: r.server_url, apiVersion: r.api_version || 'legacy',
-                baseUrl: r.base_url || '', hasToken: true,
+                baseUrl: r.base_url || '', emailPrefix: r.email_prefix || '',
+                hasToken: true,
             }));
             return _misProfilesCache;
         } catch (e) {
@@ -15089,7 +15090,7 @@
                                    <span style="font-family:var(--mono); font-size:0.72rem; color:var(--text-muted);">${p.ecan ? esc(p.ecan.slice(0, 18)) + '...' : ''}</span>`;
                             return `<tr${isActive ? ' style="background:var(--accent-dim);"' : ''}>
                                 <td style="font-weight:${isActive ? '600' : '400'};">${esc(p.name)}</td>
-                                <td><span class="type-badge">${esc((p.type || 'wcp').toUpperCase())}</span>${isS2 ? ' <span class="type-badge" style="border-color:var(--accent); color:var(--accent);">S2</span>' : ''}</td>
+                                <td><span class="type-badge">${esc((p.type || 'wcp').toUpperCase())}</span>${isS2 ? ' <span class="type-badge" style="border-color:var(--accent); color:var(--accent);">S2</span>' : ''}${p.emailPrefix ? ` <span class="type-badge" style="border-color:var(--text-muted); font-size:0.65rem;">${esc(p.emailPrefix)}:</span>` : ''}</td>
                                 <td>${details}</td>
                                 <td>${p.hasToken ? '<span style="color:var(--accent);">&#x2022;&#x2022;&#x2022;&#x2022;&#x2022;</span>' : '<span style="color:var(--red); font-size:0.78rem;">No token</span>'}</td>
                                 <td>${isActive ? '<span class="type-badge" style="border-color:var(--accent); color:var(--accent);">Active</span>' : ''}</td>
@@ -15164,10 +15165,17 @@
                         <input class="modal-edit-input" id="connServerUrl" placeholder="e.g. sandbox-rd1-ae.esko-saas.com">
                     </div>
                 </div>
-                <div class="modal-edit-field">
-                    <div class="modal-edit-label">Equipment Token *</div>
-                    <input class="modal-edit-input" type="password" id="connToken" placeholder="Your Equipment Token">
-                    <div id="connTokenHint" style="display:none; font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Leave blank to keep existing token.</div>
+                <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem;">
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Equipment Token *</div>
+                        <input class="modal-edit-input" type="password" id="connToken" placeholder="Your Equipment Token">
+                        <div id="connTokenHint" style="display:none; font-size:0.75rem; color:var(--text-muted); margin-top:0.25rem;">Leave blank to keep existing token.</div>
+                    </div>
+                    <div class="modal-edit-field">
+                        <div class="modal-edit-label">Email Prefix</div>
+                        <input class="modal-edit-input" id="connEmailPrefix" placeholder="e.g. QA, DEV, PROD" style="text-transform:uppercase;">
+                        <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.25rem;">Emails with this prefix in the subject (e.g. "QA: Job Name") will route to this connection.</div>
+                    </div>
                 </div>
                 <div class="modal-actions">
                     <button class="modal-save-btn" onclick="saveMisConn()">Save</button>
@@ -15239,6 +15247,7 @@
         document.getElementById('connType').value = p.type || 'wcp';
         document.getElementById('connApiVersion').value = p.apiVersion || 'legacy';
         document.getElementById('connBaseUrl').value = p.baseUrl || '';
+        document.getElementById('connEmailPrefix').value = p.emailPrefix || '';
         toggleConnType();
         if (p.type === 'wcp') {
             const clusterMatch = CLUSTER_OPTIONS.find(c => c.value === p.cluster);
@@ -15277,11 +15286,13 @@
                     ? document.getElementById('connCustomCluster').value.trim()
                     : document.getElementById('connCluster').value)
                 : null;
+            const emailPrefix = document.getElementById('connEmailPrefix')?.value?.trim()?.toUpperCase() || null;
             const body = {
                 name: document.getElementById('connName').value.trim(),
                 type,
                 api_version: apiVersion,
                 base_url: baseUrl,
+                email_prefix: emailPrefix,
                 cluster,
                 ecan: type === 'wcp' ? document.getElementById('connEcan').value.trim() : null,
                 repo_id: type === 'wcp' ? document.getElementById('connRepoId').value.trim() : null,

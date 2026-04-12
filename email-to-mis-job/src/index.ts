@@ -5,6 +5,47 @@ import { uploadAttachments } from './store.js';
 import { extractJob } from './extract-job.js';
 import { createMisJob } from './create-job.js';
 
+async function resolveEmailRoute(subject: string, env: Env): Promise<{ cleanSubject: string; connectionId: string | null; autoSubmit: boolean; prefix: string | null }> {
+  // Check for PREFIX: pattern at start of subject
+  const match = subject.match(/^([A-Za-z0-9]+):\s*/);
+  if (!match) return { cleanSubject: subject, connectionId: null, autoSubmit: false, prefix: null };
+
+  const prefix = match[1].toUpperCase();
+  const cleanSubject = subject.slice(match[0].length).trim();
+
+  // Query Supabase for a connection with this email_prefix
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
+    try {
+      const resp = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/mis_connections?email_prefix=ilike.${encodeURIComponent(prefix)}&select=id,api_version,type,name&limit=1`,
+        {
+          headers: {
+            'apikey': env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Accept': 'application/json',
+          },
+        }
+      );
+      if (resp.ok) {
+        const rows = await resp.json() as any[];
+        if (rows.length > 0) {
+          return { cleanSubject, connectionId: rows[0].id, autoSubmit: true, prefix };
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Supabase prefix lookup failed: ${err.message}`);
+    }
+  }
+
+  // No match in DB — check if it's the legacy A:/AUTO: prefix
+  if (prefix === 'A' || prefix === 'AUTO') {
+    return { cleanSubject, connectionId: null, autoSubmit: true, prefix };
+  }
+
+  // Prefix didn't match any connection — might be part of the actual subject (e.g. "RE: Something")
+  return { cleanSubject: subject, connectionId: null, autoSubmit: false, prefix: null };
+}
+
 async function processEmail(
   rawEmail: ReadableStream | ArrayBuffer,
   env: Env
@@ -55,8 +96,9 @@ async function processEmail(
   // For v1, we note text PDFs and docs but don't extract their text
   const attachmentTexts = buildAttachmentNotes(textPdfs, textDocs);
 
-  // Strip auto-submit prefix from subject for AI extraction
-  const cleanSubject = parsed.subject.replace(/^(A:|AUTO:)\s*/i, '').trim();
+  // Parse subject prefix for connection routing (e.g. "QA: Job Name" → route to QA connection)
+  const { cleanSubject, connectionId: routedConnId, autoSubmit, prefix: routedPrefix } = await resolveEmailRoute(parsed.subject, env);
+  if (routedPrefix) log(`Route prefix "${routedPrefix}" → connection ${routedConnId}, auto-submit: ${autoSubmit}`);
 
   const promptData: PromptData = {
     from_name: parsed.from.name,
@@ -79,13 +121,9 @@ async function processEmail(
     log('No customer match found');
   }
 
-  // 7. Check for auto-submit prefix (A: or AUTO: in subject)
-  const autoSubmit = /^(A:|AUTO:)\s*/i.test(parsed.subject);
-  if (autoSubmit) log('Auto-submit detected from subject prefix');
-
-  // 8. Create job (S2: creates project directly; WCP: creates Draft, then optionally submits)
+  // 7. Create job using routed connection (S2: creates project directly; WCP: creates Draft, optionally submits)
   log(autoSubmit ? 'Creating and submitting MIS job...' : 'Creating Draft MIS job...');
-  const jobRecord = await createMisJob(env, extracted, r2Uploads, autoSubmit);
+  const jobRecord = await createMisJob(env, extracted, r2Uploads, autoSubmit, routedConnId || undefined);
   log(`Job created: ${JSON.stringify(jobRecord)}`);
 
   return { extracted, jobRecord, r2Uploads, logs };

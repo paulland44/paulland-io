@@ -166,13 +166,39 @@ export async function createMisJob(
   env: Env,
   extracted: ExtractedJob,
   r2Uploads: R2Upload[],
-  autoSubmit = false
+  autoSubmit = false,
+  overrideConnectionId?: string
 ): Promise<any> {
   const jobId = generateJobId();
   const description = buildDescription(extracted, r2Uploads);
   const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
-  const connectionId = env.DEFAULT_MIS_CONNECTION_ID || DEFAULT_WCP_CONNECTION_ID;
-  const apiVersion = env.DEFAULT_MIS_API_VERSION || 'legacy';
+  const connectionId = overrideConnectionId || env.DEFAULT_MIS_CONNECTION_ID || DEFAULT_WCP_CONNECTION_ID;
+
+  // Determine api_version by looking up the connection from Supabase
+  let apiVersion = env.DEFAULT_MIS_API_VERSION || 'legacy';
+  if (env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
+    try {
+      const connResp = await fetch(
+        `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=api_version,type,name&limit=1`,
+        {
+          headers: {
+            'apikey': env.SUPABASE_SERVICE_KEY,
+            'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+            'Accept': 'application/json',
+          },
+        }
+      );
+      if (connResp.ok) {
+        const rows = await connResp.json() as any[];
+        if (rows.length > 0 && rows[0].api_version) {
+          apiVersion = rows[0].api_version;
+          console.log(`[email-to-mis] Connection ${rows[0].name}: api_version=${apiVersion}`);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Failed to look up connection: ${err.message}`);
+    }
+  }
   const isS2 = apiVersion === 's2';
 
   if (isS2) {
