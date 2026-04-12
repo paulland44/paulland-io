@@ -11,6 +11,8 @@ binding = "R2_BUCKET"
 bucket_name = "knowledge-capture"
 
 # Secrets (set via `wrangler secret put`):
-# PAULLAND_API_URL        — https://paulland.io/api
-# PAULLAND_INTERNAL_API_KEY — internal API key for Pages API auth
-# TEST_SECRET             — guards the HTTP test endpoint
+# PAULLAND_API_URL           — https://paulland.io/api
+# PAULLAND_INTERNAL_API_KEY  — internal API key for Pages API auth
+# TEST_SECRET                — guards the HTTP test endpoint
+# DEFAULT_MIS_CONNECTION_ID  — UUID of the MIS connection to create jobs on (optional, defaults to Production-Demo-PALA)
+# DEFAULT_MIS_API_VERSION    — 'legacy' or 's2' (optional, defaults to 'legacy')

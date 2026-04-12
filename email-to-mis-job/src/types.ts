@@ -4,6 +4,8 @@ export interface Env {
   PAULLAND_API_URL: string;
   PAULLAND_INTERNAL_API_KEY: string;
   TEST_SECRET: string;
+  DEFAULT_MIS_CONNECTION_ID?: string;
+  DEFAULT_MIS_API_VERSION?: string; // 'legacy' | 's2'
 }
 
 export interface ParsedEmail {
@@ -52,6 +54,12 @@ export interface TaskAssignee {
   reasoning: string;
 }
 
+export interface BarcodeSpec {
+  encoding: string;
+  encodingDetails: string;
+  value: string[];
+}
+
 export interface ExtractedJob {
   job_name: string;
   customer_match: CustomerMatch | null;
@@ -62,6 +70,8 @@ export interface ExtractedJob {
   quantity: string | null;
   is_reprint: boolean | null;
   task_assignee: TaskAssignee | null;
+  project_type: string | null; // Prepress | Production
+  barcodes: BarcodeSpec[] | null;
 }
 
 export interface PromptData {

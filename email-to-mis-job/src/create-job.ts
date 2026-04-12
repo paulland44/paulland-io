@@ -1,7 +1,7 @@
 import type { Env, ExtractedJob, R2Upload } from './types.js';
 
-const WCP_CONNECTION_ID = '49178064-6e4e-45b3-b7eb-f066b445d323';
-const WCP_CONNECTION_NAME = 'Production-Demo-PALA';
+const DEFAULT_WCP_CONNECTION_ID = '49178064-6e4e-45b3-b7eb-f066b445d323';
+const DEFAULT_WCP_CONNECTION_NAME = 'Production-Demo-PALA';
 
 function generateJobId(): string {
   const now = new Date();
@@ -120,6 +120,44 @@ function buildWcpPayload(jobId: string, extracted: ExtractedJob): any {
   return payload;
 }
 
+function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
+  const rawDueDate = extracted.due_date || new Date(Date.now() + 7 * 86400000).toISOString();
+  const dueDateIso = new Date(rawDueDate).toISOString();
+
+  const properties: any = {
+    MISId: 'MyMIS',
+    jobId,
+    projectName: extracted.job_name,
+    description: extracted.description || '',
+    dueDate: dueDateIso,
+    status: { type: 'ProjectStatus', status: 'Created' },
+  };
+
+  // Customer reference (S2 uses nodeId — partnerId won't work; store as-is for now)
+  if (extracted.customer_match?.partnerId) {
+    properties.customers = [{ ref: extracted.customer_match.partnerId, type: 'Reference' }];
+  }
+
+  // Attributes
+  const attrs: Record<string, string> = {};
+  if (extracted.project_type) attrs.projectType = extracted.project_type;
+  else attrs.projectType = 'Prepress'; // default
+  if (Object.keys(attrs).length) {
+    properties.attributes = { string: attrs };
+  }
+
+  // Barcodes
+  if (extracted.barcodes?.length) {
+    properties['Job-Barcodes'] = extracted.barcodes.map(b => ({
+      encoding: b.encoding || '',
+      encodingDetails: b.encodingDetails || '',
+      value: Array.isArray(b.value) ? b.value : [b.value],
+    }));
+  }
+
+  return { properties };
+}
+
 export async function createMisJob(
   env: Env,
   extracted: ExtractedJob,
@@ -127,6 +165,72 @@ export async function createMisJob(
 ): Promise<any> {
   const jobId = generateJobId();
   const description = buildDescription(extracted, r2Uploads);
+  const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const connectionId = env.DEFAULT_MIS_CONNECTION_ID || DEFAULT_WCP_CONNECTION_ID;
+  const apiVersion = env.DEFAULT_MIS_API_VERSION || 'legacy';
+  const isS2 = apiVersion === 's2';
+
+  if (isS2) {
+    // S2: create project directly via API proxy
+    const s2Payload = buildS2Payload(jobId, extracted);
+    // Add description with full context (specs, file refs, customer match)
+    s2Payload.properties.description = description;
+
+    const projectResp = await fetch(`${apiUrl}/mis/projects`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+        'X-MIS-Connection-Id': connectionId,
+      },
+      body: JSON.stringify(s2Payload),
+    });
+
+    let projectResult: any;
+    const respText = await projectResp.text();
+    try { projectResult = JSON.parse(respText); } catch { projectResult = { rawResponse: respText.slice(0, 500) }; }
+
+    if (!projectResp.ok) {
+      throw new Error(`Failed to create S2 project: ${projectResp.status} ${respText.slice(0, 300)}`);
+    }
+
+    // Store job record in Supabase for monitoring
+    const jobRecord = {
+      job_id: jobId,
+      job_name: extracted.job_name,
+      customer_code: extracted.customer_match?.partnerId || '',
+      customer_name: extracted.customer_match?.partnerName || '',
+      status: 'Created',
+      phase: 'Intake',
+      due_date: extracted.due_date || null,
+      description,
+      connection_id: connectionId,
+      connection_name: '',
+      solution: 's2',
+      cluster: '',
+      payload: s2Payload,
+      wcp_response: projectResult,
+      project_node_id: projectResult?.id || null,
+    };
+
+    const storeResp = await fetch(`${apiUrl}/mis/jobs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+      },
+      body: JSON.stringify(jobRecord),
+    });
+
+    if (!storeResp.ok) {
+      console.warn('S2 project created but failed to store job record:', await storeResp.text());
+    }
+
+    return storeResp.ok ? await storeResp.json() : jobRecord;
+  }
+
+  // Legacy WCP: create draft job record
   const wcpPayload = buildWcpPayload(jobId, extracted);
 
   const jobRecord = {
@@ -137,16 +241,15 @@ export async function createMisJob(
     status: 'Draft',
     phase: 'Intake',
     due_date: extracted.due_date || null,
-    description: description,
-    connection_id: WCP_CONNECTION_ID,
-    connection_name: WCP_CONNECTION_NAME,
+    description,
+    connection_id: connectionId,
+    connection_name: connectionId === DEFAULT_WCP_CONNECTION_ID ? DEFAULT_WCP_CONNECTION_NAME : '',
     solution: 'wcp',
     cluster: 'eu',
     payload: wcpPayload,
     wcp_response: null,
   };
 
-  const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
   const response = await fetch(`${apiUrl}/mis/jobs`, {
     method: 'POST',
     headers: {

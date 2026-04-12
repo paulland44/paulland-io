@@ -94,8 +94,18 @@ Extract the following as JSON. Use null for any field you cannot determine:
     "email": "The email address to assign the upload task to",
     "source": "third_party | sender | null",
     "reasoning": "Brief explanation of why this person was chosen"
-  }
+  },
+  "project_type": "Prepress | Production | null (Prepress if job involves artwork/design/proofing, Production if it involves printing/manufacturing)",
+  "barcodes": [
+    {
+      "encoding": "GS1-QR | EAN-13 | UPC-A | Code128 | GS1-128 | GS1-DataMatrix | GS1-DataBar | ITF-14 | QR Code",
+      "encodingDetails": "Specific variant or parameters if mentioned",
+      "value": ["The barcode value/data"]
+    }
+  ]
 }
+
+Note: barcodes should be an array of barcode specs if any are mentioned in the email (e.g. "EAN-13: 5012345678900" or "include a QR code linking to example.com"). Set to null if no barcodes are mentioned.
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 }
@@ -149,6 +159,8 @@ function parseExtraction(raw: string): ExtractedJob {
     quantity: null,
     is_reprint: null,
     task_assignee: null,
+    project_type: null,
+    barcodes: null,
   };
 }
 
@@ -163,5 +175,9 @@ function validateExtraction(obj: any): ExtractedJob {
     quantity: obj.quantity || null,
     is_reprint: obj.is_reprint ?? null,
     task_assignee: obj.task_assignee?.email ? obj.task_assignee : null,
+    project_type: obj.project_type || null,
+    barcodes: Array.isArray(obj.barcodes) && obj.barcodes.length > 0
+      ? obj.barcodes.filter((b: any) => b.encoding || b.value?.length)
+      : null,
   };
 }
