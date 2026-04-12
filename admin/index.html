@@ -13452,9 +13452,11 @@
         // Legacy WCP-only sections: hide for S2
         const tasksSection = document.getElementById('misTasksSection');
         if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
-        // Site field: hide for S2
+        // Site field and manual customer code: hide for S2
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
+        const custCodeField = document.getElementById('misJobCustomerCode');
+        if (custCodeField) custCodeField.style.display = isS2 ? 'none' : '';
         // AE section
         const aeSection = document.getElementById('misAeSection');
         if (aeSection) aeSection.style.display = isAe ? '' : 'none';
@@ -14043,7 +14045,7 @@
         // Wire up searchable customer select (normalized format: {value, label})
         if (customers.length) {
             window._misCustomerSS = createSearchableSelect('misJobCustomer',
-                customers.map(c => ({ value: c.value, label: `${c.label} (${c.value})`, searchText: c.label })),
+                customers.map(c => ({ value: c.value, label: c.label, searchText: `${c.label} ${c.value}` })),
                 { placeholder: 'Search customers...', onchange: (val) => {
                     const codeInput = document.getElementById('misJobCustomerCode');
                     if (codeInput) codeInput.value = val;
@@ -14087,7 +14089,7 @@
                     if (custContainer && custs.length) {
                         custContainer.innerHTML = '';
                         window._misCustomerSS = createSearchableSelect('misJobCustomer',
-                            custs.map(c => ({ value: c.value, label: `${c.label} (${c.value})`, searchText: c.label })),
+                            custs.map(c => ({ value: c.value, label: c.label, searchText: `${c.label} ${c.value}` })),
                             { placeholder: 'Search customers...', onchange: (val) => {
                                 const codeInput = document.getElementById('misJobCustomerCode');
                                 if (codeInput) codeInput.value = val;
@@ -14224,9 +14226,11 @@
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
 
-        // Site field: hide for S2
+        // Site field and manual customer code: hide for S2
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
+        const custCodeField = document.getElementById('misJobCustomerCode');
+        if (custCodeField) custCodeField.style.display = isS2 ? 'none' : '';
 
         // Tasks section: hide for S2 (uses workflows) and AE
         const tasksSection = document.getElementById('misTasksSection');
