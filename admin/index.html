@@ -13332,6 +13332,82 @@
         return misGetTargetApiVersion() === 's2';
     }
 
+    // ─── S2 Barcodes ──────────────────────────────────────────
+
+    let jobBarcodes = [];
+    let barcodeCounter = 0;
+
+    const BARCODE_ENCODINGS = [
+        'GS1-QR', 'EAN-13', 'UPC-A', 'Code128', 'GS1-128',
+        'GS1-DataMatrix', 'GS1-DataBar', 'ITF-14', 'QR Code',
+    ];
+
+    window.misAddBarcode = function(preset) {
+        barcodeCounter++;
+        const idx = barcodeCounter;
+        const bc = {
+            idx,
+            encoding: preset?.encoding || '',
+            encodingDetails: preset?.encodingDetails || '',
+            value: preset?.value?.[0] || preset?.value || '',
+        };
+        jobBarcodes.push(bc);
+
+        const container = document.getElementById('s2BarcodesContainer');
+        if (!container) return;
+        // Remove "No barcodes" placeholder
+        if (container.querySelector('.mis-form-group') === null && container.children.length === 1) container.innerHTML = '';
+
+        const card = document.createElement('div');
+        card.className = 'task-card';
+        card.id = `mis-barcode-${idx}`;
+        card.innerHTML = `
+            <div class="task-card-header">
+                <span class="task-card-number">Barcode ${idx}</span>
+                <button class="task-remove" onclick="misRemoveBarcode(${idx})" title="Remove"><i class="icon" data-lucide="x" style="width:14px;height:14px;"></i></button>
+            </div>
+            <div class="mis-form-row">
+                <div class="mis-form-group">
+                    <div class="mis-form-label">Encoding</div>
+                    <select class="modal-edit-select" id="s2BcEncoding-${idx}" onchange="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                        <option value="">Select...</option>
+                        ${BARCODE_ENCODINGS.map(e => `<option value="${e}" ${e === bc.encoding ? 'selected' : ''}>${e}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="mis-form-group">
+                    <div class="mis-form-label">Encoding Details</div>
+                    <input class="modal-edit-input" id="s2BcDetails-${idx}" placeholder="e.g. QR_5" value="${bc.encodingDetails}" oninput="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                </div>
+            </div>
+            <div class="mis-form-group">
+                <div class="mis-form-label">Value</div>
+                <input class="modal-edit-input" id="s2BcValue-${idx}" placeholder="e.g. 37 x 37 L" value="${bc.value}" oninput="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+            </div>
+        `;
+        container.appendChild(card);
+        refreshIcons();
+        misUpdatePreview();
+    };
+
+    window.misRemoveBarcode = function(idx) {
+        jobBarcodes = jobBarcodes.filter(b => b.idx !== idx);
+        const card = document.getElementById(`mis-barcode-${idx}`);
+        if (card) card.remove();
+        const container = document.getElementById('s2BarcodesContainer');
+        if (container && !container.children.length) {
+            container.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No barcodes added.</div>';
+        }
+        misUpdatePreview();
+    };
+
+    window.misUpdateBarcodeData = function(idx) {
+        const bc = jobBarcodes.find(b => b.idx === idx);
+        if (!bc) return;
+        bc.encoding = document.getElementById(`s2BcEncoding-${idx}`)?.value || '';
+        bc.encodingDetails = document.getElementById(`s2BcDetails-${idx}`)?.value || '';
+        bc.value = document.getElementById(`s2BcValue-${idx}`)?.value || '';
+    };
+
     function misRebuildWorkflowDropdown() {
         const container = document.getElementById('s2WorkflowTemplate');
         if (!container) return;
@@ -13452,6 +13528,16 @@
             // Customer reference (S2 uses nodeId refs)
             if (customerCode) {
                 properties.customers = [{ ref: customerCode, type: 'Reference' }];
+            }
+
+            // Barcodes
+            const barcodes = jobBarcodes.filter(b => b.encoding || b.value);
+            if (barcodes.length) {
+                properties['Job-Barcodes'] = barcodes.map(b => ({
+                    encoding: b.encoding || '',
+                    encodingDetails: b.encodingDetails || '',
+                    value: b.value ? [b.value] : [],
+                }));
             }
 
             return { properties };
@@ -13651,6 +13737,7 @@
 
         // Reset task state
         jobTasks = []; taskCounter = 0;
+        jobBarcodes = []; barcodeCounter = 0;
 
         const dis = isView ? 'disabled' : '';
         const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
@@ -13809,6 +13896,20 @@
                                 <div class="mis-form-label">Editing Instructions</div>
                                 <textarea class="mis-form-textarea" id="s2EditingInstructions" placeholder="Instructions for the prepress operator..." ${dis}></textarea>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- S2 Barcodes — collapsible (hidden for legacy/AE) -->
+                <div class="mis-card" id="misS2BarcodesSection" style="display:none;">
+                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="scan-barcode"></i> Barcodes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                    </div>
+                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                        <div style="padding-top:0.75rem;">
+                            <div id="s2BarcodesContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No barcodes added.</div></div>
+                            ${!isView ? `<button class="mis-btn" onclick="misAddBarcode()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Barcode</button>` : ''}
                         </div>
                     </div>
                 </div>
@@ -14031,6 +14132,13 @@
                 setVal('s2ProjectType', p.attributes?.string?.projectType);
                 setVal('s2ApprovalMethod', p.attributes?.string?.ApprovalMethod);
                 setVal('s2EditingInstructions', p.attributes?.string?.EditingInstructions);
+
+                // Populate barcodes from payload
+                if (p['Job-Barcodes']?.length) {
+                    for (const bc of p['Job-Barcodes']) {
+                        misAddBarcode(bc);
+                    }
+                }
             }
 
             // Populate tasks from payload
@@ -14086,7 +14194,7 @@
         const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
 
         // S2 sections: show/hide entirely
-        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2WorkflowSection', 'misS2AssetsSection'].forEach(id => {
+        ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2BarcodesSection', 'misS2WorkflowSection', 'misS2AssetsSection'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
@@ -14599,11 +14707,48 @@
                         headers: { 'X-MIS-Connection-Id': connectionId },
                         credentials: 'same-origin',
                     });
-                    if (thumbResp.ok) {
+                    const contentType = thumbResp.headers.get('Content-Type') || '';
+                    console.log(`[MIS] Thumbnail ${assetId}: HTTP ${thumbResp.status}, Content-Type: ${contentType}`);
+                    if (thumbResp.ok && contentType.startsWith('image/')) {
                         const blob = await thumbResp.blob();
                         img.src = URL.createObjectURL(blob);
+                    } else if (thumbResp.ok && contentType.includes('json')) {
+                        // S2 returns JSON map: {"1": {"thumbnail-200x200": "url", "thumbnail-256x256": "url"}}
+                        const thumbData = await thumbResp.json();
+                        // Find the best thumbnail URL from the response
+                        let thumbUrl = null;
+                        if (typeof thumbData === 'object') {
+                            // Iterate through pages (keys like "1", "2", etc.)
+                            for (const pageKey of Object.keys(thumbData)) {
+                                const page = thumbData[pageKey];
+                                if (typeof page === 'object') {
+                                    // Prefer larger thumbnail, fall back to any
+                                    thumbUrl = page['thumbnail-256x256'] || page['thumbnail-200x200'] || Object.values(page)[0];
+                                    if (thumbUrl) break;
+                                } else if (typeof page === 'string' && page.startsWith('http')) {
+                                    thumbUrl = page; break;
+                                }
+                            }
+                            // Direct URL properties
+                            if (!thumbUrl) thumbUrl = thumbData.url || thumbData.thumbnailUrl;
+                        }
+                        if (thumbUrl) {
+                            img.src = thumbUrl;
+                        } else {
+                            img.alt = asset.name || 'No preview';
+                            img.style.opacity = '0.3';
+                        }
+                    } else if (thumbResp.ok) {
+                        const blob = await thumbResp.blob();
+                        if (blob.size > 100) {
+                            img.src = URL.createObjectURL(blob);
+                        } else {
+                            img.alt = asset.name || 'No preview';
+                            img.style.opacity = '0.3';
+                        }
                     } else {
-                        img.style.display = 'none';
+                        img.alt = asset.name || 'No preview';
+                        img.style.opacity = '0.3';
                     }
                 } catch {
                     img.style.display = 'none';
