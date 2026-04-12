@@ -133,10 +133,13 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
     status: { type: 'ProjectStatus', status: 'Created' },
   };
 
-  // Customer reference (S2 uses nodeId — partnerId won't work; store as-is for now)
-  if (extracted.customer_match?.partnerId) {
-    properties.customers = [{ ref: extracted.customer_match.partnerId, type: 'Reference' }];
+  // Customer reference — S2 requires node IDs (format: repoId-xxxxx), not partner codes like "DFG"
+  // Only include if the partnerId looks like an S2 node ID (contains a dash followed by alphanumeric)
+  const custId = extracted.customer_match?.partnerId;
+  if (custId && custId.includes('-') && custId.length > 20) {
+    properties.customers = [{ ref: custId, type: 'Reference' }];
   }
+  // Store customer info in description regardless
 
   // Attributes
   const attrs: Record<string, string> = {};
@@ -192,7 +195,33 @@ export async function createMisJob(
     try { projectResult = JSON.parse(respText); } catch { projectResult = { rawResponse: respText.slice(0, 500) }; }
 
     if (!projectResp.ok) {
-      throw new Error(`Failed to create S2 project: ${projectResp.status} ${respText.slice(0, 300)}`);
+      console.warn(`[email-to-mis] S2 project creation failed (${projectResp.status}): ${respText.slice(0, 300)}`);
+      console.warn('[email-to-mis] Falling back to Draft job record');
+      // Fall back to storing as Draft (can be submitted manually later)
+      const fallbackRecord = {
+        job_id: jobId,
+        job_name: extracted.job_name,
+        customer_code: extracted.customer_match?.partnerId || '',
+        customer_name: extracted.customer_match?.partnerName || '',
+        status: 'Draft',
+        phase: 'Intake',
+        due_date: extracted.due_date || null,
+        description,
+        connection_id: connectionId,
+        connection_name: '',
+        solution: 's2',
+        cluster: '',
+        payload: s2Payload,
+        wcp_response: { error: `S2 creation failed: ${projectResp.status}`, detail: respText.slice(0, 500) },
+      };
+
+      const fallbackResp = await fetch(`${apiUrl}/mis/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
+        body: JSON.stringify(fallbackRecord),
+      });
+
+      return fallbackResp.ok ? await fallbackResp.json() : fallbackRecord;
     }
 
     // Store job record in Supabase for monitoring
