@@ -765,11 +765,17 @@ async function handleS2Route(subPath, request, conn, env) {
   if (subPath.match(/^assets\/[^/]+\/content$/) && request.method === 'POST') {
     const assetId = subPath.replace('assets/', '').replace('/content', '');
     const body = await request.arrayBuffer();
+    // Minimal headers for binary upload — S2 only needs token + content type
+    const uploadHeaders = {
+      'EskoCloud-Token': token,
+      'Content-Type': request.headers.get('Content-Type') || 'application/octet-stream',
+      'User-Agent': 'PaulLand-MIS/2.0',
+    };
     const resp = await fetch(
       `${s2Base}/MIS/v0/assets/${assetId}/content`,
-      { method: 'POST', headers: { ...s2Headers, 'Content-Type': request.headers.get('Content-Type') || 'application/octet-stream' }, body }
+      { method: 'POST', headers: uploadHeaders, body }
     );
-    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json', ...corsHeaders() } });
   }
 
   // ─── Compatibility shim: map legacy routes for S2 connections ───
