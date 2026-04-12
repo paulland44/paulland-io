@@ -160,11 +160,24 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
 
   // Barcodes
   if (extracted.barcodes?.length) {
-    properties['Job-Barcodes'] = extracted.barcodes.map(b => ({
-      encoding: b.encoding || '',
-      encodingDetails: (b.encodingDetails && b.encodingDetails !== 'null') ? b.encodingDetails : '',
-      value: Array.isArray(b.value) ? b.value.filter(v => v && v !== 'null') : (b.value && b.value !== 'null' ? [b.value] : []),
-    }));
+    // Map AI-extracted encoding names to S2 API enum values
+    const ENCODING_MAP: Record<string, string> = {
+      'EAN-13': 'EAN_13', 'EAN-8': 'EAN_8', 'UPC-A': 'UPC_A', 'UPC-E': 'UPC_E',
+      'Code128': 'Code128', 'Code39': 'Code39', 'GS1-128': 'GS1-128',
+      'GS1-QR': 'GS1-QR', 'QR': 'QR', 'QR Code': 'QR',
+      'GS1-DataMatrix': 'GS1-DataMatrix', 'DataMatrix': 'DATAMATRIX',
+      'ITF-14': 'ITF_14', 'GS1-DataBar': 'GS1-DataBar-Omnidirectional',
+    };
+    properties['Job-Barcodes'] = extracted.barcodes.map(b => {
+      const enc = ENCODING_MAP[b.encoding] || b.encoding?.replace(/-/g, '_') || '';
+      const bc: any = {
+        encoding: enc,
+        value: Array.isArray(b.value) ? b.value.filter(v => v && v !== 'null') : (b.value && b.value !== 'null' ? [b.value] : []),
+      };
+      const det = b.encodingDetails;
+      if (det && det !== 'null' && det !== enc) bc.encodingDetails = det;
+      return bc;
+    });
   }
 
   return { properties };

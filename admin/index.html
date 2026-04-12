@@ -13335,9 +13335,24 @@
     let jobBarcodes = [];
     let barcodeCounter = 0;
 
+    // S2 barcode encoding values (must match S2 API schema exactly)
     const BARCODE_ENCODINGS = [
-        'GS1-QR', 'EAN-13', 'UPC-A', 'Code128', 'GS1-128',
-        'GS1-DataMatrix', 'GS1-DataBar', 'ITF-14', 'QR Code',
+        { value: 'EAN_13', label: 'EAN-13', details: ['EAN_13_Standard', 'EAN_13_Swissmedic', 'EAN_13_Iceland_Foods'] },
+        { value: 'EAN_8', label: 'EAN-8', details: ['EAN_8_Standard', 'EAN_8_Marks_Spencer', 'EAN_8_M+S_7'] },
+        { value: 'UPC_A', label: 'UPC-A', details: ['UPC_A_Standard', 'UPC_A_NDC_HRI'] },
+        { value: 'UPC_E', label: 'UPC-E', details: [] },
+        { value: 'Code128', label: 'Code 128', details: ['Code128_Standard', 'Code128_HIBC'] },
+        { value: 'Code39', label: 'Code 39', details: ['Code39_Standard', 'Code39_HIBC', 'Code39_CIP'] },
+        { value: 'Code93', label: 'Code 93', details: ['Code39_Code32'] },
+        { value: 'GS1-128', label: 'GS1-128', details: [] },
+        { value: 'QR', label: 'QR Code', details: ['QR_1','QR_2','QR_3','QR_4','QR_5','QR_6','QR_7','QR_8','QR_9','QR_10'] },
+        { value: 'GS1-QR', label: 'GS1-QR', details: ['QR_1','QR_2','QR_3','QR_4','QR_5','QR_6','QR_7','QR_8','QR_9','QR_10'] },
+        { value: 'DATAMATRIX', label: 'DataMatrix', details: ['DM_10_by_10','DM_12_by_12','DM_14_by_14','DM_16_by_16','DM_18_by_18','DM_20_by_20','DM_22_by_22','DM_24_by_24','DM_26_by_26','DM_32_by_32'] },
+        { value: 'GS1-DataMatrix', label: 'GS1-DataMatrix', details: ['DM_10_by_10','DM_12_by_12','DM_14_by_14','DM_16_by_16','DM_18_by_18','DM_20_by_20','DM_22_by_22','DM_24_by_24','DM_26_by_26','DM_32_by_32'] },
+        { value: 'GS1-DataBar-Omnidirectional', label: 'GS1-DataBar', details: [] },
+        { value: 'ITF_14', label: 'ITF-14', details: [] },
+        { value: 'CODABAR', label: 'Codabar', details: [] },
+        { value: 'PDF417', label: 'PDF417', details: [] },
     ];
 
     window.misAddBarcode = function(preset) {
@@ -13367,23 +13382,33 @@
             <div class="mis-form-row">
                 <div class="mis-form-group">
                     <div class="mis-form-label">Encoding</div>
-                    <select class="modal-edit-select" id="s2BcEncoding-${idx}" onchange="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                    <select class="modal-edit-select" id="s2BcEncoding-${idx}" onchange="misUpdateBarcodeDetails(${idx}); misUpdateBarcodeData(${idx}); misUpdatePreview();">
                         <option value="">Select...</option>
-                        ${BARCODE_ENCODINGS.map(e => `<option value="${e}" ${e === bc.encoding ? 'selected' : ''}>${e}</option>`).join('')}
+                        ${BARCODE_ENCODINGS.map(e => `<option value="${e.value}" ${e.value === bc.encoding ? 'selected' : ''}>${e.label}</option>`).join('')}
                     </select>
                 </div>
                 <div class="mis-form-group">
                     <div class="mis-form-label">Encoding Details</div>
-                    <input class="modal-edit-input" id="s2BcDetails-${idx}" placeholder="e.g. QR_5" value="${bc.encodingDetails}" oninput="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                    <select class="modal-edit-select" id="s2BcDetails-${idx}" onchange="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                        <option value="">Default</option>
+                    </select>
                 </div>
             </div>
             <div class="mis-form-group">
                 <div class="mis-form-label">Value</div>
-                <input class="modal-edit-input" id="s2BcValue-${idx}" placeholder="e.g. 37 x 37 L" value="${bc.value}" oninput="misUpdateBarcodeData(${idx}); misUpdatePreview();">
+                <input class="modal-edit-input" id="s2BcValue-${idx}" placeholder="e.g. 5012345678900" value="${bc.value}" oninput="misUpdateBarcodeData(${idx}); misUpdatePreview();">
             </div>
         `;
         container.appendChild(card);
         refreshIcons();
+        // Populate encoding details dropdown if encoding is preset
+        if (bc.encoding) {
+            misUpdateBarcodeDetails(idx);
+            if (bc.encodingDetails) {
+                const detailsSel = document.getElementById(`s2BcDetails-${idx}`);
+                if (detailsSel) detailsSel.value = bc.encodingDetails;
+            }
+        }
         // Update collapsible body max-height to fit new content
         const body = container.closest('.mis-collapsible-body');
         if (body && !body.classList.contains('collapsed')) body.style.maxHeight = body.scrollHeight + 'px';
@@ -13402,6 +13427,16 @@
         const body = container?.closest('.mis-collapsible-body');
         if (body && !body.classList.contains('collapsed')) body.style.maxHeight = body.scrollHeight + 'px';
         misUpdatePreview();
+    };
+
+    window.misUpdateBarcodeDetails = function(idx) {
+        const encoding = document.getElementById(`s2BcEncoding-${idx}`)?.value || '';
+        const detailsSel = document.getElementById(`s2BcDetails-${idx}`);
+        if (!detailsSel) return;
+        const enc = BARCODE_ENCODINGS.find(e => e.value === encoding);
+        const details = enc?.details || [];
+        detailsSel.innerHTML = '<option value="">Default</option>' +
+            details.map(d => `<option value="${d}">${d}</option>`).join('');
     };
 
     window.misUpdateBarcodeData = function(idx) {
@@ -13539,11 +13574,11 @@
             // Barcodes
             const barcodes = jobBarcodes.filter(b => b.encoding || b.value);
             if (barcodes.length) {
-                properties['Job-Barcodes'] = barcodes.map(b => ({
-                    encoding: b.encoding || '',
-                    encodingDetails: b.encodingDetails || '',
-                    value: b.value ? [b.value] : [],
-                }));
+                properties['Job-Barcodes'] = barcodes.map(b => {
+                    const bc = { encoding: b.encoding, value: b.value ? [b.value] : [] };
+                    if (b.encodingDetails) bc.encodingDetails = b.encodingDetails;
+                    return bc;
+                });
             }
 
             return { properties };
