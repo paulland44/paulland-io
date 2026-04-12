@@ -14121,9 +14121,25 @@
 
         // Populate fields for edit/view mode
         if (hasJob && job) {
-            // Customer searchable select
+            // Customer searchable select — try by code first, then by name/code fuzzy match
             const custEl = document.getElementById('misJobCustomer');
-            if (custEl?._ss && job.customer_code) custEl._ss.setValue(job.customer_code);
+            if (custEl?._ss && job.customer_code) {
+                custEl._ss.setValue(job.customer_code);
+                // If setValue didn't match (e.g. legacy partnerId "DFG" vs S2 nodeId), try matching by name
+                if (!custEl._ss.getValue() && (job.customer_name || job.customer_code)) {
+                    const searchTerm = (job.customer_name || job.customer_code).toLowerCase();
+                    const match = customers.find(c =>
+                        c.label.toLowerCase().includes(searchTerm) ||
+                        c.value.toLowerCase().includes(searchTerm) ||
+                        searchTerm.includes(c.label.toLowerCase())
+                    );
+                    if (match) {
+                        custEl._ss.setValue(match.value);
+                        const codeInput = document.getElementById('misJobCustomerCode');
+                        if (codeInput) codeInput.value = match.value;
+                    }
+                }
+            }
 
             // AE fields from payload
             if (job.payload) {
