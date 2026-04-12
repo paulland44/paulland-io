@@ -122,8 +122,9 @@ async function processEmail(
   }
 
   // 7. Create job using routed connection (S2: creates project directly; WCP: creates Draft, optionally submits)
+  // Pass classified attachments so S2 path can upload them as project assets
   log(autoSubmit ? 'Creating and submitting MIS job...' : 'Creating Draft MIS job...');
-  const jobRecord = await createMisJob(env, extracted, r2Uploads, autoSubmit, routedConnId || undefined);
+  const jobRecord = await createMisJob(env, extracted, r2Uploads, autoSubmit, routedConnId || undefined, classified);
   log(`Job created: ${JSON.stringify(jobRecord)}`);
 
   return { extracted, jobRecord, r2Uploads, logs };

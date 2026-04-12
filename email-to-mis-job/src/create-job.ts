@@ -1,4 +1,4 @@
-import type { Env, ExtractedJob, R2Upload } from './types.js';
+import type { Env, ExtractedJob, R2Upload, ClassifiedAttachment } from './types.js';
 
 const DEFAULT_WCP_CONNECTION_ID = '49178064-6e4e-45b3-b7eb-f066b445d323';
 const DEFAULT_WCP_CONNECTION_NAME = 'Production-Demo-PALA';
@@ -183,12 +183,103 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
   return { properties };
 }
 
+async function uploadAssetsToS2(
+  env: Env,
+  projectNodeId: string,
+  connectionId: string,
+  attachments: ClassifiedAttachment[],
+  r2Uploads: R2Upload[]
+): Promise<{ uploaded: string[]; failed: string[] }> {
+  const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+    'X-MIS-Connection-Id': connectionId,
+  };
+  const uploaded: string[] = [];
+  const failed: string[] = [];
+
+  for (const upload of r2Uploads) {
+    const att = attachments.find(a => a.filename === upload.filename);
+    if (!att) { failed.push(upload.filename); continue; }
+
+    // Warn for large files (>10MB)
+    if (att.sizeBytes > 10 * 1024 * 1024) {
+      console.warn(`[email-to-mis] Large file: ${upload.filename} (${(att.sizeBytes / 1024 / 1024).toFixed(1)}MB)`);
+    }
+
+    try {
+      // Step 1: Create asset reference in the project
+      const createResp = await fetch(`${apiUrl}/mis/projects/${projectNodeId}/assets`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relUrl: `Input/${upload.filename}` }),
+      });
+      if (!createResp.ok) {
+        const err = await createResp.text().catch(() => '');
+        console.warn(`[email-to-mis] Failed to create asset ref for ${upload.filename}: ${createResp.status} ${err.slice(0, 200)}`);
+        failed.push(upload.filename);
+        continue;
+      }
+      const assetResult = await createResp.json() as any;
+      const assetId = assetResult?.id;
+      if (!assetId) {
+        console.warn(`[email-to-mis] No asset ID returned for ${upload.filename}`);
+        failed.push(upload.filename);
+        continue;
+      }
+
+      // Step 2: Upload file content to the asset
+      let content: ArrayBuffer | Uint8Array;
+      if (att.content instanceof ArrayBuffer) {
+        content = att.content;
+      } else if (att.content instanceof Uint8Array) {
+        content = att.content;
+      } else {
+        content = new TextEncoder().encode(att.content as string);
+      }
+
+      const uploadResp = await fetch(`${apiUrl}/mis/assets/${assetId}/content`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': att.mimeType || 'application/octet-stream' },
+        body: content,
+      });
+      if (uploadResp.ok) {
+        console.log(`[email-to-mis] Uploaded ${upload.filename} to S2 asset ${assetId}`);
+        uploaded.push(upload.filename);
+      } else {
+        const err = await uploadResp.text().catch(() => '');
+        console.warn(`[email-to-mis] Failed to upload content for ${upload.filename}: ${uploadResp.status} ${err.slice(0, 200)}`);
+        failed.push(upload.filename);
+      }
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Asset upload error for ${upload.filename}: ${err.message}`);
+      failed.push(upload.filename);
+    }
+  }
+
+  return { uploaded, failed };
+}
+
+async function cleanupR2(env: Env, r2Uploads: R2Upload[], uploadedFiles: string[]): Promise<void> {
+  for (const upload of r2Uploads) {
+    if (!uploadedFiles.includes(upload.filename)) continue; // Only delete successfully uploaded files
+    try {
+      await env.R2_BUCKET.delete(upload.r2Key);
+      console.log(`[email-to-mis] Deleted R2 file: ${upload.r2Key}`);
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Failed to delete R2 file ${upload.r2Key}: ${err.message}`);
+    }
+  }
+}
+
 export async function createMisJob(
   env: Env,
   extracted: ExtractedJob,
   r2Uploads: R2Upload[],
   autoSubmit = false,
-  overrideConnectionId?: string
+  overrideConnectionId?: string,
+  attachments?: ClassifiedAttachment[]
 ): Promise<any> {
   const jobId = generateJobId();
   const description = buildDescription(extracted, r2Uploads);
@@ -331,6 +422,19 @@ export async function createMisJob(
 
     if (!storeResp.ok) {
       console.warn('S2 project created but failed to store job record:', await storeResp.text());
+    }
+
+    // Upload attachments to S2 project as assets, then clean up R2
+    if (projectResult?.id && attachments?.length && r2Uploads.length) {
+      console.log(`[email-to-mis] Uploading ${r2Uploads.length} attachments to S2 project ${projectResult.id}...`);
+      const { uploaded, failed } = await uploadAssetsToS2(env, projectResult.id, connectionId, attachments, r2Uploads);
+      if (uploaded.length) {
+        console.log(`[email-to-mis] Uploaded ${uploaded.length} assets to S2. Cleaning up R2...`);
+        await cleanupR2(env, r2Uploads, uploaded);
+      }
+      if (failed.length) {
+        console.warn(`[email-to-mis] Failed to upload ${failed.length} assets: ${failed.join(', ')} (kept in R2)`);
+      }
     }
 
     return storeResp.ok ? await storeResp.json() : jobRecord;
