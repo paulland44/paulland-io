@@ -126,7 +126,7 @@ function safeDateIso(raw: string | null | undefined, fallbackDays = 7): string {
   return new Date(Date.now() + fallbackDays * 86400000).toISOString();
 }
 
-function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
+async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, apiUrl: string, connectionId: string): Promise<any> {
   const dueDateIso = safeDateIso(extracted.due_date);
 
   const properties: any = {
@@ -138,17 +138,47 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
     status: { type: 'ProjectStatus', status: 'Created' },
   };
 
-  // Customer reference — S2 requires node IDs (format: repoId-xxxxx), not partner codes like "DFG"
-  // Only include if partnerId looks like an S2 node ID
+  // Customer reference — S2 requires valid node IDs, not legacy partner codes
+  // If we have a legacy partnerId (like "DFG"), look up the S2 customer by name
   const custId = extracted.customer_match?.partnerId;
+  const custName = extracted.customer_match?.partnerName;
+  let s2CustomerRef: string | null = null;
+
   if (custId && custId.includes('-') && custId.length > 20) {
-    properties.customers = [{ ref: custId, type: 'Reference', version: 0, page: 0 }];
-  } else if (custId) {
-    // Legacy partnerId — include as empty array (S2 requires the field)
-    properties.customers = [];
-  } else {
-    properties.customers = [];
+    // Already an S2 node ID
+    s2CustomerRef = custId;
+  } else if (custId || custName) {
+    // Legacy partnerId — look up S2 customer by name match
+    const searchTerm = custId || custName || '';
+    try {
+      const custResp = await fetch(
+        `${apiUrl}/mis/customers`,
+        { headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': connectionId } }
+      );
+      if (custResp.ok) {
+        const custData = await custResp.json() as any;
+        const customers = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
+        const match = customers.find((c: any) => {
+          const name = (c.name || c.partnerName || '').toLowerCase();
+          const id = (c.partnerId || '').toLowerCase();
+          const term = searchTerm.toLowerCase();
+          return name === term || id === term || name.includes(term) || term.includes(name);
+        });
+        if (match) {
+          s2CustomerRef = match.id || match.nodeId;
+          console.log(`[email-to-mis] Matched S2 customer: "${searchTerm}" → ${match.name} (${s2CustomerRef})`);
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Customer lookup failed: ${err.message}`);
+    }
   }
+
+  if (s2CustomerRef) {
+    properties.customers = [{ ref: s2CustomerRef, type: 'Reference' }];
+  }
+  // Note: if no customer found, omit customers field entirely — the "no customer"
+  // path in createMisJob will create a Draft instead of submitting to S2
 
   // Attributes
   const attrs: Record<string, string> = {};
@@ -314,11 +344,11 @@ export async function createMisJob(
   const isS2 = apiVersion === 's2';
 
   if (isS2) {
-    const s2Payload = buildS2Payload(jobId, extracted);
+    const s2Payload = await buildS2Payload(jobId, extracted, env, apiUrl, connectionId);
     s2Payload.properties.description = description;
 
-    // If no customer matched, skip S2 submission — create Draft with action-needed note
-    const hasCustomer = !!(extracted.customer_match?.partnerId);
+    // If no customer was resolved (neither S2 node ID nor name match), skip S2 submission
+    const hasCustomer = !!(s2Payload.properties.customers?.length);
     if (!hasCustomer) {
       console.log('[email-to-mis] No customer matched — creating Draft (customer required for S2 submission)');
       const draftRecord = {
