@@ -3335,15 +3335,10 @@
         .mis-thumb-empty { padding: 0.75rem 1rem; font-size: 0.82rem; color: var(--text-muted); }
         .mis-thumb-loading { padding: 0.75rem 1rem; display: flex; align-items: center; gap: 0.5rem; font-size: 0.82rem; color: var(--text-muted); }
 
-        /* MIS Drawer */
-        .mis-drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 500; opacity: 0; transition: opacity 0.25s ease; pointer-events: none; }
-        .mis-drawer-overlay.open { opacity: 1; pointer-events: auto; }
-        .mis-drawer { position: fixed; top: 0; right: -720px; width: min(700px, 95vw); height: 100vh; background: var(--void-light); border-left: 1px solid var(--border); box-shadow: -4px 0 24px rgba(0,0,0,0.3); z-index: 510; display: flex; flex-direction: column; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .mis-drawer.open { right: 0; }
-        .mis-drawer-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-        .mis-drawer-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
-        .mis-drawer-body { overflow-y: auto; padding: 1.5rem; flex: 1; min-height: 0; }
-        .mis-drawer-footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); flex-shrink: 0; }
+        /* MIS Job Form Grid */
+        .mis-job-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin-top: 1.25rem; }
+        .mis-job-form-full { margin-top: 1.25rem; }
+        @media (max-width: 768px) { .mis-job-form-grid { grid-template-columns: 1fr; } }
 
         .mis-checkbox { width: 15px; height: 15px; accent-color: var(--accent); cursor: pointer; }
         .mis-row-selected { background: color-mix(in srgb, var(--accent) 8%, transparent); }
@@ -3830,7 +3825,9 @@
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
             case 'mis-overview': await loadMisMonitor(); break; // redirected to Jobs
-            case 'mis-create': await loadMisMonitor(); misOpenJobDrawer('create'); break;
+            case 'mis-create': await loadMisJobForm('create'); break;
+            case 'mis-edit': await loadMisJobForm('edit', currentSubView?.id); break;
+            case 'mis-view': await loadMisJobForm('view', currentSubView?.id); break;
             case 'mis-monitor': await loadMisMonitor(); break;
             case 'mis-json': await loadMisJson(); break;
             case 'sales-dashboard': await loadSalesDashboard(); break;
@@ -13317,15 +13314,15 @@
     function misGetTargetType() {
         const sel = document.getElementById('misTargetConnection');
         if (sel) return sel.selectedOptions?.[0]?.dataset?.type || 'wcp';
-        // Fallback: check drawer data attribute (set for view mode)
-        return document.getElementById('misDrawer')?.dataset?.connType || 'wcp';
+        // Fallback: check form container data attribute (set for view mode)
+        return document.getElementById('misJobFormContainer')?.dataset?.connType || 'wcp';
     }
 
     function misGetTargetApiVersion() {
         const sel = document.getElementById('misTargetConnection');
         if (sel) return sel.selectedOptions?.[0]?.dataset?.apiVersion || 'legacy';
-        // Fallback: check drawer data attribute (set for view mode)
-        return document.getElementById('misDrawer')?.dataset?.apiVersion || 'legacy';
+        // Fallback: check form container data attribute (set for view mode)
+        return document.getElementById('misJobFormContainer')?.dataset?.apiVersion || 'legacy';
     }
 
     function misIsS2() {
@@ -13705,17 +13702,23 @@
                 }
             }
 
-            misCloseJobDrawer();
             _cachedMisJobs = null;
-            await loadMisMonitor();
+            navigateToView('mis-monitor');
         } catch (e) { showToast(`Failed: ${e.message}`, 'error'); }
         finally { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="send"></i> Create Job'; refreshIcons(); }
     };
 
-    // ─── MIS: Job Drawer (Create / Edit) ──────────────────────
+    // ─── MIS: Job Form (Create / Edit / View) ────────────────
 
-    window.misOpenJobDrawer = async function(mode, jobId) {
-        misCloseJobDrawer();
+    // Store current job form context for navigation
+    let _misJobFormJobId = null;
+
+    async function loadMisJobForm(mode, jobId) {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading...</div>';
+
+        // Ensure profiles are loaded
+        await fetchMisProfiles();
         const ap = getMisActiveProfile();
         const connections = _misProfilesCache || [];
         const isEdit = mode === 'edit';
@@ -13724,17 +13727,19 @@
         let job = null;
 
         if (isEdit || isView) {
+            if (!_cachedMisJobs) await getMisStoredJobs(true);
             job = (_cachedMisJobs || []).find(x => x.id === jobId);
-            if (!job) { showToast('Job not found', 'error'); return; }
+            if (!job) { showToast('Job not found', 'error'); navigateToView('mis-monitor'); return; }
         }
+
+        _misJobFormJobId = jobId || null;
 
         // Determine default connection (must be before misLoadRefData call)
         const hasJob = isEdit || isView;
         const defaultConnId = hasJob ? (job?.connection_id || ap?.id || '') : (ap?.id || '');
 
-        // Load WCP ref data — prefer the default connection for this job, then any WCP connection
+        // Load WCP ref data
         try { await misLoadRefData(defaultConnId); } catch (e) { console.warn('[MIS] Ref data load error:', e.message); }
-        // Normalize customers: S2 returns {total, items: [{id, name}]}, legacy returns {data: [{partnerId, partnerName}]}
         const rawCust = cachedCustomers?.items || cachedCustomers?.data || (Array.isArray(cachedCustomers) ? cachedCustomers : []);
         const customers = rawCust.map(c => ({
             value: c.id || c.partnerId || '',
@@ -13752,295 +13757,288 @@
         const defaultDue = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 16);
         const editDue = hasJob && job?.due_date ? new Date(job.due_date).toISOString().slice(0, 16) : defaultDue;
         const title = isView ? esc(job.job_name) : isEdit ? `Edit: ${esc(job.job_name)}` : 'New Job';
-        const icon = isView ? 'eye' : isEdit ? 'edit-3' : 'plus';
 
         // Connection selector options
         const connOpts = connections.map(c =>
             `<option value="${c.id}" data-type="${c.type || 'wcp'}" data-api-version="${c.apiVersion || 'legacy'}" data-name="${esc(c.name)}" data-cluster="${c.cluster || ''}" ${c.id === defaultConnId ? 'selected' : ''}>${esc(c.name)} (${(c.type || 'wcp').toUpperCase()}${c.apiVersion === 's2' ? ' S2' : ''})</option>`
         ).join('');
 
-        // Create overlay + drawer
-        const overlay = document.createElement('div');
-        overlay.className = 'mis-drawer-overlay';
-        overlay.id = 'misDrawerOverlay';
-        overlay.onclick = misCloseJobDrawer;
-        document.body.appendChild(overlay);
-
         // Determine API version for this job/connection (needed for view mode where no dropdown exists)
-        const drawerConnProfile = (_misProfilesCache || []).find(p => p.id === defaultConnId);
-        const drawerApiVersion = drawerConnProfile?.apiVersion || (hasJob && (job?.solution === 's2' || job?.project_node_id) ? 's2' : 'legacy');
-        const drawerConnType = drawerConnProfile?.type || (hasJob ? (job?.solution || 'wcp') : 'wcp');
+        const formConnProfile = (_misProfilesCache || []).find(p => p.id === defaultConnId);
+        const formApiVersion = formConnProfile?.apiVersion || (hasJob && (job?.solution === 's2' || job?.project_node_id) ? 's2' : 'legacy');
+        const formConnType = formConnProfile?.type || (hasJob ? (job?.solution || 'wcp') : 'wcp');
 
-        const drawer = document.createElement('div');
-        drawer.className = 'mis-drawer';
-        drawer.id = 'misDrawer';
-        drawer.dataset.apiVersion = drawerApiVersion;
-        drawer.dataset.connType = drawerConnType === 's2' ? 'wcp' : drawerConnType;
-        drawer.onclick = (e) => e.stopPropagation();
-        drawer.innerHTML = `
-            <div class="mis-drawer-header">
-                <h3><i class="icon" data-lucide="${icon}" style="width:16px;height:16px;margin-right:0.4rem;"></i> ${title}</h3>
-                <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDrawer()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
-            </div>
-            <div class="mis-drawer-body">
-                <!-- Job Details (always visible) -->
-                <div class="mis-card">
-                    <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Customer</div>
-                        <div id="misJobCustomer"></div>
-                        <input class="modal-edit-input" id="misJobCustomerCode" placeholder="Or enter customer ID manually" style="margin-top:0.35rem;font-size:0.82rem;" value="${hasJob ? esc(job?.customer_code || '') : ''}" ${dis}>
+        main.innerHTML = `
+            <div id="misJobFormContainer" data-api-version="${formApiVersion}" data-conn-type="${formConnType === 's2' ? 'wcp' : formConnType}">
+                <div class="page-header" style="position:sticky;top:0;z-index:10;background:var(--void);padding:1rem 0;border-bottom:1px solid var(--border);">
+                    <div style="display:flex;align-items:center;gap:1rem;">
+                        <button onclick="navigateToView('mis-monitor')" class="mis-btn"><i class="icon" data-lucide="arrow-left"></i> Back</button>
+                        <h2 class="page-title">${title}</h2>
                     </div>
-                    <div class="mis-form-row">
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Job Name *</div>
-                            <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label" value="${hasJob ? esc(job?.job_name || '') : ''}" ${dis}>
-                        </div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Job ID *</div>
-                            <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;" value="${hasJob ? esc(job?.job_id || '') : ''}" ${dis}>
-                        </div>
+                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                        ${!isView ? `
+                        <span style="font-size:0.82rem;color:var(--text-muted);">Connection:</span>
+                        <select class="modal-edit-select" id="misTargetConnection" style="width:auto;min-width:160px;font-size:0.82rem;">
+                            ${connOpts}
+                        </select>` : ''}
+                        ${isEdit ? `
+                            <button class="mis-btn" onclick="misSaveExistingDraft('${jobId}')" id="misFormSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Draft</button>
+                            <button class="mis-btn mis-btn-primary" onclick="misSubmitExistingJob('${jobId}')" id="misFormSubmitBtn"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job</button>
+                        ` : isCreate ? `
+                            <button class="mis-btn mis-btn-primary" onclick="misSubmitJob()" id="misSubmitBtn"><i class="icon" data-lucide="send"></i> Create Job</button>
+                        ` : ''}
                     </div>
-                    <div class="mis-form-row">
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Due Date</div>
-                            <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${editDue}" ${dis}>
-                        </div>
-                        <div class="mis-form-group">
-                            <div class="mis-form-label">Site</div>
-                            <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
-                        </div>
-                    </div>
-                    <div class="mis-form-group">
-                        <div class="mis-form-label">Description</div>
-                        <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
-                    </div>
-                    ${isView && job ? `<div style="margin-top:0.75rem;">${misStatusBadge(job.status)} ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''}</div>` : ''}
                 </div>
 
-                <!-- S2 Project Details — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2Section" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="layers"></i> S2 Project Details</div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body" style="max-height:2000px;">
-                        <div style="padding-top:0.75rem;">
+                <div class="mis-job-form-grid">
+                    <div class="mis-job-form-left">
+                        <!-- Job Details (always visible) -->
+                        <div class="mis-card">
+                            <div class="mis-card-title"><i class="icon" data-lucide="file-text"></i> Job Details</div>
+                            <div class="mis-form-group">
+                                <div class="mis-form-label">Customer</div>
+                                <div id="misJobCustomer"></div>
+                                <input class="modal-edit-input" id="misJobCustomerCode" placeholder="Or enter customer ID manually" style="margin-top:0.35rem;font-size:0.82rem;" value="${hasJob ? esc(job?.customer_code || '') : ''}" ${dis}>
+                            </div>
                             <div class="mis-form-row">
                                 <div class="mis-form-group">
-                                    <div class="mis-form-label">Descriptive Name</div>
-                                    <input class="modal-edit-input" id="s2DescriptiveName" placeholder="Longer descriptive name" ${dis}>
+                                    <div class="mis-form-label">Job Name *</div>
+                                    <input class="modal-edit-input" id="misJobName" placeholder="e.g. Spring Product Label" value="${hasJob ? esc(job?.job_name || '') : ''}" ${dis}>
                                 </div>
                                 <div class="mis-form-group">
-                                    <div class="mis-form-label">Job Part ID</div>
-                                    <input class="modal-edit-input" id="s2JobPartId" placeholder="e.g. jobPartId_01" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
+                                    <div class="mis-form-label">Job ID *</div>
+                                    <input class="modal-edit-input" id="misJobId" placeholder="Auto-generated" style="font-family:var(--mono);font-size:0.78rem;" value="${hasJob ? esc(job?.job_id || '') : ''}" ${dis}>
                                 </div>
                             </div>
                             <div class="mis-form-row">
                                 <div class="mis-form-group">
-                                    <div class="mis-form-label">MIS ID</div>
-                                    <input class="modal-edit-input" id="s2MisId" placeholder="External MIS identifier" style="font-family:var(--mono);font-size:0.78rem;" value="MyMIS" ${dis}>
+                                    <div class="mis-form-label">Due Date</div>
+                                    <input class="modal-edit-input" type="datetime-local" id="misJobDueDate" value="${editDue}" ${dis}>
                                 </div>
                                 <div class="mis-form-group">
-                                    <div class="mis-form-label">Initial Status</div>
-                                    <select class="modal-edit-select" id="s2Status" ${dis}>
-                                        <option value="Created" selected>Created</option>
-                                        <option value="Active">Active</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- S2 General IDs — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2GeneralIds" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="hash"></i> General IDs <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <div class="mis-form-row">
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Print Buyer Reference</div>
-                                    <input class="modal-edit-input" id="s2PrintBuyerRef" placeholder="MIS Job Reference" ${dis}>
-                                </div>
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Project ID</div>
-                                    <input class="modal-edit-input" id="s2ProjectId" placeholder="External project ID" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- S2 Attributes — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2Attributes" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="sliders-horizontal"></i> Attributes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <div class="mis-form-row">
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Project Type</div>
-                                    <select class="modal-edit-select" id="s2ProjectType" ${dis}>
-                                        <option value="">None</option>
-                                        <option value="Prepress">Prepress</option>
-                                        <option value="Production">Production</option>
-                                    </select>
-                                </div>
-                                <div class="mis-form-group">
-                                    <div class="mis-form-label">Approval Method</div>
-                                    <select class="modal-edit-select" id="s2ApprovalMethod" ${dis}>
-                                        <option value="">None</option>
-                                        <option value="MIS">MIS</option>
-                                        <option value="WebCenter">WebCenter</option>
-                                    </select>
+                                    <div class="mis-form-label">Site</div>
+                                    <input class="modal-edit-input" id="misJobSite" value="Home" disabled>
                                 </div>
                             </div>
                             <div class="mis-form-group">
-                                <div class="mis-form-label">Editing Instructions</div>
-                                <textarea class="mis-form-textarea" id="s2EditingInstructions" placeholder="Instructions for the prepress operator..." ${dis}></textarea>
+                                <div class="mis-form-label">Description</div>
+                                <textarea class="mis-form-textarea" id="misJobDescription" placeholder="Optional..." ${dis}>${hasJob ? esc(job?.description || '') : ''}</textarea>
+                            </div>
+                            ${isView && job ? `<div style="margin-top:0.75rem;">${misStatusBadge(job.status)} ${job.phase ? `<span style="font-size:0.82rem;color:var(--text-muted);margin-left:0.4rem;">${esc(job.phase)}</span>` : ''}</div>` : ''}
+                        </div>
+
+                        <!-- S2 Barcodes — collapsible (hidden for legacy/AE) -->
+                        <div class="mis-card" id="misS2BarcodesSection" style="display:none;">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="scan-barcode"></i> Barcodes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                                <div style="padding-top:0.75rem;">
+                                    <div id="s2BarcodesContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No barcodes added.</div></div>
+                                    ${!isView ? `<button class="mis-btn" onclick="misAddBarcode()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Barcode</button>` : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tasks (WCP) — collapsible -->
+                        <div class="mis-card" id="misTasksSection">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="list-checks"></i> Tasks <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body" style="max-height:2000px;">
+                                <div style="padding-top:0.75rem;">
+                                    <div id="misTasksContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No tasks added.</div></div>
+                                    ${!isView ? `<button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>` : ''}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- S2 Workflow — collapsible (hidden for legacy/AE) -->
+                        <div class="mis-card" id="misS2WorkflowSection" style="display:none;">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="git-branch"></i> Workflow <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body" style="max-height:2000px;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-group">
+                                        <div class="mis-form-label">Workflow Template</div>
+                                        <div id="s2WorkflowTemplate"></div>
+                                        <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Optional. Select a workflow to launch automatically after the project is created.</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mis-job-form-right">
+                        <!-- S2 Project Details — collapsible (hidden for legacy/AE) -->
+                        <div class="mis-card" id="misS2Section" style="display:none;">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="layers"></i> S2 Project Details</div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body" style="max-height:2000px;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-row">
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Descriptive Name</div>
+                                            <input class="modal-edit-input" id="s2DescriptiveName" placeholder="Longer descriptive name" ${dis}>
+                                        </div>
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Job Part ID</div>
+                                            <input class="modal-edit-input" id="s2JobPartId" placeholder="e.g. jobPartId_01" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
+                                        </div>
+                                    </div>
+                                    <div class="mis-form-row">
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">MIS ID</div>
+                                            <input class="modal-edit-input" id="s2MisId" placeholder="External MIS identifier" style="font-family:var(--mono);font-size:0.78rem;" value="MyMIS" ${dis}>
+                                        </div>
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Initial Status</div>
+                                            <select class="modal-edit-select" id="s2Status" ${dis}>
+                                                <option value="Created" selected>Created</option>
+                                                <option value="Active">Active</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- S2 General IDs — collapsible (hidden for legacy/AE) -->
+                        <div class="mis-card" id="misS2GeneralIds" style="display:none;">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="hash"></i> General IDs <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-row">
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Print Buyer Reference</div>
+                                            <input class="modal-edit-input" id="s2PrintBuyerRef" placeholder="MIS Job Reference" ${dis}>
+                                        </div>
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Project ID</div>
+                                            <input class="modal-edit-input" id="s2ProjectId" placeholder="External project ID" style="font-family:var(--mono);font-size:0.78rem;" ${dis}>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- S2 Attributes — collapsible (hidden for legacy/AE) -->
+                        <div class="mis-card" id="misS2Attributes" style="display:none;">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="sliders-horizontal"></i> Attributes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-row">
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Project Type</div>
+                                            <select class="modal-edit-select" id="s2ProjectType" ${dis}>
+                                                <option value="">None</option>
+                                                <option value="Prepress">Prepress</option>
+                                                <option value="Production">Production</option>
+                                            </select>
+                                        </div>
+                                        <div class="mis-form-group">
+                                            <div class="mis-form-label">Approval Method</div>
+                                            <select class="modal-edit-select" id="s2ApprovalMethod" ${dis}>
+                                                <option value="">None</option>
+                                                <option value="MIS">MIS</option>
+                                                <option value="WebCenter">WebCenter</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mis-form-group">
+                                        <div class="mis-form-label">Editing Instructions</div>
+                                        <textarea class="mis-form-textarea" id="s2EditingInstructions" placeholder="Instructions for the prepress operator..." ${dis}></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- AE Details — collapsible -->
+                        <div class="mis-card" id="misAeSection">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="server"></i> AE Details <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(Automation Engine)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-row">
+                                        <div class="mis-form-group"><div class="mis-form-label">Job Part ID</div><input class="modal-edit-input" id="aeJobPartId" value="${hasJob ? esc(job?.payload?.jobPartId || '') : ''}" ${dis}></div>
+                                        <div class="mis-form-group"><div class="mis-form-label">Category</div><select class="modal-edit-select" id="aeCategory" ${dis}><option value="">None</option><option value="Production">Production</option><option value="Prepress">Prepress</option></select></div>
+                                    </div>
+                                    <div class="mis-form-group"><div class="mis-form-label">Custom Field 1</div><input class="modal-edit-input" id="aeCustomField1" value="${hasJob ? esc(job?.payload?.customField1 || '') : ''}" ${dis}></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Products & Preflight (WCP) — collapsible -->
+                        <div class="mis-card" id="misProductsSection">
+                            <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                                <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
+                                <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                            </div>
+                            <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                                <div style="padding-top:0.75rem;">
+                                    <div class="mis-form-group">
+                                        <div class="mis-form-label">Product Templates</div>
+                                        <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;" ${dis}>
+                                            ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                    <div class="mis-form-group">
+                                        <div class="mis-form-label">Preflight Profile</div>
+                                        <select class="modal-edit-select" id="misJobPreflight" ${dis}>
+                                            <option value="">Default (none)</option>
+                                            ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
+                                        </select>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- S2 Barcodes — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2BarcodesSection" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="scan-barcode"></i> Barcodes <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <div id="s2BarcodesContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No barcodes added.</div></div>
-                            ${!isView ? `<button class="mis-btn" onclick="misAddBarcode()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Barcode</button>` : ''}
+                <div class="mis-job-form-full">
+                    <!-- S2 Assets — collapsible (hidden for legacy/AE) -->
+                    <div class="mis-card" id="misS2AssetsSection" style="display:none;">
+                        <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                            <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="image"></i> Assets <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
+                            <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                        </div>
+                        <div class="mis-collapsible-body" style="max-height:2000px;">
+                            <div style="padding-top:0.75rem;">
+                                <div id="misFormAssets"></div>
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- S2 Workflow — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2WorkflowSection" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="git-branch"></i> Workflow <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body" style="max-height:2000px;">
-                        <div style="padding-top:0.75rem;">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Workflow Template</div>
-                                <div id="s2WorkflowTemplate"></div>
-                                <div style="font-size:0.72rem;color:var(--text-muted);margin-top:0.35rem;">Optional. Select a workflow to launch automatically after the project is created.</div>
+                    <!-- Payload Preview — collapsible -->
+                    <div class="mis-card">
+                        <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
+                            <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
+                            <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
+                        </div>
+                        <div class="mis-collapsible-body collapsed" style="max-height:0;">
+                            <div style="padding-top:0.75rem;">
+                                <pre class="json-preview" id="misJsonPreview" style="max-height:300px;">${hasJob && job?.payload ? JSON.stringify(job.payload, null, 2) : '{}'}</pre>
+                                <button class="mis-btn mis-btn-sm" style="margin-top:0.5rem;" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button>
                             </div>
                         </div>
                     </div>
                 </div>
-
-                <!-- Tasks (WCP) — collapsible -->
-                <div class="mis-card" id="misTasksSection">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="list-checks"></i> Tasks <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body" style="max-height:2000px;">
-                        <div style="padding-top:0.75rem;">
-                            <div id="misTasksContainer"><div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No tasks added.</div></div>
-                            ${!isView ? `<button class="mis-btn" onclick="misAddTask()" style="margin-top:0.5rem;"><i class="icon" data-lucide="plus"></i> Add Task</button>` : ''}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- AE Details — collapsible -->
-                <div class="mis-card" id="misAeSection">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="server"></i> AE Details <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(Automation Engine)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <div class="mis-form-row">
-                                <div class="mis-form-group"><div class="mis-form-label">Job Part ID</div><input class="modal-edit-input" id="aeJobPartId" value="${hasJob ? esc(job?.payload?.jobPartId || '') : ''}" ${dis}></div>
-                                <div class="mis-form-group"><div class="mis-form-label">Category</div><select class="modal-edit-select" id="aeCategory" ${dis}><option value="">None</option><option value="Production">Production</option><option value="Prepress">Prepress</option></select></div>
-                            </div>
-                            <div class="mis-form-group"><div class="mis-form-label">Custom Field 1</div><input class="modal-edit-input" id="aeCustomField1" value="${hasJob ? esc(job?.payload?.customField1 || '') : ''}" ${dis}></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Products & Preflight (WCP) — collapsible -->
-                <div class="mis-card" id="misProductsSection">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="package"></i> Products & Preflight <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(WCP)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Product Templates</div>
-                                <select class="modal-edit-select" id="misJobProducts" multiple style="min-height:80px;" ${dis}>
-                                    ${productTemplates.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="mis-form-group">
-                                <div class="mis-form-label">Preflight Profile</div>
-                                <select class="modal-edit-select" id="misJobPreflight" ${dis}>
-                                    <option value="">Default (none)</option>
-                                    ${(Array.isArray(preflightProfiles) ? preflightProfiles : []).map(p => `<option value="${p.nodeId}">${esc(p.name)}</option>`).join('')}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- S2 Assets — collapsible (hidden for legacy/AE) -->
-                <div class="mis-card" id="misS2AssetsSection" style="display:none;">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="image"></i> Assets <span style="font-size:0.7rem;color:var(--text-muted);font-weight:400;">(S2)</span></div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body" style="max-height:2000px;">
-                        <div style="padding-top:0.75rem;">
-                            <div id="misDrawerAssets"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Payload Preview — collapsible -->
-                <div class="mis-card">
-                    <div class="mis-collapsible-header" onclick="misToggleCollapsible(this)">
-                        <div class="mis-card-title" style="margin-bottom:0;"><i class="icon" data-lucide="braces"></i> Payload Preview</div>
-                        <span style="font-size:0.6rem;color:var(--text-muted);">&#9660;</span>
-                    </div>
-                    <div class="mis-collapsible-body collapsed" style="max-height:0;">
-                        <div style="padding-top:0.75rem;">
-                            <pre class="json-preview" id="misJsonPreview" style="max-height:300px;">${hasJob && job?.payload ? JSON.stringify(job.payload, null, 2) : '{}'}</pre>
-                            <button class="mis-btn mis-btn-sm" style="margin-top:0.5rem;" onclick="navigator.clipboard.writeText(document.getElementById('misJsonPreview').textContent).then(()=>showToast('Copied','success'))"><i class="icon" data-lucide="copy"></i> Copy</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <div class="mis-drawer-footer">
-                ${!isView ? `
-                <div style="display:flex;align-items:center;gap:0.5rem;margin-right:auto;">
-                    <span style="font-size:0.82rem;color:var(--text-muted);">Submit to:</span>
-                    <select class="modal-edit-select" id="misTargetConnection" style="width:auto;min-width:160px;font-size:0.82rem;">
-                        ${connOpts}
-                    </select>
-                </div>` : ''}
-                ${isEdit ? `
-                    <button class="mis-btn" onclick="misSaveDrawerDraft('${jobId}')" id="misDrawerSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Draft</button>
-                    <button class="mis-btn mis-btn-primary" onclick="misSubmitDrawerJob('${jobId}')" id="misDrawerSubmitBtn"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job</button>
-                ` : isCreate ? `
-                    <button class="mis-btn mis-btn-primary" onclick="misSubmitJob()" id="misSubmitBtn"><i class="icon" data-lucide="send"></i> Create Job</button>
-                ` : ''}
-                <button class="mis-btn" onclick="misCloseJobDrawer()">${isView ? 'Close' : 'Cancel'}</button>
             </div>
         `;
-        document.body.appendChild(drawer);
 
         // Wire up searchable customer select (normalized format: {value, label})
         if (customers.length) {
@@ -14069,7 +14067,13 @@
         const connSel = document.getElementById('misTargetConnection');
         if (connSel) {
             connSel.addEventListener('change', async () => {
-                misUpdateDrawerSections();
+                // Update container data attributes
+                const container = document.getElementById('misJobFormContainer');
+                if (container) {
+                    container.dataset.apiVersion = connSel.selectedOptions?.[0]?.dataset?.apiVersion || 'legacy';
+                    container.dataset.connType = connSel.selectedOptions?.[0]?.dataset?.type || 'wcp';
+                }
+                misUpdateFormSections();
                 // Reload ref data if switching to a different WCP connection
                 const newType = connSel.selectedOptions?.[0]?.dataset?.type || 'wcp';
                 const newConnId = connSel.value;
@@ -14104,7 +14108,6 @@
                             createSearchableSelect(`misTaskTpl-${task.idx}`, tplOpts,
                                 { placeholder: 'Search templates...', onchange: (val) => { misUpdateTaskData(task.idx, 'templateId', val); misUpdatePreview(); } }
                             );
-                            // Restore selection if the same template exists in the new list
                             if (currentVal && newTemplates.some(t => t.id === currentVal)) {
                                 const el = document.getElementById(`misTaskTpl-${task.idx}`);
                                 if (el?._ss) el._ss.setValue(currentVal);
@@ -14174,7 +14177,7 @@
         }
 
         // Set initial collapsible states based on selected connection
-        misUpdateDrawerSections();
+        misUpdateFormSections();
 
         // Load S2 assets/thumbnails if this is an S2 job with a project node ID
         if (hasJob && job) {
@@ -14182,20 +14185,17 @@
             const jobIsS2 = job.solution === 's2' || job.project_node_id || jobConnProfile?.apiVersion === 's2';
             const jobNodeId = job.project_node_id || job.wcp_response?.id;
             if (jobIsS2 && jobNodeId && job.connection_id) {
-                const assetsContainer = document.getElementById('misDrawerAssets');
+                const assetsContainer = document.getElementById('misFormAssets');
                 if (assetsContainer) misLoadProjectThumbnails(jobNodeId, job.connection_id, assetsContainer);
             }
         }
 
-        // Animate open
-        requestAnimationFrame(() => { overlay.classList.add('open'); drawer.classList.add('open'); });
         refreshIcons();
         misUpdatePreview();
-        document.addEventListener('keydown', _misDrawerEsc);
-    };
+    }
 
     // Toggle collapsible sections based on selected connection type
-    function misUpdateDrawerSections() {
+    function misUpdateFormSections() {
         const type = misGetTargetType();
         const isS2 = misIsS2();
         const isAe = type === 'ae';
@@ -14245,26 +14245,15 @@
     }
 
     window.misOpenJob = function(id, status) {
-        if (status === 'Draft') misOpenJobDrawer('edit', id);
-        else misOpenJobDrawer('view', id);
+        currentSubView = { type: status === 'Draft' ? 'mis-edit' : 'mis-view', id };
+        navigateToView(status === 'Draft' ? 'mis-edit' : 'mis-view');
     };
 
-    window.misCloseJobDrawer = function() {
-        const overlay = document.getElementById('misDrawerOverlay');
-        const drawer = document.getElementById('misDrawer');
-        if (overlay) { overlay.classList.remove('open'); }
-        if (drawer) { drawer.classList.remove('open'); }
-        setTimeout(() => { overlay?.remove(); drawer?.remove(); }, 300);
-        document.removeEventListener('keydown', _misDrawerEsc);
-    };
-
-    function _misDrawerEsc(e) { if (e.key === 'Escape') misCloseJobDrawer(); }
-
-    window.misSaveDrawerDraft = async function(jobId) {
+    window.misSaveExistingDraft = async function(jobId) {
         const connSel = document.getElementById('misTargetConnection');
         const connOpt = connSel?.selectedOptions?.[0];
         const payload = misBuildPayload();
-        const btn = document.getElementById('misDrawerSaveBtn');
+        const btn = document.getElementById('misFormSaveBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Saving...'; }
 
         const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent?.replace(/\s*\(.*\)$/, '') || '';
@@ -14290,8 +14279,7 @@
             });
             _cachedMisJobs = null;
             showToast('Draft saved', 'success');
-            misCloseJobDrawer();
-            await loadMisMonitor();
+            navigateToView('mis-monitor');
         } catch (e) {
             showToast('Failed to save: ' + e.message, 'error');
         } finally {
@@ -14299,7 +14287,7 @@
         }
     };
 
-    window.misSubmitDrawerJob = async function(jobId) {
+    window.misSubmitExistingJob = async function(jobId) {
       try {
         const connSel = document.getElementById('misTargetConnection');
         const connOpt = connSel?.selectedOptions?.[0];
@@ -14329,7 +14317,7 @@
             }
         }
 
-        const btn = document.getElementById('misDrawerSubmitBtn');
+        const btn = document.getElementById('misFormSubmitBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Submitting...'; }
 
         // Extract values from payload for job record (S2 vs legacy format)
@@ -14410,14 +14398,13 @@
                 }
             }
 
-            misCloseJobDrawer();
-            await loadMisMonitor();
+            navigateToView('mis-monitor');
         } catch (e) {
             showToast(`Failed to submit: ${e.message}`, 'error');
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Submit Job'; refreshIcons(); }
         }
       } catch (outerErr) {
-        console.error('[MIS] misSubmitDrawerJob error:', outerErr);
+        console.error('[MIS] misSubmitExistingJob error:', outerErr);
         showToast(`Error: ${outerErr.message}`, 'error');
       }
     };
@@ -14471,7 +14458,7 @@
                     <span style="color:var(--text-muted);">${jobs.length} total</span>
                 </div>
                 <div style="margin-left:auto;display:flex;gap:0.5rem;">
-                    <button class="mis-btn mis-btn-sm mis-btn-primary" onclick="misOpenJobDrawer('create')"><i class="icon" data-lucide="plus" style="width:14px;height:14px;"></i> New Job</button>
+                    <button class="mis-btn mis-btn-sm mis-btn-primary" onclick="navigateToView('mis-create')"><i class="icon" data-lucide="plus" style="width:14px;height:14px;"></i> New Job</button>
                     <button class="mis-btn mis-btn-sm" id="misRefreshBtn" onclick="misRefreshMonitor()"><i class="icon" data-lucide="refresh-cw"></i> <span id="misRefreshLabel">Refresh</span></button>
                 </div>
             </div>
