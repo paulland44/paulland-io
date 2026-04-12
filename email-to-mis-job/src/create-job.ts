@@ -73,9 +73,7 @@ const WCP_TASK_TEMPLATE_NODE_ID = '4mLnEgcoirDkEG-3afcnB4KT4';
 const DEFAULT_ASSIGNEE = 'land.paul@pm.me';
 
 function buildWcpPayload(jobId: string, extracted: ExtractedJob): any {
-  // Ensure due date is always a full ISO timestamp (WCP rejects date-only strings)
-  const rawDueDate = extracted.due_date || new Date(Date.now() + 7 * 86400000).toISOString();
-  const dueDateIso = new Date(rawDueDate).toISOString(); // normalise to full ISO with Z
+  const dueDateIso = safeDateIso(extracted.due_date);
   const dueDateMs = new Date(dueDateIso).getTime();
 
   // Determine task assignee: extracted from email or fallback to default
@@ -120,9 +118,16 @@ function buildWcpPayload(jobId: string, extracted: ExtractedJob): any {
   return payload;
 }
 
+function safeDateIso(raw: string | null | undefined, fallbackDays = 7): string {
+  if (raw) {
+    const d = new Date(raw);
+    if (!isNaN(d.getTime())) return d.toISOString();
+  }
+  return new Date(Date.now() + fallbackDays * 86400000).toISOString();
+}
+
 function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
-  const rawDueDate = extracted.due_date || new Date(Date.now() + 7 * 86400000).toISOString();
-  const dueDateIso = new Date(rawDueDate).toISOString();
+  const dueDateIso = safeDateIso(extracted.due_date);
 
   const properties: any = {
     MISId: 'MyMIS',
