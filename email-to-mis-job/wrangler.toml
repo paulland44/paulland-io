@@ -10,6 +10,16 @@ binding = "AI"
 binding = "R2_BUCKET"
 bucket_name = "knowledge-capture"
 
+[observability]
+enabled = false
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+persist = true
+invocation_logs = true
+
 # Secrets (set via `wrangler secret put`):
 # PAULLAND_API_URL           — https://paulland.io/api
 # PAULLAND_INTERNAL_API_KEY  — internal API key for Pages API auth
