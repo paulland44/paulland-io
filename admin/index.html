@@ -13386,17 +13386,23 @@
         `;
         container.appendChild(card);
         refreshIcons();
+        // Update collapsible body max-height to fit new content
+        const body = container.closest('.mis-collapsible-body');
+        if (body && !body.classList.contains('collapsed')) body.style.maxHeight = body.scrollHeight + 'px';
         misUpdatePreview();
     };
 
     window.misRemoveBarcode = function(idx) {
         jobBarcodes = jobBarcodes.filter(b => b.idx !== idx);
         const card = document.getElementById(`mis-barcode-${idx}`);
-        if (card) card.remove();
         const container = document.getElementById('s2BarcodesContainer');
+        if (card) card.remove();
         if (container && !container.children.length) {
             container.innerHTML = '<div style="padding:0.5rem 0;color:var(--text-muted);font-size:0.85rem;">No barcodes added.</div>';
         }
+        // Update collapsible body max-height
+        const body = container?.closest('.mis-collapsible-body');
+        if (body && !body.classList.contains('collapsed')) body.style.maxHeight = body.scrollHeight + 'px';
         misUpdatePreview();
     };
 
@@ -13593,6 +13599,9 @@
         createSearchableSelect(`misTaskTpl-${idx}`, templates.map(t => ({ value: t.id, label: t.name, searchText: t.name })),
             { placeholder: 'Search templates...', onchange: (val) => { misUpdateTaskData(idx, 'templateId', val); misUpdatePreview(); } });
         refreshIcons();
+        // Update collapsible body max-height to fit new content
+        const taskBody = container.closest('.mis-collapsible-body');
+        if (taskBody && !taskBody.classList.contains('collapsed')) taskBody.style.maxHeight = taskBody.scrollHeight + 'px';
         misUpdatePreview();
     };
 
