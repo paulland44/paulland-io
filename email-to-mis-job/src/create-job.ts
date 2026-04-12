@@ -139,8 +139,16 @@ function buildS2Payload(jobId: string, extracted: ExtractedJob): any {
   };
 
   // Customer reference — S2 requires node IDs (format: repoId-xxxxx), not partner codes like "DFG"
-  // Always include customers array (S2 may require it, even if empty)
-  properties.customers = [];
+  // Only include if partnerId looks like an S2 node ID
+  const custId = extracted.customer_match?.partnerId;
+  if (custId && custId.includes('-') && custId.length > 20) {
+    properties.customers = [{ ref: custId, type: 'Reference' }];
+  } else if (custId) {
+    // Legacy partnerId — include as empty array (S2 requires the field)
+    properties.customers = [];
+  } else {
+    properties.customers = [];
+  }
 
   // Attributes
   const attrs: Record<string, string> = {};
@@ -202,11 +210,39 @@ export async function createMisJob(
   const isS2 = apiVersion === 's2';
 
   if (isS2) {
-    // S2: create project directly via API proxy
     const s2Payload = buildS2Payload(jobId, extracted);
-    // Add description with full context (specs, file refs, customer match)
     s2Payload.properties.description = description;
 
+    // If no customer matched, skip S2 submission — create Draft with action-needed note
+    const hasCustomer = !!(extracted.customer_match?.partnerId);
+    if (!hasCustomer) {
+      console.log('[email-to-mis] No customer matched — creating Draft (customer required for S2 submission)');
+      const draftRecord = {
+        job_id: jobId,
+        job_name: extracted.job_name,
+        customer_code: '',
+        customer_name: '',
+        status: 'Draft',
+        phase: 'Action Needed',
+        due_date: extracted.due_date || null,
+        description: '⚠️ Customer not identified — please select a customer and submit manually.\n\n' + description,
+        connection_id: connectionId,
+        connection_name: '',
+        solution: 's2',
+        cluster: '',
+        payload: s2Payload,
+        wcp_response: { note: 'Customer not matched from email. Assign a customer in the form and submit.' },
+      };
+
+      const draftResp = await fetch(`${apiUrl}/mis/jobs`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
+        body: JSON.stringify(draftRecord),
+      });
+      return draftResp.ok ? await draftResp.json() : draftRecord;
+    }
+
+    // S2: create project directly via API proxy
     const projectResp = await fetch(`${apiUrl}/mis/projects`, {
       method: 'POST',
       headers: {
