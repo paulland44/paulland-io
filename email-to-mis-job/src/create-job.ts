@@ -214,23 +214,23 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
   // Note: if no customer found, omit customers field entirely — the "no customer"
   // path in createMisJob will create a Draft instead of submitting to S2
 
-  // Attributes — map all extracted packaging specs
+  // Attributes — map all extracted packaging specs (S2 requires all values as strings)
   const attrs: Record<string, string> = {};
-  if (extracted.project_type) attrs.projectType = extracted.project_type;
-  else attrs.projectType = 'Prepress';
-  if (extracted.packaging_type) attrs.packagingType = extracted.packaging_type;
+  const setAttr = (key: string, val: any) => { if (val != null && val !== '') attrs[key] = String(val); };
+  setAttr('projectType', extracted.project_type || 'Prepress');
+  setAttr('packagingType', extracted.packaging_type);
   if (extracted.dimensions) {
     const d = extracted.dimensions;
-    attrs.dimensions = `${d.width || '?'}x${d.height || '?'}${d.depth ? 'x' + d.depth : ''} ${d.unit || 'mm'}`;
+    setAttr('dimensions', `${d.width || '?'}x${d.height || '?'}${d.depth ? 'x' + d.depth : ''} ${d.unit || 'mm'}`);
   }
-  if (extracted.num_colours) attrs.numColours = extracted.num_colours;
-  if (extracted.colour_specs?.length) attrs.colourSpecs = extracted.colour_specs.join(', ');
-  if (extracted.finishing?.length) attrs.finishing = extracted.finishing.join(', ');
-  if (extracted.substrate_weight) attrs.substrateWeight = extracted.substrate_weight;
-  if (extracted.substrate) attrs.substrate = extracted.substrate;
-  if (extracted.bleed) attrs.bleed = extracted.bleed;
-  if (extracted.print_process) attrs.printProcess = extracted.print_process;
-  if (extracted.quantity) attrs.quantity = extracted.quantity;
+  setAttr('numColours', extracted.num_colours);
+  if (extracted.colour_specs?.length) setAttr('colourSpecs', extracted.colour_specs.join(', '));
+  if (extracted.finishing?.length) setAttr('finishing', extracted.finishing.join(', '));
+  setAttr('substrateWeight', extracted.substrate_weight);
+  setAttr('substrate', extracted.substrate);
+  setAttr('bleed', extracted.bleed);
+  setAttr('printProcess', extracted.print_process);
+  setAttr('quantity', extracted.quantity);
   if (Object.keys(attrs).length) {
     properties.attributes = { string: attrs };
   }
