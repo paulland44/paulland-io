@@ -10,12 +10,42 @@ const ARTWORK_PDF_PATTERNS = /\b(artwork|art|print|final|press|proof|design|layo
 const ARTWORK_SIZE_THRESHOLD = 5 * 1024 * 1024;  // 5MB
 const TEXT_SIZE_THRESHOLD = 500 * 1024;            // 500KB
 
+// Patterns for email signature/inline images to exclude
+const SIGNATURE_FILENAME_PATTERNS = /^image\d{3}\[|^CustomerInsight|^logo|^banner|^footer|^signature/i;
+
 export function classifyAttachments(attachments: RawAttachment[]): ClassifiedAttachment[] {
-  return attachments.map((att) => {
-    const sizeBytes = getByteLength(att.content);
-    const category = classifySingle(att.filename, att.mimeType, sizeBytes);
-    return { ...att, category, sizeBytes };
-  });
+  return attachments
+    .filter((att) => {
+      // Filter out inline/embedded images (email signatures, logos, tracking pixels)
+      if (isSignatureImage(att)) {
+        console.log(`[classify] Skipping signature/inline image: ${att.filename}`);
+        return false;
+      }
+      return true;
+    })
+    .map((att) => {
+      const sizeBytes = getByteLength(att.content);
+      const category = classifySingle(att.filename, att.mimeType, sizeBytes);
+      return { ...att, category, sizeBytes };
+    });
+}
+
+function isSignatureImage(att: RawAttachment): boolean {
+  // Inline images with a Content-ID are embedded in the email body (signatures, logos)
+  if (att.disposition === 'inline' && att.contentId) return true;
+
+  // Small inline images are almost always signature/tracking
+  if (att.disposition === 'inline' && att.mimeType.startsWith('image/')) {
+    const size = getByteLength(att.content);
+    if (size < 100 * 1024) return true; // < 100KB inline image = signature
+  }
+
+  // Known signature filename patterns from Outlook/email clients
+  if (att.mimeType.startsWith('image/') && SIGNATURE_FILENAME_PATTERNS.test(att.filename)) {
+    return true;
+  }
+
+  return false;
 }
 
 function classifySingle(filename: string, mimeType: string, sizeBytes: number): AttachmentCategory {

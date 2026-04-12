@@ -23,6 +23,8 @@ export interface RawAttachment {
   filename: string;
   mimeType: string;
   content: ArrayBuffer | Uint8Array | string;
+  disposition: 'attachment' | 'inline' | null;
+  contentId: string | null;
 }
 
 export type AttachmentCategory = 'text-pdf' | 'artwork-pdf' | 'text' | 'binary';

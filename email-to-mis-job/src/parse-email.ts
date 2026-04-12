@@ -12,6 +12,8 @@ export async function parseEmail(raw: ReadableStream | ArrayBuffer): Promise<Par
     filename: att.filename || 'unnamed',
     mimeType: att.mimeType || 'application/octet-stream',
     content: att.content,
+    disposition: (att as any).disposition || null,
+    contentId: (att as any).contentId || null,
   }));
 
   return {
