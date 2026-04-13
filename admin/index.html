@@ -1,4 +1,4 @@
-<!-- v1775904188 -->
+<!-- v1776096653 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10160,6 +10160,56 @@
                                 <tr style="border-top:2px solid var(--border);"><td style="font-weight:700;">Total</td><td style="text-align:right;font-weight:700;">$${salesFmtK(revTotal)}k</td><td style="text-align:right;font-weight:700;">$${salesFmtK(bkTotal)}k</td><td style="text-align:right;font-weight:700;"><span class="sales-growth ${ratioClass(bkTotal, revTotal)}">${ratio(bkTotal, revTotal)}</span></td><td style="color:var(--text-muted);font-size:0.75rem;">Below 1.0 due to maintenance (${revTotal > 0 ? Math.round(revMaint / revTotal * 100) : 0}% of revenue)</td></tr>
                             </tbody>
                         </table>
+                    </div>
+                </div>
+                <div class="sales-dashboard-grid" style="grid-template-columns: 1fr;">
+                    <div class="sales-chart-card">
+                        <h3><i data-lucide="list" style="width:16px;height:16px;"></i> Order Detail — ${bkYearLabel}</h3>
+                        <div style="max-height:400px;overflow-y:auto;">
+                        <table class="support-table" style="font-size:0.75rem;">
+                            <thead><tr><th>End User</th><th>Customer</th><th>Segment</th><th>Region</th><th>Subregion</th><th>Country</th><th style="text-align:right;">${bkYear}</th><th>Last Booked</th></tr></thead>
+                            <tbody>
+                                ${(() => {
+                                    const prefix = productCode.replace('PC', '');
+                                    const valK = 'value_' + bkYear;
+                                    // Include ALL rows for this product (not just those with current year value)
+                                    const allProdRows = (filteredBookings || [])
+                                        .filter(r => r.product_code.startsWith(prefix));
+                                    // Aggregate by customer — track all years and last booking week
+                                    const custMap = {};
+                                    allProdRows.forEach(r => {
+                                        const key = (r.end_user || '') + '|' + (r.customer_name || '');
+                                        if (!custMap[key]) custMap[key] = { end_user: r.end_user, customer_name: r.customer_name, subsegment: r.subsegment, region: r.region, subregion: r.subregion, country: r.country, value: 0, lastWeek: 0, lastYear: 0 };
+                                        custMap[key].value += (r[valK] || 0);
+                                        // Track latest booking (highest year, then highest week)
+                                        const rowYear = r.value_2026 ? 2026 : r.value_2025 ? 2025 : r.value_2024 ? 2024 : r.value_2023 ? 2023 : 0;
+                                        if (rowYear > custMap[key].lastYear || (rowYear === custMap[key].lastYear && r.week > custMap[key].lastWeek)) {
+                                            custMap[key].lastYear = rowYear;
+                                            custMap[key].lastWeek = r.week;
+                                        }
+                                    });
+                                    return Object.values(custMap)
+                                        .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+                                        .map(r => {
+                                            const topSeg = r.subsegment?.includes(' - ') ? r.subsegment.split(' - ')[0].trim() : (r.subsegment || '');
+                                            const negStyle = r.value < 0 ? 'color:rgba(220,60,60,0.9);' : '';
+                                            const valDisplay = r.value !== 0 ? '$' + salesFmtK(r.value / 1000) + 'k' : '—';
+                                            const lastBooked = r.lastYear ? 'W' + r.lastWeek + ' ' + r.lastYear : '—';
+                                            return '<tr>' +
+                                                '<td>' + esc(r.end_user || '') + '</td>' +
+                                                '<td>' + esc(r.customer_name?.length > 30 ? r.customer_name.substring(0,28) + '...' : r.customer_name || '') + '</td>' +
+                                                '<td>' + esc(topSeg) + '</td>' +
+                                                '<td>' + esc(r.region || '') + '</td>' +
+                                                '<td>' + esc(r.subregion || '') + '</td>' +
+                                                '<td>' + esc(r.country || '') + '</td>' +
+                                                '<td style="text-align:right;font-weight:500;' + negStyle + '">' + valDisplay + '</td>' +
+                                                '<td style="color:var(--text-muted);font-size:0.7rem;">' + lastBooked + '</td>' +
+                                            '</tr>';
+                                        }).join('');
+                                })()}
+                            </tbody>
+                        </table>
+                        </div>
                     </div>
                 </div>`;
                 })() : ''}
