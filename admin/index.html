@@ -1,4 +1,4 @@
-<!-- v1776110505 -->
+<!-- v1776111006 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -9424,7 +9424,7 @@
         while (true) {
             const { data, error } = await db
                 .from('bookings')
-                .select('product_code, customer_name, country, subsegment, booking_type, order_type, week, year, channel, value_2023, value_2024, value_2025, value_2026, source_file')
+                .select('product_code, end_user, customer_name, region, subregion, country, subsegment, booking_type, order_type, week, year, channel, value_2023, value_2024, value_2025, value_2026, source_file')
                 .range(offset, offset + pageSize - 1);
             if (error || !data || !data.length) break;
             allData = allData.concat(data);
