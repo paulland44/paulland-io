@@ -1,4 +1,4 @@
-<!-- v1776104619 -->
+<!-- v1776110505 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10165,11 +10165,11 @@
                 <div class="sales-dashboard-grid" style="grid-template-columns: 1fr;">
                     <div class="sales-chart-card">
                         <h3 style="display:flex;justify-content:space-between;align-items:center;">
-                            <span><i data-lucide="list" style="width:16px;height:16px;"></i> Order Detail — ${bkYearLabel}</span>
-                            <input type="text" id="salesOrderSearch" placeholder="Search customers..." style="font-size:0.75rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-body);width:200px;font-family:var(--sans);">
+                            <span><i data-lucide="list" style="width:16px;height:16px;"></i> Order Detail</span>
+                            <input type="text" id="salesOrderSearch" placeholder="Search..." style="font-size:0.75rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-body);width:200px;font-family:var(--sans);">
                         </h3>
                         <div style="max-height:500px;overflow-y:auto;">
-                        <table class="support-table" style="font-size:0.75rem;" id="salesOrderTable">
+                        <table class="support-table" style="font-size:0.72rem;" id="salesOrderTable">
                             <thead><tr>
                                 <th class="sortable-th" data-sort="end_user" style="cursor:pointer;">End User ⇅</th>
                                 <th class="sortable-th" data-sort="customer_name" style="cursor:pointer;">Customer ⇅</th>
@@ -10177,7 +10177,11 @@
                                 <th class="sortable-th" data-sort="region" style="cursor:pointer;">Region ⇅</th>
                                 <th class="sortable-th" data-sort="subregion" style="cursor:pointer;">Subregion ⇅</th>
                                 <th class="sortable-th" data-sort="country" style="cursor:pointer;">Country ⇅</th>
-                                <th class="sortable-th" data-sort="value" style="cursor:pointer;text-align:right;">${bkYear} ⇅</th>
+                                <th class="sortable-th" data-sort="v2024" style="cursor:pointer;text-align:right;">2024 ⇅</th>
+                                <th class="sortable-th" data-sort="v2025" style="cursor:pointer;text-align:right;">2025 ⇅</th>
+                                <th class="sortable-th" data-sort="v2026" style="cursor:pointer;text-align:right;">2026 ⇅</th>
+                                <th class="sortable-th" data-sort="total" style="cursor:pointer;text-align:right;">Total ⇅</th>
+                                <th class="sortable-th" data-sort="lastBooked" style="cursor:pointer;">Last Order ⇅</th>
                             </tr></thead>
                             <tbody id="salesOrderBody"></tbody>
                         </table>
@@ -10185,15 +10189,30 @@
                     </div>
                 </div>
                 ${(() => {
-                    // Build order data and store for dynamic sort/filter
+                    // Build order data — aggregate by customer, track all years and last order
                     const prefix = productCode.replace('PC', '');
-                    const valK = 'value_' + bkYear;
                     const allProdRows = (filteredBookings || []).filter(r => r.product_code.startsWith(prefix));
                     const custMap = {};
                     allProdRows.forEach(r => {
                         const key = (r.end_user || '') + '|' + (r.customer_name || '');
-                        if (!custMap[key]) custMap[key] = { end_user: r.end_user || '', customer_name: r.customer_name || '', subsegment: r.subsegment || '', region: r.region || '', subregion: r.subregion || '', country: r.country || '', value: 0 };
-                        custMap[key].value += (r[valK] || 0);
+                        if (!custMap[key]) custMap[key] = { end_user: r.end_user || '', customer_name: r.customer_name || '', subsegment: r.subsegment || '', region: r.region || '', subregion: r.subregion || '', country: r.country || '', v2024: 0, v2025: 0, v2026: 0, total: 0, lastWeek: 0, lastYear: 0 };
+                        const c = custMap[key];
+                        c.v2024 += (r.value_2024 || 0);
+                        c.v2025 += (r.value_2025 || 0);
+                        c.v2026 += (r.value_2026 || 0);
+                        c.total = c.v2024 + c.v2025 + c.v2026;
+                        // Update region/country from the most recent row
+                        const rowYear = r.value_2026 ? 2026 : r.value_2025 ? 2025 : r.value_2024 ? 2024 : 0;
+                        if (rowYear > c.lastYear || (rowYear === c.lastYear && (r.week || 0) > c.lastWeek)) {
+                            c.lastYear = rowYear;
+                            c.lastWeek = r.week || 0;
+                            if (r.end_user) c.end_user = r.end_user;
+                            if (r.region) c.region = r.region;
+                            if (r.subregion) c.subregion = r.subregion;
+                            if (r.country) c.country = r.country;
+                            if (r.subsegment) c.subsegment = r.subsegment;
+                        }
+                        c.lastBooked = c.lastYear ? c.lastYear * 100 + c.lastWeek : 0;
                     });
                     window._orderData = Object.values(custMap).filter(r => r.customer_name);
                     return '';
@@ -10451,8 +10470,9 @@
 
         // ─── Order Detail table (sort + search) ──────────
         if (tab === 'overview' && window._orderData) {
-            let orderSort = { col: 'value', dir: -1 };
+            let orderSort = { col: 'total', dir: -1 };
             let orderSearch = '';
+            const numCols = ['v2024', 'v2025', 'v2026', 'total', 'lastBooked'];
 
             function renderOrderTable() {
                 const body = document.getElementById('salesOrderBody');
@@ -10463,18 +10483,32 @@
                     return (r.end_user + ' ' + r.customer_name + ' ' + r.subsegment + ' ' + r.region + ' ' + r.subregion + ' ' + r.country).toLowerCase().includes(q);
                 });
                 data.sort((a, b) => {
-                    const av = orderSort.col === 'value' ? a.value : (a[orderSort.col] || '').toLowerCase();
-                    const bv = orderSort.col === 'value' ? b.value : (b[orderSort.col] || '').toLowerCase();
+                    const isNum = numCols.includes(orderSort.col);
+                    const av = isNum ? (a[orderSort.col] || 0) : (a[orderSort.col] || '').toLowerCase();
+                    const bv = isNum ? (b[orderSort.col] || 0) : (b[orderSort.col] || '').toLowerCase();
                     if (av < bv) return -1 * orderSort.dir;
                     if (av > bv) return 1 * orderSort.dir;
                     return 0;
                 });
+                const fmtVal = v => v ? '$' + salesFmtK(v / 1000) + 'k' : '—';
+                const negS = v => v < 0 ? 'color:rgba(220,60,60,0.9);' : '';
                 body.innerHTML = data.map(r => {
                     const topSeg = r.subsegment?.includes(' - ') ? r.subsegment.split(' - ')[0].trim() : r.subsegment;
-                    const negStyle = r.value < 0 ? 'color:rgba(220,60,60,0.9);' : '';
-                    const valDisplay = r.value !== 0 ? '$' + salesFmtK(r.value / 1000) + 'k' : '—';
-                    return '<tr><td>' + esc(r.end_user) + '</td><td>' + esc(r.customer_name.length > 35 ? r.customer_name.substring(0,33) + '...' : r.customer_name) + '</td><td>' + esc(topSeg) + '</td><td>' + esc(r.region) + '</td><td>' + esc(r.subregion) + '</td><td>' + esc(r.country) + '</td><td style="text-align:right;font-weight:500;' + negStyle + '">' + valDisplay + '</td></tr>';
-                }).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);">No matching customers</td></tr>';
+                    const lastOrder = r.lastYear ? 'W' + r.lastWeek + ' ' + r.lastYear : '—';
+                    return '<tr>' +
+                        '<td>' + esc(r.end_user) + '</td>' +
+                        '<td title="' + esc(r.customer_name) + '">' + esc(r.customer_name.length > 30 ? r.customer_name.substring(0,28) + '...' : r.customer_name) + '</td>' +
+                        '<td>' + esc(topSeg) + '</td>' +
+                        '<td>' + esc(r.region) + '</td>' +
+                        '<td>' + esc(r.subregion) + '</td>' +
+                        '<td>' + esc(r.country) + '</td>' +
+                        '<td style="text-align:right;' + negS(r.v2024) + '">' + fmtVal(r.v2024) + '</td>' +
+                        '<td style="text-align:right;' + negS(r.v2025) + '">' + fmtVal(r.v2025) + '</td>' +
+                        '<td style="text-align:right;' + negS(r.v2026) + '">' + fmtVal(r.v2026) + '</td>' +
+                        '<td style="text-align:right;font-weight:500;' + negS(r.total) + '">' + fmtVal(r.total) + '</td>' +
+                        '<td style="color:var(--text-muted);font-size:0.7rem;">' + lastOrder + '</td>' +
+                    '</tr>';
+                }).join('') || '<tr><td colspan="11" style="text-align:center;color:var(--text-muted);">No matching customers</td></tr>';
             }
 
             document.querySelectorAll('.sortable-th').forEach(th => {
