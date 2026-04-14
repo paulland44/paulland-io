@@ -177,7 +177,7 @@ function registerTools(server: McpServer) {
 
 server.tool(
   'list_content',
-  'List content items (articles, thoughts, signals, reflections, problems, strategies) with optional filters',
+  'List content items (articles, thoughts, signals, reflections, problems, strategies, references) with optional filters',
   {
     type: z
       .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'reference', 'summary', 'weekly-summary', 'monthly-review', 'show-and-tell', 'support-review'])
@@ -525,7 +525,7 @@ server.tool(
 
 server.tool(
   'create_content',
-  'Create a new content item (article, thought, signal, reflection, problem, strategy)',
+  'Create a new content item (article, thought, signal, reflection, problem, strategy, reference)',
   {
     type: z
       .enum(['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'reference'])
@@ -568,7 +568,9 @@ server.tool(
 
     // Trigger embedding in background (fire and forget)
     if (created?.id) {
-      embedItem('content', created.id).catch(() => {});
+      embedItem('content', created.id).catch((err) => {
+        console.error(`[create_content] embedding failed for ${created.id}: ${err?.message}`);
+      });
     }
 
     return {
@@ -4007,8 +4009,9 @@ server.tool(
   'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs. Not available for AE connections.',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    searchValue: z.string().optional().describe('Search by partnerName or partnerID (wildcard, case-insensitive)'),
   },
-  async ({ connection_id }) => {
+  async ({ connection_id, searchValue }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) {
       return {
@@ -4022,7 +4025,8 @@ server.tool(
       };
     }
 
-    const result = await callMisProxy('GET', 'customers', conn.id);
+    const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
+    const result = await callMisProxy('GET', `customers${qs}`, conn.id);
     if (!result.ok) {
       return {
         content: [{
@@ -4044,8 +4048,9 @@ server.tool(
   'List task templates from WCP. Returns template names and node IDs needed for creating MIS job tasks. Not available for AE connections.',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    searchValue: z.string().optional().describe('Search by template name (wildcard, case-insensitive). S2 connections only.'),
   },
-  async ({ connection_id }) => {
+  async ({ connection_id, searchValue }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) {
       return {
@@ -4059,7 +4064,8 @@ server.tool(
       };
     }
 
-    const result = await callMisProxy('GET', 'task-templates', conn.id);
+    const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
+    const result = await callMisProxy('GET', `task-templates${qs}`, conn.id);
     if (!result.ok) {
       return {
         content: [{
@@ -4085,14 +4091,16 @@ server.tool(
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+    searchValue: z.string().optional().describe('Search by name, jobID, generalIDs.Project or PrintBuyerReference (wildcard, case-insensitive)'),
   },
-  async ({ connection_id, from, pageSize }) => {
+  async ({ connection_id, from, pageSize, searchValue }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    if (searchValue) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
     const result = await callMisProxy('GET', `projects${qs}`, conn.id);
@@ -4194,14 +4202,16 @@ server.tool(
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+    searchValue: z.string().optional().describe('Search by name, workflow template name or project name (wildcard, case-insensitive)'),
   },
-  async ({ connection_id, from, pageSize }) => {
+  async ({ connection_id, from, pageSize, searchValue }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    if (searchValue) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
     const result = await callMisProxy('GET', `workflow-instances${qs}`, conn.id);
@@ -4257,14 +4267,16 @@ server.tool(
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+    searchValue: z.string().optional().describe('Search by name, generalIDs.ConverterMIS or GTIN (wildcard, case-insensitive)'),
   },
-  async ({ connection_id, from, pageSize }) => {
+  async ({ connection_id, from, pageSize, searchValue }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    if (searchValue) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
     const result = await callMisProxy('GET', `products${qs}`, conn.id);

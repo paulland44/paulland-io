@@ -150,7 +150,7 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
   };
 
   // Customer reference — S2 requires valid node IDs, not legacy partner codes
-  // If we have a legacy partnerId (like "DFG"), look up the S2 customer by name
+  // Use searchValue API to find the matching S2 customer efficiently
   const custId = extracted.customer_match?.partnerId;
   const custName = extracted.customer_match?.partnerName;
   let s2CustomerRef: string | null = null;
@@ -159,52 +159,28 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
     // Already an S2 node ID
     s2CustomerRef = custId;
   } else if (custId || custName) {
-    // Legacy partnerId — look up S2 customer by name match
-    const searchTerm = custId || custName || '';
-    try {
-      const custResp = await fetch(
-        `${apiUrl}/mis/customers`,
-        { headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': connectionId } }
-      );
-      if (custResp.ok) {
-        const custData = await custResp.json() as any;
-        const customers = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
+    // Use S2 searchValue API — searches partnerName and partnerID server-side
+    const headers = { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': connectionId };
+    const searchTerms = [custId, custName].filter(Boolean) as string[];
 
-        // Enrich with full names from detail endpoint for better matching
-        const enriched = await Promise.allSettled(
-          customers.slice(0, 50).map(async (c: any) => {
-            try {
-              const detail = await fetch(
-                `${apiUrl}/mis/customers/${c.id}`,
-                { headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': connectionId } }
-              );
-              if (detail.ok) {
-                const d = await detail.json() as any;
-                return { ...c, partnerName: d.partnerName || c.name, partnerId: d.partnerId || c.name };
-              }
-            } catch {}
-            return c;
-          })
+    for (const term of searchTerms) {
+      try {
+        const custResp = await fetch(
+          `${apiUrl}/mis/customers?searchValue=${encodeURIComponent(term)}`,
+          { headers }
         );
-        const enrichedCustomers = enriched.map((r, i) =>
-          r.status === 'fulfilled' ? r.value : customers[i]
-        );
-
-        const term = searchTerm.toLowerCase();
-        const match = enrichedCustomers.find((c: any) => {
-          const name = (c.name || '').toLowerCase();
-          const fullName = (c.partnerName || '').toLowerCase();
-          const id = (c.partnerId || '').toLowerCase();
-          return name === term || fullName === term || id === term
-            || name.includes(term) || fullName.includes(term) || term.includes(name) || term.includes(fullName);
-        });
-        if (match) {
-          s2CustomerRef = match.id || match.nodeId;
-          console.log(`[email-to-mis] Matched S2 customer: "${searchTerm}" → ${match.partnerName || match.name} (${s2CustomerRef})`);
+        if (custResp.ok) {
+          const custData = await custResp.json() as any;
+          const items = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
+          if (items.length > 0) {
+            s2CustomerRef = items[0].id || items[0].nodeId;
+            console.log(`[email-to-mis] Matched S2 customer via searchValue "${term}" → ${items[0].name} (${s2CustomerRef})`);
+            break;
+          }
         }
+      } catch (err: any) {
+        console.warn(`[email-to-mis] Customer search failed for "${term}": ${err.message}`);
       }
-    } catch (err: any) {
-      console.warn(`[email-to-mis] Customer lookup failed: ${err.message}`);
     }
   }
 
