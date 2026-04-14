@@ -172,10 +172,31 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
         if (custResp.ok) {
           const custData = await custResp.json() as any;
           const items = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
-          if (items.length > 0) {
-            s2CustomerRef = items[0].id || items[0].nodeId;
-            console.log(`[email-to-mis] Matched S2 customer via searchValue "${term}" → ${items[0].name} (${s2CustomerRef})`);
+          // Verify the result actually matches the search term (S2 may return all customers on no match)
+          const termLower = term.toLowerCase();
+          const match = items.find((c: any) => {
+            const name = (c.name || '').toLowerCase();
+            return name === termLower || name.includes(termLower) || termLower.includes(name);
+          });
+          if (match) {
+            s2CustomerRef = match.id || match.nodeId;
+            console.log(`[email-to-mis] Matched S2 customer via searchValue "${term}" → ${match.name} (${s2CustomerRef})`);
+            // Also fetch detail to get partnerName for verification
+            try {
+              const detailResp = await fetch(`${apiUrl}/mis/customers/${s2CustomerRef}`, { headers });
+              if (detailResp.ok) {
+                const detail = await detailResp.json() as any;
+                if (detail.partnerName) {
+                  const pnLower = detail.partnerName.toLowerCase();
+                  if (pnLower.includes(termLower) || termLower.includes(pnLower)) {
+                    console.log(`[email-to-mis] Confirmed via partnerName: ${detail.partnerName}`);
+                  }
+                }
+              }
+            } catch {}
             break;
+          } else if (items.length > 0) {
+            console.log(`[email-to-mis] searchValue "${term}" returned ${items.length} results but none matched by name`);
           }
         }
       } catch (err: any) {
