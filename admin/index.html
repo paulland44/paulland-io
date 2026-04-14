@@ -1,4 +1,4 @@
-<!-- v1776111006 -->
+<!-- v1776145928 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10079,11 +10079,19 @@
 
             <!-- ═══ OVERVIEW TAB ═══ -->
             <div id="salesTabOverview" style="${tab !== 'overview' ? 'display:none;' : ''}">
-                <div class="sales-metrics" style="grid-template-columns: repeat(6, 1fr);">
+                ${(() => {
+                    // Unique customers across ALL years for this product
+                    const prefix = productCode.replace('PC', '');
+                    const allProdRows = (allBookings || []).filter(r => r.product_code.startsWith(prefix));
+                    const allCustomers = new Set(allProdRows.filter(r => r.customer_name).map(r => r.customer_name));
+                    const totalUniqueCustomers = allCustomers.size;
+                    const totalCountries = new Set(allProdRows.filter(r => r.country).map(r => r.country)).size;
+                    return `
+                <div class="sales-metrics" style="grid-template-columns: repeat(7, 1fr);">
                     <div class="sales-product-card">
                         <div class="product-code">Revenue (${esc(latestLabel.split(' ')[0] || '—')})</div>
                         <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(m.actual || 0)}<span class="currency">k</span></div>
-                        ${growthClass ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${growthClass}">${growthArrow} ${salesFmtPct(m.growth_pct)}</span></div>` : ''}
+                        ${growthClass ? '<div style="margin-top:0.2rem;"><span class="sales-growth ' + growthClass + '">' + growthArrow + ' ' + salesFmtPct(m.growth_pct) + '</span></div>' : ''}
                     </div>
                     <div class="sales-product-card">
                         <div class="product-code">Revenue YTD</div>
@@ -10097,7 +10105,7 @@
                     <div class="sales-product-card">
                         <div class="product-code">Bookings YTD</div>
                         <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(bkYtd)}<span class="currency">k</span></div>
-                        ${bkGrowth != null ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${bkGrowth >= 0 ? 'positive' : 'negative'}">${bkGrowth >= 0 ? '&#9650;' : '&#9660;'} ${salesFmtPct(bkGrowth)}</span></div>` : ''}
+                        ${bkGrowth != null ? '<div style="margin-top:0.2rem;"><span class="sales-growth ' + (bkGrowth >= 0 ? 'positive' : 'negative') + '">' + (bkGrowth >= 0 ? '&#9650;' : '&#9660;') + ' ' + salesFmtPct(bkGrowth) + '</span></div>' : ''}
                     </div>
                     <div class="sales-product-card">
                         <div class="product-code">Book-to-Bill</div>
@@ -10106,9 +10114,15 @@
                     <div class="sales-product-card">
                         <div class="product-code">Avg ACV</div>
                         <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${bkAvgAcv > 0 ? salesFmtK(bkAvgAcv) : '—'}<span class="currency">k</span></div>
-                        ${bk26?.acv.count ? `<div style="font-size:0.7rem;color:var(--text-muted);">${bk26.acv.count} deals</div>` : ''}
+                        ${bk26f?.acv.count ? '<div style="font-size:0.7rem;color:var(--text-muted);">' + bk26f.acv.count + ' deals</div>' : ''}
                     </div>
-                </div>
+                    <div class="sales-product-card">
+                        <div class="product-code">Customers</div>
+                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${totalUniqueCustomers}</div>
+                        <div style="font-size:0.7rem;color:var(--text-muted);">${totalCountries} countries</div>
+                    </div>
+                </div>`;
+                })()}
                 <div class="sales-dashboard-grid">
                     <div class="sales-chart-card">
                         <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Revenue Trend</h3>
