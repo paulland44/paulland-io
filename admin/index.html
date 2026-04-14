@@ -1,4 +1,4 @@
-<!-- v1776145928 -->
+<!-- v1776147807 -->
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -10364,11 +10364,16 @@
                         <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;"><span class="currency">$</span>${salesFmtK(bkDisplay.ytd.current / 1000)}<span class="currency">k</span></div>
                         ${bkDisplay.ytd.growth_pct != null ? `<div style="margin-top:0.2rem;"><span class="sales-growth ${bkDisplay.ytd.growth_pct >= 0 ? 'positive' : 'negative'}">${bkDisplay.ytd.growth_pct >= 0 ? '&#9650;' : '&#9660;'} ${salesFmtPct(bkDisplay.ytd.growth_pct)}</span></div>` : ''}
                     </div>
-                    <div class="sales-product-card">
-                        <div class="product-code">Customers</div>
-                        <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${bkDisplay.uniqueCustomers}</div>
-                        <div style="font-size:0.7rem;color:var(--text-muted);">${bkDisplay.uniqueCountries} countries</div>
-                    </div>
+                    ${(() => {
+                        const pfx = productCode.replace('PC', '');
+                        const allCust = new Set((filteredBookings || []).filter(r => r.product_code.startsWith(pfx) && r.customer_name).map(r => r.customer_name));
+                        const allCtry = new Set((filteredBookings || []).filter(r => r.product_code.startsWith(pfx) && r.country).map(r => r.country));
+                        return `<div class="sales-product-card">
+                            <div class="product-code">Customers (All Years)</div>
+                            <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${allCust.size}</div>
+                            <div style="font-size:0.7rem;color:var(--text-muted);">${allCtry.size} countries</div>
+                        </div>`;
+                    })()}
                     <div class="sales-product-card">
                         <div class="product-code">ACV Deals</div>
                         <div class="product-revenue" style="margin-top:0.4rem;font-size:1.3rem;">${bkDisplay.acv.count}</div>
