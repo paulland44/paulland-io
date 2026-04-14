@@ -25,8 +25,9 @@ const CUSTOMER_LIST = [
   { partnerId: 'Thai Tanic', partnerName: 'Thai Tanic' },
 ];
 
-function buildExtractionPrompt(data: PromptData): string {
-  const customerListJson = JSON.stringify(CUSTOMER_LIST, null, 2);
+function buildExtractionPrompt(data: PromptData, customerList?: Array<{ partnerId: string; partnerName: string }>): string {
+  const customers = customerList?.length ? customerList : CUSTOMER_LIST;
+  const customerListJson = JSON.stringify(customers, null, 2);
 
   return `You are a job intake assistant at a packaging converter. Extract structured job information from the following email.
 
@@ -123,8 +124,8 @@ Notes:
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 }
 
-export async function extractJob(env: Env, data: PromptData): Promise<ExtractedJob> {
-  const prompt = buildExtractionPrompt(data);
+export async function extractJob(env: Env, data: PromptData, customerList?: Array<{ partnerId: string; partnerName: string }>): Promise<ExtractedJob> {
+  const prompt = buildExtractionPrompt(data, customerList);
 
   const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct' as any, {
     messages: [

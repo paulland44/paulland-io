@@ -111,9 +111,46 @@ async function processEmail(
     other_filenames: binaryFiles.map((a) => a.filename),
   };
 
-  // 6. Call Workers AI for structured extraction
+  // 6. Fetch dynamic customer list from target connection for AI extraction
+  let dynamicCustomerList: Array<{ partnerId: string; partnerName: string }> | undefined;
+  const targetConnId = routedConnId || env.DEFAULT_MIS_CONNECTION_ID;
+  if (targetConnId && env.PAULLAND_API_URL && env.PAULLAND_INTERNAL_API_KEY) {
+    try {
+      const apiUrl = env.PAULLAND_API_URL;
+      const custResp = await fetch(`${apiUrl}/mis/customers?pageSize=100`, {
+        headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': targetConnId },
+      });
+      if (custResp.ok) {
+        const custData = await custResp.json() as any;
+        const items = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
+        if (items.length > 0) {
+          // Enrich with partnerName from detail endpoint
+          const enriched = await Promise.allSettled(items.slice(0, 50).map(async (c: any) => {
+            try {
+              const detail = await fetch(`${apiUrl}/mis/customers/${c.id}`, {
+                headers: { 'Accept': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY, 'X-MIS-Connection-Id': targetConnId },
+              });
+              if (detail.ok) {
+                const d = await detail.json() as any;
+                return { partnerId: d.partnerId || c.name, partnerName: d.partnerName || c.name };
+              }
+            } catch {}
+            return { partnerId: c.name, partnerName: c.name };
+          }));
+          dynamicCustomerList = enriched.map((r, i) =>
+            r.status === 'fulfilled' ? r.value : { partnerId: items[i].name, partnerName: items[i].name }
+          );
+          log(`Loaded ${dynamicCustomerList.length} customers from target connection`);
+        }
+      }
+    } catch (err: any) {
+      log(`Customer list fetch failed (using fallback): ${err.message}`);
+    }
+  }
+
+  // 7. Call Workers AI for structured extraction
   log('Calling Workers AI for job extraction...');
-  const extracted = await extractJob(env, promptData);
+  const extracted = await extractJob(env, promptData, dynamicCustomerList);
   log(`Extracted job: ${extracted.job_name}`);
   if (extracted.customer_match) {
     log(`Customer: ${extracted.customer_match.partnerName} (${extracted.customer_match.confidence})`);
