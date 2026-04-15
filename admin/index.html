@@ -2903,6 +2903,43 @@
             padding: 0.1rem 0.45rem;
             border-radius: var(--radius-pill);
         }
+        .support-chart-card canvas[data-clickable] {
+            cursor: pointer;
+        }
+        .support-filter-indicator {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0;
+        }
+        .support-filter-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            background: var(--accent-dim);
+            color: var(--accent);
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.25rem 0.6rem;
+            border-radius: var(--radius-pill);
+            border: 1px solid var(--accent);
+        }
+        .support-filter-pill button {
+            background: none;
+            border: none;
+            color: var(--accent);
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            font-size: 0.85rem;
+            opacity: 0.7;
+        }
+        .support-filter-pill button:hover {
+            opacity: 1;
+        }
+        .support-table tr.support-row-dimmed td {
+            opacity: 0.25;
+        }
 
         .btn-action {
             padding: 0.5rem 1.2rem;
@@ -11054,6 +11091,8 @@
     // ─── Support Dashboard ─────────────────────────────────────
 
     let supportCharts = [];
+    let supportFilter = null;   // { type: 'aging'|'customer', bucket?: string, name?: string }
+    let supportFilterAgg = null; // cached agg for re-rendering tables
 
     function destroySupportCharts() {
         supportCharts.forEach(c => c.destroy());
@@ -11112,17 +11151,23 @@
             .map(([name, count]) => ({ name, count }))
             .sort((a, b) => b.count - a.count);
 
-        // Feature gaps deduplicated
+        // Feature gaps deduplicated, enriched with customer names from evidence
         const gapMap = {};
         sorted.forEach(s => {
             (s.metadata?.review_data?.feature_gaps || []).forEach(g => {
                 const key = g.gap;
-                if (!gapMap[key]) gapMap[key] = { gap: g.gap, evidence: g.evidence, priority: g.priority, product: g.product_name, occurrences: 0 };
+                if (!gapMap[key]) gapMap[key] = { gap: g.gap, evidence: g.evidence, priority: g.priority, product: g.product_name, occurrences: 0, customerNames: [] };
                 gapMap[key].occurrences++;
                 if (g.priority === 'high') gapMap[key].priority = 'high';
             });
         });
         const featureGaps = Object.values(gapMap).sort((a, b) => b.occurrences - a.occurrences);
+        // Tag each gap with customer names found in its evidence text
+        const allCustomerNames = Object.keys(customerMap);
+        featureGaps.forEach(g => {
+            const ev = (g.evidence || '').toLowerCase();
+            g.customerNames = allCustomerNames.filter(cn => ev.includes(cn.toLowerCase()));
+        });
 
         return { latest, timeSeries, patterns, agingBuckets, customers, featureGaps, reviewCount: sorted.length };
     }
@@ -11183,17 +11228,19 @@
             }));
         }
 
-        // Aging Bar
+        // Aging Bar (clickable filter)
         const agingCtx = document.getElementById('supportAgingChart');
         if (agingCtx) {
-            const labels = Object.keys(agg.agingBuckets);
-            const data = Object.values(agg.agingBuckets);
-            const barColors = ['rgba(196,168,80,0.7)', 'rgba(220,120,60,0.7)', 'rgba(220,60,60,0.7)', 'rgba(180,30,30,0.8)'];
+            agingCtx.setAttribute('data-clickable', '');
+            const agingLabels = Object.keys(agg.agingBuckets);
+            const agingData = Object.values(agg.agingBuckets);
+            const agingBaseColors = ['rgba(196,168,80,0.7)', 'rgba(220,120,60,0.7)', 'rgba(220,60,60,0.7)', 'rgba(180,30,30,0.8)'];
+            const agingDimColors = ['rgba(196,168,80,0.2)', 'rgba(220,120,60,0.2)', 'rgba(220,60,60,0.2)', 'rgba(180,30,30,0.2)'];
             supportCharts.push(new Chart(agingCtx, {
                 type: 'bar',
                 data: {
-                    labels: labels.map(l => l + ' days'),
-                    datasets: [{ label: 'Cases', data, backgroundColor: barColors, borderRadius: 4 }],
+                    labels: agingLabels.map(l => l + ' days'),
+                    datasets: [{ label: 'Cases', data: agingData, backgroundColor: agingBaseColors, borderRadius: 4 }],
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false,
@@ -11202,19 +11249,43 @@
                         x: { ticks: { color: muted }, grid: { display: false } },
                         y: { ticks: { color: muted, stepSize: 1 }, grid: { color: border }, beginAtZero: true },
                     },
+                    onClick: (evt, elements, chart) => {
+                        if (!elements.length) return;
+                        const idx = elements[0].index;
+                        const bucket = agingLabels[idx];
+                        if (supportFilter?.type === 'aging' && supportFilter.bucket === bucket) {
+                            supportFilter = null;
+                            chart.data.datasets[0].backgroundColor = agingBaseColors;
+                        } else {
+                            supportFilter = { type: 'aging', bucket };
+                            chart.data.datasets[0].backgroundColor = agingBaseColors.map((c, i) => i === idx ? c : agingDimColors[i]);
+                            // Clear customer chart highlight
+                            const custChart = supportCharts.find(c => c.canvas?.id === 'supportCustomerChart');
+                            if (custChart) {
+                                const origColor = accent + '99';
+                                custChart.data.datasets[0].backgroundColor = custChart.data.labels.map(() => origColor);
+                                custChart.update();
+                            }
+                        }
+                        chart.update();
+                        applySupportFilter(agg);
+                    },
                 },
             }));
         }
 
-        // Customer Bar (horizontal)
+        // Customer Bar (horizontal, clickable filter)
         const custCtx = document.getElementById('supportCustomerChart');
         if (custCtx && agg.customers.length) {
+            custCtx.setAttribute('data-clickable', '');
             const top10 = agg.customers.slice(0, 10);
+            const custColor = accent + '99';
+            const custDimColor = accent + '25';
             supportCharts.push(new Chart(custCtx, {
                 type: 'bar',
                 data: {
                     labels: top10.map(c => c.name),
-                    datasets: [{ label: 'Cases', data: top10.map(c => c.count), backgroundColor: accent + '99', borderRadius: 4 }],
+                    datasets: [{ label: 'Cases', data: top10.map(c => c.count), backgroundColor: top10.map(() => custColor), borderRadius: 4 }],
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, indexAxis: 'y',
@@ -11222,6 +11293,27 @@
                     scales: {
                         x: { ticks: { color: muted, stepSize: 1 }, grid: { color: border }, beginAtZero: true },
                         y: { ticks: { color: muted, font: { size: 11 } }, grid: { display: false } },
+                    },
+                    onClick: (evt, elements, chart) => {
+                        if (!elements.length) return;
+                        const idx = elements[0].index;
+                        const name = top10[idx].name;
+                        if (supportFilter?.type === 'customer' && supportFilter.name === name) {
+                            supportFilter = null;
+                            chart.data.datasets[0].backgroundColor = top10.map(() => custColor);
+                        } else {
+                            supportFilter = { type: 'customer', name };
+                            chart.data.datasets[0].backgroundColor = top10.map((_, i) => i === idx ? custColor : custDimColor);
+                            // Clear aging chart highlight
+                            const agingChart = supportCharts.find(c => c.canvas?.id === 'supportAgingChart');
+                            if (agingChart) {
+                                const agingBase = ['rgba(196,168,80,0.7)', 'rgba(220,120,60,0.7)', 'rgba(220,60,60,0.7)', 'rgba(180,30,30,0.8)'];
+                                agingChart.data.datasets[0].backgroundColor = agingBase;
+                                agingChart.update();
+                            }
+                        }
+                        chart.update();
+                        applySupportFilter(agg);
                     },
                 },
             }));
@@ -11285,50 +11377,143 @@
                 </div>
             </div>
 
-            ${agg.featureGaps.length ? `
-                <div class="support-section">
-                    <h3><i data-lucide="puzzle" style="width:16px;height:16px;"></i> Feature Gaps Tracker (${agg.featureGaps.length})</h3>
-                    <table class="support-table">
-                        <thead><tr><th>Gap</th><th>Evidence</th><th>Priority</th><th>Seen</th><th>Product</th></tr></thead>
-                        <tbody>
-                            ${agg.featureGaps.map(g => `
-                                <tr>
-                                    <td style="font-weight:500;">${esc(g.gap)}</td>
-                                    <td>${esc(g.evidence || '')}</td>
-                                    <td>${g.priority ? `<span class="priority-badge priority-${g.priority}">${g.priority}</span>` : '—'}</td>
-                                    <td><span class="gap-occurrences">${g.occurrences}×</span></td>
-                                    <td style="color:var(--text-muted);">${esc(g.product || '')}</td>
-                                </tr>
-                            `).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            ` : ''}
-
-            ${(agg.latest?.aging_cases || []).length ? `
-                <div class="support-section">
-                    <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Aging Cases — Latest Review (${agg.latest.aging_cases.length})</h3>
-                    <table class="support-table">
-                        <thead><tr><th>Case</th><th>Subject</th><th>Days Open</th><th>Customer</th><th>Status</th></tr></thead>
-                        <tbody>
-                            ${agg.latest.aging_cases.map(c => {
-                                const daysClass = c.days_open >= 60 ? 'days-critical' : c.days_open >= 30 ? 'days-warning' : '';
-                                return `<tr>
-                                    <td>${esc(c.case_number)}</td>
-                                    <td>${esc(c.subject)}</td>
-                                    <td class="${daysClass}">${c.days_open}</td>
-                                    <td>${esc(c.customer_name || '—')}</td>
-                                    <td>${esc(c.status || '—')}</td>
-                                </tr>`;
-                            }).join('')}
-                        </tbody>
-                    </table>
-                </div>
-            ` : ''}
+            <div id="supportFilterIndicator"></div>
+            <div id="supportFeatureGapsContainer"></div>
+            <div id="supportAgingCasesContainer"></div>
         `;
 
         refreshIcons();
+        supportFilter = null;
+        supportFilterAgg = agg;
         initSupportCharts(agg);
+        applySupportFilter(agg);
+    }
+
+    function getBucketRange(bucket) {
+        if (bucket === '120+') return [120, Infinity];
+        const [lo, hi] = bucket.split('-').map(Number);
+        return [lo, hi];
+    }
+
+    function applySupportFilter(agg) {
+        const indicatorEl = document.getElementById('supportFilterIndicator');
+        const gapsEl = document.getElementById('supportFeatureGapsContainer');
+        const agingEl = document.getElementById('supportAgingCasesContainer');
+        if (!gapsEl || !agingEl) return;
+
+        const filter = supportFilter;
+        let filteredGaps = agg.featureGaps;
+        let filteredAging = agg.latest?.aging_cases || [];
+
+        // Build filter indicator
+        if (indicatorEl) {
+            if (filter) {
+                const label = filter.type === 'aging'
+                    ? `Aging: ${filter.bucket} days`
+                    : `Customer: ${filter.name}`;
+                indicatorEl.innerHTML = `<div class="support-filter-indicator">
+                    <span class="support-filter-pill">${esc(label)}<button onclick="clearSupportFilter()" title="Clear filter">&times;</button></span>
+                </div>`;
+            } else {
+                indicatorEl.innerHTML = '';
+            }
+        }
+
+        // Fuzzy customer match: either name contains the other (handles "Peacock Bros" vs "Peacock Bros Pty Ltd")
+        const customerMatch = (a, b) => a.includes(b) || b.includes(a);
+
+        if (filter?.type === 'aging') {
+            const [lo, hi] = getBucketRange(filter.bucket);
+            const matchingCustomers = [];
+            filteredAging = filteredAging.filter(c => {
+                const match = c.days_open >= lo && c.days_open <= hi;
+                if (match) matchingCustomers.push((c.customer_name || '').toLowerCase());
+                return match;
+            });
+            filteredGaps = agg.featureGaps.filter(g =>
+                g.customerNames.some(cn => matchingCustomers.some(mc => customerMatch(cn.toLowerCase(), mc)))
+            );
+        } else if (filter?.type === 'customer') {
+            const nameLower = filter.name.toLowerCase();
+            filteredAging = filteredAging.filter(c =>
+                customerMatch((c.customer_name || '').toLowerCase(), nameLower)
+            );
+            filteredGaps = agg.featureGaps.filter(g =>
+                g.customerNames.some(cn => customerMatch(cn.toLowerCase(), nameLower))
+            );
+        }
+
+        // Render Feature Gaps table
+        const gapsAllSet = new Set(filteredGaps.map(g => g.gap));
+        if (agg.featureGaps.length) {
+            gapsEl.innerHTML = `<div class="support-section">
+                <h3><i data-lucide="puzzle" style="width:16px;height:16px;"></i> Feature Gaps Tracker (${filter ? filteredGaps.length + '/' : ''}${agg.featureGaps.length})</h3>
+                <table class="support-table">
+                    <thead><tr><th>Gap</th><th>Evidence</th><th>Priority</th><th>Seen</th><th>Product</th></tr></thead>
+                    <tbody>
+                        ${agg.featureGaps.map(g => {
+                            const dimmed = filter && !gapsAllSet.has(g.gap) ? ' support-row-dimmed' : '';
+                            return `<tr class="${dimmed}">
+                                <td style="font-weight:500;">${esc(g.gap)}</td>
+                                <td>${esc(g.evidence || '')}</td>
+                                <td>${g.priority ? `<span class="priority-badge priority-${g.priority}">${g.priority}</span>` : '—'}</td>
+                                <td><span class="gap-occurrences">${g.occurrences}×</span></td>
+                                <td style="color:var(--text-muted);">${esc(g.product || '')}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        } else {
+            gapsEl.innerHTML = '';
+        }
+
+        // Render Aging Cases table
+        const allAging = agg.latest?.aging_cases || [];
+        const agingMatchSet = new Set(filteredAging.map(c => c.case_number));
+        if (allAging.length) {
+            agingEl.innerHTML = `<div class="support-section">
+                <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Aging Cases — Latest Review (${filter ? filteredAging.length + '/' : ''}${allAging.length})</h3>
+                <table class="support-table">
+                    <thead><tr><th>Case</th><th>Subject</th><th>Days Open</th><th>Customer</th><th>Status</th></tr></thead>
+                    <tbody>
+                        ${allAging.map(c => {
+                            const daysClass = c.days_open >= 60 ? 'days-critical' : c.days_open >= 30 ? 'days-warning' : '';
+                            const dimmed = filter && !agingMatchSet.has(c.case_number) ? ' support-row-dimmed' : '';
+                            return `<tr class="${dimmed}">
+                                <td>${esc(c.case_number)}</td>
+                                <td>${esc(c.subject)}</td>
+                                <td class="${daysClass}">${c.days_open}</td>
+                                <td>${esc(c.customer_name || '—')}</td>
+                                <td>${esc(c.status || '—')}</td>
+                            </tr>`;
+                        }).join('')}
+                    </tbody>
+                </table>
+            </div>`;
+        } else {
+            agingEl.innerHTML = '';
+        }
+        refreshIcons();
+    }
+
+    function clearSupportFilter() {
+        supportFilter = null;
+        // Reset chart colors
+        const agingChart = supportCharts.find(c => c.canvas?.id === 'supportAgingChart');
+        if (agingChart) {
+            agingChart.data.datasets[0].backgroundColor = ['rgba(196,168,80,0.7)', 'rgba(220,120,60,0.7)', 'rgba(220,60,60,0.7)', 'rgba(180,30,30,0.8)'];
+            agingChart.update();
+        }
+        const custChart = supportCharts.find(c => c.canvas?.id === 'supportCustomerChart');
+        if (custChart) {
+            const style = getComputedStyle(document.documentElement);
+            const accent = style.getPropertyValue('--accent').trim();
+            const origColor = accent + '99';
+            custChart.data.datasets[0].backgroundColor = custChart.data.labels.map(() => origColor);
+            custChart.update();
+        }
+        if (supportFilterAgg) applySupportFilter(supportFilterAgg);
     }
 
     // ─── Generate Summary ────────────────────────────────────
