@@ -1726,6 +1726,38 @@
         .daily-save-status.saved { color: var(--accent); }
         .daily-save-status.error { color: var(--red); }
 
+        .session-expired-banner {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 1rem;
+            padding: 0.75rem 1.5rem;
+            background: var(--red, #e53e3e);
+            color: #fff;
+            font-size: 0.95rem;
+            font-weight: 500;
+            letter-spacing: 0.01em;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+        }
+        .session-expired-banner button {
+            padding: 0.35rem 1rem;
+            border: 1.5px solid #fff;
+            border-radius: var(--radius-sm);
+            background: transparent;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.85rem;
+        }
+        .session-expired-banner button:hover {
+            background: rgba(255,255,255,0.15);
+        }
+
         .daily-sections {
             display: flex;
             flex-direction: column;
@@ -3499,6 +3531,7 @@
     let dailyNoteId = null;
     let dailySaveTimer = null;
     let dailyIsDirty = false;
+    let sessionExpired = false;
     let dailyEditors = { tasks: null, notes: null };
     let meetingCards = []; // Array of { id, title, editor }
 
@@ -3581,6 +3614,7 @@
             { view: 'personas', label: 'Personas', countKey: 'personas' },
             { view: 'research-segments', label: 'Segments', countKey: 'researchSegments' },
             { view: 'research-market', label: 'Market', countKey: 'researchMarket' },
+            { view: 'research-library', label: 'Library', countKey: 'researchLibrary' },
             { view: 'voc', label: 'VOC', countKey: 'voc' },
         ]},
         strategy: { tabs: [
@@ -3719,6 +3753,18 @@
         const personaCount = refItems.filter(r => r.metadata?.reference_type === 'persona').length;
         const segmentCount = refItems.filter(r => r.metadata?.reference_type === 'segment-workflow').length;
         const marketCount = refItems.filter(r => ['market-research','strategic','naming'].includes(r.metadata?.reference_type)).length;
+        const knownTypes = ['persona', 'segment-workflow', 'market-research', 'strategic', 'naming'];
+        const marketFallbackTitles = ['market', 'job volume', 'pricing', 'strategic analysis'];
+        const libraryCount = refItems.filter(r => {
+            if (knownTypes.includes(r.metadata?.reference_type)) return false;
+            if (!r.metadata?.reference_type) {
+                const t = (r.title || '').toLowerCase();
+                if (marketFallbackTitles.some(k => t.includes(k))) return false;
+                const stagePattern = /^stage\s+\d/i;
+                if (stagePattern.test(r.title)) return false;
+            }
+            return true;
+        }).length;
 
         // Store counts in data object (sub-tabs read from this)
         countData = {
@@ -3730,6 +3776,7 @@
             personas: personaCount,
             researchSegments: segmentCount,
             researchMarket: marketCount,
+            researchLibrary: libraryCount,
             voc: vocCount.count || 0,
             strategyCore: (strategiesResult.data || []).filter(s => ['core-strategy','product-strategy','ost'].includes(s.metadata?.strategy_type)).length,
             strategyGoals: (strategiesResult.data || []).filter(s => ['goals','roadmap'].includes(s.metadata?.strategy_type)).length,
@@ -3797,6 +3844,7 @@
             case 'persona-detail': break; // handled by loadPersonaDetail(id) directly
             case 'research-segments': await loadResearchSegments(); break;
             case 'research-market': await loadResearchMarket(); break;
+            case 'research-library': await loadResearchLibrary(); break;
             case 'voc': await loadVOC(); break;
             case 'strategy-overview': await loadStrategyView(null); break;
             case 'strategy-core': await loadStrategyView(['core-strategy','product-strategy','ost']); break;
@@ -4389,12 +4437,25 @@
         }
     }
 
+    function showSessionExpiredBanner() {
+        if (document.getElementById('sessionExpiredBanner')) return;
+        const banner = document.createElement('div');
+        banner.id = 'sessionExpiredBanner';
+        banner.className = 'session-expired-banner';
+        banner.innerHTML = `
+            <span>Session expired — your changes are not being saved. Please reload to sign in again.</span>
+            <button onclick="window.location.reload()">Reload</button>
+        `;
+        document.body.prepend(banner);
+    }
+
     async function loadDailyNote(dateStr) {
         const main = document.getElementById('mainContent');
 
         if (!dateStr) dateStr = todayStr();
         dailyNoteDate = dateStr;
         dailyIsDirty = false;
+        sessionExpired = false;
 
         const isToday = dateStr === todayStr();
 
@@ -5026,7 +5087,7 @@
     }
 
     async function saveDailyNote() {
-        if (!dailyNoteDate) return;
+        if (!dailyNoteDate || sessionExpired) return;
 
         updateSaveStatus('saving');
 
@@ -5054,6 +5115,13 @@
                 credentials: 'same-origin',
                 body: JSON.stringify(payload),
             });
+
+            if (res.status === 401) {
+                sessionExpired = true;
+                updateSaveStatus('error', 'session expired');
+                showSessionExpiredBanner();
+                return;
+            }
 
             if (!res.ok) throw new Error(await res.text());
 
@@ -6483,6 +6551,68 @@
         refreshIcons();
 
         document.getElementById('searchMarket')?.addEventListener('input', (e) => {
+            const q = e.target.value.toLowerCase();
+            document.querySelectorAll('#mainContent .card').forEach(card => {
+                card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
+            });
+        });
+    }
+
+    // ─── Research: Library ────────────────────────────────────
+
+    async function loadResearchLibrary() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = '<div class="loading">Loading library</div>';
+
+        const { data, error } = await db.from('content')
+            .select('id, title, body, tags, status, metadata, updated_at, source')
+            .eq('type', 'reference')
+            .order('updated_at', { ascending: false })
+            .limit(200);
+
+        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
+
+        const knownTypes = ['persona', 'segment-workflow', 'market-research', 'strategic', 'naming'];
+        const marketFallbackTitles = ['market', 'job volume', 'pricing', 'strategic analysis'];
+        const stagePattern = /^stage\s+\d/i;
+        const items = (data || []).filter(r => {
+            if (knownTypes.includes(r.metadata?.reference_type)) return false;
+            if (!r.metadata?.reference_type) {
+                const t = (r.title || '').toLowerCase();
+                if (marketFallbackTitles.some(k => t.includes(k))) return false;
+                if (stagePattern.test(r.title)) return false;
+            }
+            return true;
+        });
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Library</h2>
+                <span style="flex:1"></span>
+                <span style="font-size:0.8rem;color:var(--text-muted)">${items.length} documents</span>
+            </div>
+            <div class="filters">
+                <input type="text" class="search-input" placeholder="Search library..." id="searchLibrary">
+            </div>
+            <div style="display:grid;grid-template-columns:1fr;gap:0.5rem">
+            ${items.map(r => {
+                const snippet = (r.body || '').substring(0, 200).replace(/[#*_\[\]]/g, '');
+                const badge = r.metadata?.source_type || r.metadata?.reference_type || (r.tags?.length ? r.tags[0] : 'reference');
+                const sourceLabel = r.source ? ` · ${esc(r.source)}` : '';
+                return `
+                <div class="card" style="padding:1rem;cursor:pointer" onclick="openContentModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem">
+                        <span style="font-weight:600;font-size:0.9rem">${esc(r.title)}</span>
+                        <span class="tag" style="font-size:0.65rem">${esc(badge)}</span>
+                    </div>
+                    <div style="font-size:0.8rem;color:var(--text-muted);line-height:1.4">${esc(snippet)}${snippet.length >= 200 ? '...' : ''}${sourceLabel}</div>
+                </div>`;
+            }).join('')}
+            </div>`;
+
+        refreshIcons();
+
+        document.getElementById('searchLibrary')?.addEventListener('input', (e) => {
             const q = e.target.value.toLowerCase();
             document.querySelectorAll('#mainContent .card').forEach(card => {
                 card.style.display = card.textContent.toLowerCase().includes(q) ? '' : 'none';
