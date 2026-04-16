@@ -338,6 +338,8 @@ async function handleMisJobs(path, request, env) {
       cluster: body.cluster || '',
       payload: body.payload || null,
       wcp_response: body.wcp_response || null,
+      project_node_id: body.project_node_id || null,
+      workflow_instance_id: body.workflow_instance_id || null,
     };
 
     const res = await fetch(`${supabaseUrl}/rest/v1/mis_jobs`, {
@@ -363,6 +365,7 @@ async function handleMisJobs(path, request, env) {
     // Only copy allowed fields
     for (const field of ['job_name', 'customer_code', 'customer_name', 'status', 'phase',
                          'due_date', 'description', 'payload', 'wcp_response',
+                         'project_node_id', 'workflow_instance_id',
                          'solution', 'connection_id', 'connection_name', 'cluster']) {
       if (body[field] !== undefined) updates[field] = body[field];
     }
