@@ -3556,6 +3556,10 @@
         .mis-job-modal { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 510; width: min(660px, 92vw); max-height: 85vh; background: var(--void-light); border: 1px solid var(--border-hover); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); display: flex; flex-direction: column; overflow: hidden; }
         .mis-job-modal-header { display: flex; align-items: center; justify-content: space-between; padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
         .mis-job-modal-header h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+        .eskoworld-logo-light { display: inline-block; }
+        .eskoworld-logo-dark { display: none; }
+        [data-theme="light"] .eskoworld-logo-light { display: none; }
+        [data-theme="light"] .eskoworld-logo-dark { display: inline-block; }
         .mis-job-modal-body { overflow-y: auto; padding: 1.5rem; flex: 1; min-height: 0; }
         .mis-job-modal-footer { display: flex; justify-content: flex-end; gap: 0.5rem; padding: 1rem 1.5rem; border-top: 1px solid var(--border); }
         .mis-detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1.25rem; }
@@ -14942,6 +14946,8 @@
                 <div class="page-header" style="position:sticky;top:0;z-index:10;background:var(--void);padding:1rem 0;border-bottom:1px solid var(--border);">
                     <div style="display:flex;align-items:center;gap:1rem;">
                         <button onclick="navigateToView('mis-monitor')" class="mis-btn"><i class="icon" data-lucide="arrow-left"></i> Back</button>
+                        <img src="/admin/assets/eskoworld-light.png" class="eskoworld-logo-light" alt="EskoWorld" style="height:28px;">
+                        <img src="/admin/assets/eskoworld-dark.png" class="eskoworld-logo-dark" alt="EskoWorld" style="height:28px;">
                         <h2 class="page-title">${title}</h2>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.75rem;">
@@ -16013,6 +16019,8 @@
 
         modal.innerHTML = `
             <div class="mis-job-modal-header">
+                <img src="/admin/assets/eskoworld-light.png" class="eskoworld-logo-light" alt="EskoWorld" style="height:24px;margin-right:0.5rem;">
+                <img src="/admin/assets/eskoworld-dark.png" class="eskoworld-logo-dark" alt="EskoWorld" style="height:24px;margin-right:0.5rem;">
                 <h3>${isDraft ? '<i class="icon" data-lucide="edit-3" style="width:16px;height:16px;margin-right:0.4rem;"></i>' : ''}${esc(j.job_name || 'Untitled Job')}</h3>
                 <button style="background:none;border:none;color:var(--text-muted);cursor:pointer;" onclick="misCloseJobDetail()"><i class="icon" data-lucide="x" style="width:18px;height:18px;"></i></button>
             </div>
