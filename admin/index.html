@@ -16026,6 +16026,71 @@
         }
     }
 
+    // ─── MIS: 3-Step File Upload ────────────────────────────────
+
+    window.misUploadProjectFile = async function(projectNodeId, connectionId, inputEl) {
+        const file = inputEl.files?.[0];
+        if (!file) return;
+        const statusEl = document.getElementById('misDetailUploadStatus');
+        const setStatus = (msg, isError) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = isError ? 'var(--accent)' : 'var(--text-muted)'; } };
+
+        try {
+            setStatus('Creating asset placeholder...', false);
+
+            // Step 1: Create asset placeholder
+            const relURL = `Input/${encodeURIComponent(file.name)}`;
+            const step1Resp = await fetch(`${MIS_API_BASE}/projects/${projectNodeId}/assets`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connectionId },
+                credentials: 'same-origin',
+                body: JSON.stringify({ relUrl: relURL }),
+            });
+            if (!step1Resp.ok) throw new Error(`Failed to create asset placeholder (HTTP ${step1Resp.status})`);
+            const step1Data = await step1Resp.json();
+            console.log('[MIS Upload] Step 1 response:', step1Data);
+
+            const { id: assetId, contentUri, contentId, version } = step1Data;
+            if (!contentUri || !contentId) throw new Error('Server did not return contentUri/contentId — upload not supported for this asset type');
+
+            // Step 2: Upload binary to pre-signed URL (no auth needed)
+            setStatus(`Uploading ${file.name} (${(file.size / 1024).toFixed(0)} KB)...`, false);
+            const fileBytes = await file.arrayBuffer();
+            const step2Resp = await fetch(contentUri, {
+                method: 'PUT',
+                headers: { 'Content-Type': file.type || 'application/octet-stream' },
+                body: fileBytes,
+            });
+            if (!step2Resp.ok) throw new Error(`Failed to upload file content (HTTP ${step2Resp.status})`);
+            console.log('[MIS Upload] Step 2 complete');
+
+            // Step 3: Finalize upload
+            setStatus('Finalizing...', false);
+            const qs = `contentId=${encodeURIComponent(contentId)}&version=${encodeURIComponent(version)}&status=completed`;
+            const step3Resp = await fetch(`${MIS_API_BASE}/assets/${assetId}/contentUploadStatus?${qs}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-MIS-Connection-Id': connectionId },
+                credentials: 'same-origin',
+            });
+            if (!step3Resp.ok) throw new Error(`Failed to finalize upload (HTTP ${step3Resp.status})`);
+            console.log('[MIS Upload] Step 3 complete');
+
+            setStatus('Upload complete!', false);
+            showToast(`Uploaded ${file.name} successfully`, 'success');
+
+            // Refresh asset thumbnails
+            const assetsContainer = document.getElementById('misDetailAssets');
+            if (assetsContainer) {
+                misLoadProjectThumbnails(projectNodeId, connectionId, assetsContainer);
+            }
+        } catch (e) {
+            console.error('[MIS Upload] Error:', e);
+            setStatus(`Upload failed: ${e.message}`, true);
+            showToast(`Upload failed: ${e.message}`, 'error');
+        } finally {
+            inputEl.value = ''; // Reset file input
+        }
+    };
+
     // ─── MIS: Job Detail Modal ──────────────────────────────────
 
     window.misShowJobDetail = function(id) {
@@ -16102,6 +16167,24 @@
                     ${isDraft ? `<textarea id="misEditDescription" rows="6" style="width:100%;padding:0.6rem;background:var(--void);border:1px solid var(--border);border-radius:var(--radius-md);color:var(--text-body);font-size:0.82rem;line-height:1.6;resize:vertical;">${esc(j.description || '')}</textarea>` : (j.description ? `<div class="mis-detail-desc">${esc(j.description)}</div>` : '<div class="val" style="color:var(--text-muted);">-</div>')}
                 </div>
                 ${j.payload ? `<div class="mis-detail-field"><label>Payload</label><div class="mis-detail-json">${jsonHighlight(JSON.stringify(j.payload, null, 2))}</div></div>` : ''}
+                ${(() => {
+                    const connProfile = (_misProfilesCache || []).find(p => p.id === j.connection_id);
+                    const isS2Job = j.solution === 's2' || j.project_node_id || connProfile?.apiVersion === 's2';
+                    const nodeId = j.project_node_id || j.wcp_response?.id;
+                    if (!isS2Job || !nodeId) return '';
+                    return `
+                    <div class="mis-detail-field" style="margin-top:1rem;">
+                        <label>Project Assets</label>
+                        <div id="misDetailAssets" style="min-height:40px;"></div>
+                        <div style="margin-top:0.6rem;display:flex;gap:0.5rem;align-items:center;">
+                            <label class="mis-btn" style="cursor:pointer;margin:0;display:inline-flex;align-items:center;gap:0.3rem;">
+                                <i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Upload File
+                                <input type="file" id="misDetailFileInput" style="display:none;" onchange="misUploadProjectFile('${nodeId}', '${j.connection_id}', this)">
+                            </label>
+                            <span id="misDetailUploadStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+                        </div>
+                    </div>`;
+                })()}
             </div>
             <div class="mis-job-modal-footer">
                 ${isDraft ? `<button class="mis-btn" onclick="misSaveJobEdits('${j.id}')" id="misSaveBtn"><i class="icon" data-lucide="save" style="width:14px;height:14px;"></i> Save Changes</button>` : ''}
@@ -16112,6 +16195,18 @@
 
         document.body.appendChild(overlay);
         document.body.appendChild(modal);
+
+        // Load existing S2 project assets in the detail modal
+        const detailAssetsContainer = document.getElementById('misDetailAssets');
+        if (detailAssetsContainer) {
+            const connProfile = (_misProfilesCache || []).find(p => p.id === j.connection_id);
+            const isS2Job = j.solution === 's2' || j.project_node_id || connProfile?.apiVersion === 's2';
+            const nodeId = j.project_node_id || j.wcp_response?.id;
+            if (isS2Job && nodeId && j.connection_id) {
+                misLoadProjectThumbnails(nodeId, j.connection_id, detailAssetsContainer);
+            }
+        }
+
         refreshIcons();
         document.addEventListener('keydown', _misModalEsc);
     };

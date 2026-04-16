@@ -4242,6 +4242,108 @@ server.tool(
   }
 );
 
+// ─── 3-Step Asset Upload Helper ─────────────────────────────
+// S2 file uploads require: (1) create placeholder → (2) PUT binary to pre-signed URL → (3) finalize
+
+async function s2UploadAsset(
+  connectionId: string,
+  createPath: string,
+  relURL: string,
+  fileContentBase64: string,
+  mimeType: string
+): Promise<{ ok: boolean; data?: any; error?: string }> {
+  // Step 1: Create asset placeholder — returns { id, contentUri, contentId, version }
+  const step1 = await callMisProxy('POST', createPath, connectionId, { relURL });
+  if (!step1.ok) {
+    return { ok: false, error: `Step 1 failed (create placeholder): HTTP ${step1.status} — ${JSON.stringify(step1.data)}` };
+  }
+
+  const { id: assetId, contentUri, contentId, version } = step1.data;
+  if (!contentUri || !contentId) {
+    return { ok: false, error: `Step 1 returned incomplete data — missing contentUri or contentId. Response: ${JSON.stringify(step1.data)}` };
+  }
+
+  // Step 2: Upload binary content directly to the pre-signed URL (no auth headers)
+  const fileBuffer = Buffer.from(fileContentBase64, 'base64');
+  const uploadResp = await fetch(contentUri, {
+    method: 'PUT',
+    headers: { 'Content-Type': mimeType || 'application/octet-stream' },
+    body: fileBuffer,
+  });
+  if (!uploadResp.ok) {
+    const errText = await uploadResp.text().catch(() => '');
+    return { ok: false, error: `Step 2 failed (upload to pre-signed URL): HTTP ${uploadResp.status} — ${errText.slice(0, 300)}` };
+  }
+
+  // Step 3: Finalize upload
+  const qs = `contentId=${encodeURIComponent(contentId)}&version=${encodeURIComponent(version)}&status=completed`;
+  const step3 = await callMisProxy('POST', `assets/${assetId}/contentUploadStatus?${qs}`, connectionId);
+  if (!step3.ok) {
+    return { ok: false, error: `Step 3 failed (finalize): HTTP ${step3.status} — ${JSON.stringify(step3.data)}` };
+  }
+
+  return { ok: true, data: { asset_id: assetId, contentId, version, step1_response: step1.data, step3_response: step3.data } };
+}
+
+server.tool(
+  'upload_project_asset',
+  'Upload a file to an S2 project using the 3-step flow (create placeholder, upload binary, finalize). Returns the asset ID. Requires an S2 connection.',
+  {
+    project_node_id: z.string().describe('S2 node ID of the project'),
+    file_name: z.string().describe('File name with extension (e.g. "design.pdf", "artwork.ai")'),
+    file_content: z.string().describe('Base64-encoded file content'),
+    folder: z.string().optional().describe('Subfolder path within the project (default: "Input")'),
+    mime_type: z.string().optional().describe('MIME type of the file (default: auto-detect from extension)'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ project_node_id, file_name, file_content, folder, mime_type, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const dir = folder || 'Input';
+    const relURL = `${dir}/${encodeURIComponent(file_name)}`;
+    const mimeType = mime_type || guessMimeType(file_name);
+
+    const result = await s2UploadAsset(conn.id, `projects/${project_node_id}/assets`, relURL, file_content, mimeType);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: result.error }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'upload_product_asset',
+  'Upload a graphic or shape file to an S2 product using the 3-step flow. Returns the asset ID. Requires an S2 connection.',
+  {
+    product_node_id: z.string().describe('S2 node ID of the product'),
+    file_name: z.string().describe('File name with extension (e.g. "artwork.pdf", "die-line.ard")'),
+    file_content: z.string().describe('Base64-encoded file content'),
+    asset_type: z.enum(['graphic', 'shape']).describe('"graphic" for graphic assets (PDF, AI, etc.) or "shape" for shape/CAD assets (ARD, etc.)'),
+    folder: z.string().optional().describe('Subfolder path (default: "Graphic files" for graphic, "CAD files" for shape)'),
+    mime_type: z.string().optional().describe('MIME type of the file (default: auto-detect from extension)'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ product_node_id, file_name, file_content, asset_type, folder, mime_type, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const defaultFolder = asset_type === 'shape' ? 'CAD files' : 'Graphic files';
+    const dir = folder || defaultFolder;
+    const relURL = `${dir}/${encodeURIComponent(file_name)}`;
+    const mimeType = mime_type || guessMimeType(file_name);
+    const endpoint = asset_type === 'shape'
+      ? `products/${product_node_id}/shapeAsset`
+      : `products/${product_node_id}/graphicAssets`;
+
+    const result = await s2UploadAsset(conn.id, endpoint, relURL, file_content, mimeType);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: result.error }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
 server.tool(
   'launch_workflow',
   'Launch a workflow template against a project with input assets. Returns the workflow instance ID for monitoring. Requires an S2 connection.',

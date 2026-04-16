@@ -792,6 +792,36 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json', ...corsHeaders() } });
   }
 
+  // PUT /assets/:assetId/content — Upload binary content via PUT (used by 3-step upload flow)
+  if (subPath.match(/^assets\/[^/]+\/content$/) && request.method === 'PUT') {
+    const assetId = subPath.replace('assets/', '').replace('/content', '');
+    const body = await request.arrayBuffer();
+    const uploadHeaders = {
+      'EskoCloud-Token': token,
+      'Content-Type': request.headers.get('Content-Type') || 'application/octet-stream',
+      'User-Agent': 'PaulLand-MIS/2.0',
+    };
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}/content`,
+      { method: 'PUT', headers: uploadHeaders, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': resp.headers.get('Content-Type') || 'application/json', ...corsHeaders() } });
+  }
+
+  // POST /assets/:assetId/contentUploadStatus — Finalize a 3-step asset upload
+  if (subPath.match(/^assets\/[^/]+\/contentUploadStatus$/) && request.method === 'POST') {
+    const assetId = subPath.replace('assets/', '').replace('/contentUploadStatus', '');
+    const contentId = reqUrl.searchParams.get('contentId') || '';
+    const version = reqUrl.searchParams.get('version') || '';
+    const status = reqUrl.searchParams.get('status') || 'completed';
+    const qs = `contentId=${encodeURIComponent(contentId)}&version=${encodeURIComponent(version)}&status=${encodeURIComponent(status)}`;
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/assets/${assetId}/contentUploadStatus?${qs}`,
+      { method: 'POST', headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
   // ─── Compatibility shim: map legacy routes for S2 connections ───
   // list_customers → customers, list_task_templates → workflow-templates, create-job → projects
   if (subPath === 'task-templates') {

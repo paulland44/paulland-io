@@ -29,13 +29,23 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
                      │               └── Pages API proxy (R2 uploads, MIS)
                      │
                      └── https://paulland-mcp.paul-land.workers.dev
+
+Cron ──→ Cloudflare Worker (Capture Worker)
+  (every 30 min)      │
+                       ├── capture-worker/src/index.ts  (scheduled handler)
+                       │       │
+                       │       ├── Readwise Reader API → content + feed_items
+                       │       ├── Outlook ICS feed → calendar_events
+                       │       └── Supabase (all read/write)
+                       │
+                       └── capture-worker (cron: */30 * * * *)
 ```
 
 - **Hosting**: Cloudflare Pages — deploy with `npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true`
 - **MCP Server**: Cloudflare Worker — deploy with `cd mcp-worker && npx wrangler deploy`
+- **Capture Worker**: Cloudflare Worker with Cron Trigger — deploy with `cd capture-worker && npx wrangler deploy`
 - **Auth**: Cloudflare Access JWT on API routes; OAuth 2.0 + Bearer token on MCP endpoint
 - **Database**: Supabase with RLS enabled on all tables. Service key bypasses RLS.
-- **Companion service**: `capture-bot` (Python, Railway) handles background sync — see that repo's CLAUDE.md
 
 ## Database Schema (Supabase)
 
@@ -148,7 +158,9 @@ S2 MIS API Routes (S2 connections, proxied to Esko S2 `/MISapi/v0/` endpoints):
 | POST | `mis/workflow-instances/:id/cancel` | Cancel running workflow |
 | GET/POST | `mis/media`, `mis/media/:id` | List/create/get media (substrates) |
 | GET | `mis/assets/:id`, `mis/assets/:id/thumbnail`, `mis/assets/:id/content` | Asset info/preview/download |
-| POST | `mis/assets/:id/content` | Upload asset content |
+| POST | `mis/assets/:id/content` | Upload asset content (legacy single-step) |
+| PUT | `mis/assets/:id/content` | Upload asset content via PUT (3-step flow) |
+| POST | `mis/assets/:id/contentUploadStatus` | Finalize 3-step asset upload (query: contentId, version, status) |
 
 ## Frontend
 
@@ -212,7 +224,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (70 tools)
+### Tool Groups (72 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -228,7 +240,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Assets | list_assets, upload_asset, get_asset_content, batch_update_assets | 4 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
-| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, list_project_assets, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 16 |
+| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 18 |
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
 | Utility | get_system_status | 1 |
@@ -369,9 +381,12 @@ npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true
 # Deploy MCP server to Cloudflare Workers (required when tools change)
 cd mcp-server && npm run build
 cd ../mcp-worker && npx wrangler deploy
+
+# Deploy Capture Worker (Readwise Reader + Calendar sync, replaces Railway capture-bot)
+cd capture-worker && npx wrangler deploy
 ```
 
-Both deploys are needed when MCP tools change. Pages deploy is sufficient for admin UI or API-only changes.
+Pages deploy is sufficient for admin UI or API-only changes. MCP deploys needed when tools change. Capture Worker deploys needed when sync logic changes.
 
 ## Pending / Future Work
 
