@@ -20,7 +20,6 @@ export const CUSTOMER_LIST = [
   { partnerId: 'L343', partnerName: 'Lowes' },
   { partnerId: 'NCLOT', partnerName: 'North Carolina Lottery Commission' },
   { partnerId: 'WELK', partnerName: 'WELK' },
-  { partnerId: 'Efle', partnerName: 'Esko_frle' },
   { partnerId: 'FREMO', partnerName: 'Frying Nemo' },
   { partnerId: 'Thai Tanic', partnerName: 'Thai Tanic' },
 ];
@@ -32,10 +31,12 @@ function buildExtractionPrompt(data: PromptData, customerList?: Array<{ partnerI
   return `You are a job intake assistant at a packaging converter. Extract structured job information from the following email.
 
 CUSTOMER MATCHING RULES:
-You must identify the customer from the list below. Follow this priority order:
-1. SUBJECT LINE FIRST — Scan the subject for a customer name match. This is your primary signal.
-2. EMAIL BODY SECOND — Only if no match found in the subject, scan the body text.
-3. SENDER DOMAIN THIRD — Only as a last resort, check if the sender's email domain relates to a customer.
+You must identify the customer from the list below. Follow this STRICT priority order:
+1. SUBJECT LINE FIRST — Scan the subject for a customer name match. This is your primary signal. If you find a match here, STOP — do not check body or sender domain.
+2. EMAIL BODY SECOND — Only if NO match found in the subject, scan the body text for customer references.
+3. SENDER DOMAIN THIRD — Only as a LAST RESORT if steps 1 and 2 found nothing.
+
+CRITICAL: Do NOT use attachment filenames, file names in the email body, or the sender's company name (e.g. "esko" from "@esko.com") to match customers unless those names actually appear in the customer list AND no better match exists from the subject line.
 
 Apply FUZZY matching at each stage. You must tolerate:
 - Misspellings (e.g. "Krispy Kream" → Krispy Kreme, "Dancng Fish" → Dancing Fish Granola Co.)
