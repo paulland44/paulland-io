@@ -131,13 +131,68 @@ Notes:
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 }
 
+async function fetchPromptFromSupabase(env: Env): Promise<{ system_prompt: string; user_prompt_template: string } | null> {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return null;
+  try {
+    const resp = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/prompts?slug=eq.email-job-extraction&select=system_prompt,user_prompt_template&limit=1`,
+      {
+        headers: {
+          'apikey': env.SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Accept': 'application/json',
+        },
+      }
+    );
+    if (resp.ok) {
+      const rows = await resp.json() as any[];
+      if (rows.length && rows[0].user_prompt_template) {
+        console.log('[email-to-mis] Using configurable prompt from Supabase (slug: email-job-extraction)');
+        return rows[0];
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[email-to-mis] Failed to fetch prompt from Supabase: ${err.message}`);
+  }
+  return null;
+}
+
+function applyPromptTemplate(template: string, data: PromptData, customerListJson: string): string {
+  return template
+    .replace(/\{\{customer_list\}\}/g, customerListJson)
+    .replace(/\{\{from_name\}\}/g, data.from_name)
+    .replace(/\{\{from_email\}\}/g, data.from_email)
+    .replace(/\{\{subject\}\}/g, data.subject)
+    .replace(/\{\{date\}\}/g, data.date)
+    .replace(/\{\{body_text\}\}/g, data.body_text)
+    .replace(/\{\{attachment_texts\}\}/g, data.attachment_texts || 'None')
+    .replace(/\{\{artwork_filenames\}\}/g, data.artwork_filenames.length > 0 ? data.artwork_filenames.join(', ') : 'None')
+    .replace(/\{\{other_filenames\}\}/g, data.other_filenames.length > 0 ? data.other_filenames.join(', ') : 'None');
+}
+
 export async function extractJob(env: Env, data: PromptData, customerList?: Array<{ partnerId: string; partnerName: string }>): Promise<ExtractedJob> {
-  const prompt = buildExtractionPrompt(data, customerList);
+  const customers = customerList?.length ? customerList : CUSTOMER_LIST;
+  const customerListJson = JSON.stringify(customers, null, 2);
+
+  // Try configurable prompt from Supabase, fall back to hardcoded
+  const dbPrompt = await fetchPromptFromSupabase(env);
+
+  let systemContent: string;
+  let userContent: string;
+
+  if (dbPrompt) {
+    systemContent = dbPrompt.system_prompt || 'You extract structured data from emails. Respond only with valid JSON.';
+    userContent = applyPromptTemplate(dbPrompt.user_prompt_template, data, customerListJson);
+  } else {
+    console.log('[email-to-mis] No configurable prompt found — using hardcoded prompt');
+    systemContent = 'You extract structured data from emails. Respond only with valid JSON.';
+    userContent = buildExtractionPrompt(data, customerList);
+  }
 
   const response = await env.AI.run('@cf/meta/llama-3.1-8b-instruct' as any, {
     messages: [
-      { role: 'system', content: 'You extract structured data from emails. Respond only with valid JSON.' },
-      { role: 'user', content: prompt },
+      { role: 'system', content: systemContent },
+      { role: 'user', content: userContent },
     ],
     max_tokens: 1000,
     temperature: 0.1,
