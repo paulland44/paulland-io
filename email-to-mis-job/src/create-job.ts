@@ -36,6 +36,10 @@ function buildDescription(extracted: ExtractedJob, r2Uploads: R2Upload[]): strin
   if (extracted.bleed) specs.push(`Bleed: ${extracted.bleed}`);
   if (extracted.is_reprint !== null) specs.push(`Reprint: ${extracted.is_reprint ? 'Yes' : 'No'}`);
   if (extracted.order_reference) specs.push(`Order ref: ${extracted.order_reference}`);
+  if (extracted.request_type && extracted.request_type !== 'new_job') {
+    const labels: Record<string, string> = { change_request: 'Change Request', new_artwork: 'New Artwork Submission', reprint: 'Reprint/Repeat Order' };
+    specs.push(`Request type: ${labels[extracted.request_type] || extracted.request_type}`);
+  }
 
   if (specs.length > 0) {
     parts.push('\n--- Extracted Specs ---');
@@ -228,6 +232,7 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
   setAttr('bleed', extracted.bleed);
   setAttr('printProcess', extracted.print_process);
   setAttr('quantity', extracted.quantity);
+  setAttr('requestType', extracted.request_type);
   if (Object.keys(attrs).length) {
     properties.attributes = { string: attrs };
   }
@@ -268,7 +273,7 @@ async function uploadAssetsToS2(
   connectionId: string,
   attachments: ClassifiedAttachment[],
   r2Uploads: R2Upload[]
-): Promise<{ uploaded: string[]; failed: string[] }> {
+): Promise<{ uploaded: string[]; failed: string[]; assetIds: string[] }> {
   const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
   const headers: Record<string, string> = {
     'Accept': 'application/json',
@@ -277,6 +282,7 @@ async function uploadAssetsToS2(
   };
   const uploaded: string[] = [];
   const failed: string[] = [];
+  const assetIds: string[] = [];
 
   for (const upload of r2Uploads) {
     const att = attachments.find(a => a.filename === upload.filename);
@@ -368,6 +374,7 @@ async function uploadAssetsToS2(
 
       if (uploadOk) {
         uploaded.push(upload.filename);
+        if (assetId) assetIds.push(assetId);
       } else {
         failed.push(upload.filename);
       }
@@ -377,7 +384,7 @@ async function uploadAssetsToS2(
     }
   }
 
-  return { uploaded, failed };
+  return { uploaded, failed, assetIds };
 }
 
 async function cleanupR2(env: Env, r2Uploads: R2Upload[], uploadedFiles: string[]): Promise<void> {
@@ -389,6 +396,127 @@ async function cleanupR2(env: Env, r2Uploads: R2Upload[], uploadedFiles: string[
     } catch (err: any) {
       console.warn(`[email-to-mis] Failed to delete R2 file ${upload.r2Key}: ${err.message}`);
     }
+  }
+}
+
+// ─── Workflow Launch ────────────────────────────────────────
+
+interface WorkflowRule {
+  request_type: string;
+  template_id: string;
+  template_name?: string;
+  description?: string;
+}
+
+interface WorkflowRules {
+  rules?: WorkflowRule[];
+  default_template_id?: string | null;
+}
+
+async function launchWorkflowIfMatched(
+  env: Env,
+  projectNodeId: string,
+  connectionId: string,
+  requestType: string | null,
+  uploadedAssetIds: string[],
+  jobSupabaseId: string
+): Promise<string | null> {
+  const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const headers: Record<string, string> = {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+    'X-MIS-Connection-Id': connectionId,
+  };
+
+  // Fetch connection to get workflow_rules
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
+    console.log('[email-to-mis] No Supabase config — skipping workflow launch');
+    return null;
+  }
+
+  let workflowRules: WorkflowRules | null = null;
+  try {
+    const connResp = await fetch(
+      `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=workflow_rules&limit=1`,
+      {
+        headers: {
+          'apikey': env.SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Accept': 'application/json',
+        },
+      }
+    );
+    if (connResp.ok) {
+      const rows = await connResp.json() as any[];
+      workflowRules = rows?.[0]?.workflow_rules || null;
+    }
+  } catch (err: any) {
+    console.warn(`[email-to-mis] Failed to fetch workflow_rules: ${err.message}`);
+    return null;
+  }
+
+  if (!workflowRules?.rules?.length && !workflowRules?.default_template_id) {
+    console.log('[email-to-mis] No workflow rules configured on this connection — skipping');
+    return null;
+  }
+
+  // Match request_type against rules
+  const reqType = requestType || 'new_job';
+  let templateId: string | null = null;
+  let templateName = '';
+
+  if (workflowRules.rules?.length) {
+    const match = workflowRules.rules.find(r => r.request_type === reqType);
+    if (match) {
+      templateId = match.template_id;
+      templateName = match.template_name || match.template_id;
+      console.log(`[email-to-mis] Workflow rule matched: ${reqType} → ${templateName} (${templateId})`);
+    }
+  }
+
+  if (!templateId && workflowRules.default_template_id) {
+    templateId = workflowRules.default_template_id;
+    templateName = 'default';
+    console.log(`[email-to-mis] Using default workflow template: ${templateId}`);
+  }
+
+  if (!templateId) {
+    console.log(`[email-to-mis] No workflow rule matched for request_type="${reqType}" — skipping`);
+    return null;
+  }
+
+  // Launch the workflow
+  try {
+    const launchResp = await fetch(`${apiUrl}/mis/workflow-templates/${templateId}/launch`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ jobId: projectNodeId, inputs: uploadedAssetIds }),
+    });
+    if (!launchResp.ok) {
+      const err = await launchResp.text().catch(() => '');
+      console.warn(`[email-to-mis] Workflow launch failed (${launchResp.status}): ${err.slice(0, 300)}`);
+      return null;
+    }
+    const launchResult = await launchResp.json() as any;
+    const instanceId = launchResult?.id || null;
+    console.log(`[email-to-mis] Workflow launched: ${templateName} → instance ${instanceId}`);
+
+    // Update job record with workflow_instance_id
+    if (instanceId && jobSupabaseId) {
+      try {
+        await fetch(`${apiUrl}/mis/jobs/${jobSupabaseId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
+          body: JSON.stringify({ workflow_instance_id: instanceId }),
+        });
+      } catch {}
+    }
+
+    return instanceId;
+  } catch (err: any) {
+    console.warn(`[email-to-mis] Workflow launch error: ${err.message}`);
+    return null;
   }
 }
 
@@ -544,9 +672,11 @@ export async function createMisJob(
     }
 
     // Upload attachments to S2 project as assets, then clean up R2
+    let uploadedAssetIds: string[] = [];
     if (projectResult?.id && attachments?.length && r2Uploads.length) {
       console.log(`[email-to-mis] Uploading ${r2Uploads.length} attachments to S2 project ${projectResult.id}...`);
-      const { uploaded, failed } = await uploadAssetsToS2(env, projectResult.id, connectionId, attachments, r2Uploads);
+      const { uploaded, failed, assetIds } = await uploadAssetsToS2(env, projectResult.id, connectionId, attachments, r2Uploads);
+      uploadedAssetIds = assetIds;
       if (uploaded.length) {
         console.log(`[email-to-mis] Uploaded ${uploaded.length} assets to S2. Cleaning up R2...`);
         await cleanupR2(env, r2Uploads, uploaded);
@@ -556,7 +686,18 @@ export async function createMisJob(
       }
     }
 
-    return storeResp.ok ? await storeResp.json() : jobRecord;
+    // Launch workflow if rules match the request type
+    const storedJob = storeResp.ok ? await storeResp.json() : jobRecord;
+    const jobSupabaseId = (Array.isArray(storedJob) ? storedJob[0]?.id : storedJob?.id) || '';
+    if (projectResult?.id) {
+      try {
+        await launchWorkflowIfMatched(env, projectResult.id, connectionId, extracted.request_type, uploadedAssetIds, jobSupabaseId);
+      } catch (err: any) {
+        console.warn(`[email-to-mis] Workflow launch error (non-blocking): ${err.message}`);
+      }
+    }
+
+    return storedJob;
   }
 
   // Legacy WCP: create draft job record

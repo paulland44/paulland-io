@@ -105,6 +105,7 @@ Extract the following as JSON. Use null for any field you cannot determine:
   "substrate_weight": "Weight like '300gsm' or '12pt' or null",
   "bleed": "Bleed specification like '3mm' or null",
   "order_reference": "PO number, order reference, or purchase order if mentioned, otherwise null",
+  "request_type": "change_request | new_artwork | reprint | new_job",
   "barcodes": [
     {
       "encoding": "GS1-QR | EAN-13 | UPC-A | Code128 | GS1-128 | GS1-DataMatrix | GS1-DataBar | ITF-14 | QR Code",
@@ -120,6 +121,11 @@ Notes:
 - finishing: list all finishing processes mentioned (lamination, varnish, UV, embossing, foiling, die-cutting). Set to null if not mentioned.
 - packaging_type: infer from context — "label" for self-adhesive/roll-fed, "FoldingCarton" for boxes/cartons, "FlexiblePackaging" for pouches/wrappers.
 - barcodes: array of barcode specs if mentioned. Set to null if no barcodes mentioned.
+- request_type: classify the email intent:
+  - "change_request" — asks for edits, revisions, corrections, or modifications to existing artwork/files
+  - "new_artwork" — submits new artwork or design files for a job (file attached or referenced)
+  - "reprint" — requests a reprint, repeat, or re-order of a previous job
+  - "new_job" — new job request with specs but no specific action on existing files (default)
 
 Respond ONLY with valid JSON. No markdown, no explanation.`;
 }
@@ -209,5 +215,6 @@ function validateExtraction(obj: any): ExtractedJob {
     substrate_weight: obj.substrate_weight || null,
     bleed: obj.bleed || null,
     order_reference: obj.order_reference || null,
+    request_type: obj.request_type || 'new_job',
   };
 }

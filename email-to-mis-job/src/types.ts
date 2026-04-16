@@ -92,6 +92,7 @@ export interface ExtractedJob {
   substrate_weight: string | null; // e.g. "300gsm"
   bleed: string | null; // e.g. "3mm"
   order_reference: string | null; // PO number or order ref
+  request_type: string | null; // change_request | new_artwork | reprint | new_job
 }
 
 export interface PromptData {

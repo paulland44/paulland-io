@@ -176,7 +176,7 @@ async function handleMisConnections(path, request, env) {
   // GET /api/mis/connections — list all (tokens excluded)
   if (request.method === 'GET' && !subPath) {
     const rows = await supabaseGet(supabaseUrl, serviceKey,
-      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,email_prefix,created_at,updated_at&order=created_at.desc'
+      'mis_connections?select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,email_prefix,workflow_rules,created_at,updated_at&order=created_at.desc'
     );
     return json(rows);
   }
@@ -185,7 +185,7 @@ async function handleMisConnections(path, request, env) {
   if (request.method === 'GET' && subPath) {
     const id = subPath;
     const rows = await supabaseGet(supabaseUrl, serviceKey,
-      `mis_connections?id=eq.${id}&select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,email_prefix,created_at,updated_at`
+      `mis_connections?id=eq.${id}&select=id,name,type,is_active,cluster,ecan,repo_id,server_url,api_version,base_url,email_prefix,workflow_rules,created_at,updated_at`
     );
     return json(rows[0] || null);
   }
@@ -224,6 +224,7 @@ async function handleMisConnections(path, request, env) {
       api_version: api_version || 'legacy',
       base_url: base_url ? base_url.replace(/\/+$/, '') : null,
       email_prefix: email_prefix || null,
+      workflow_rules: body.workflow_rules || null,
       encrypted_token, token_iv,
     };
 
@@ -253,7 +254,7 @@ async function handleMisConnections(path, request, env) {
     const updates = {};
 
     // Copy non-token fields
-    for (const field of ['name', 'type', 'cluster', 'ecan', 'repo_id', 'server_url', 'is_active', 'api_version', 'base_url', 'email_prefix']) {
+    for (const field of ['name', 'type', 'cluster', 'ecan', 'repo_id', 'server_url', 'is_active', 'api_version', 'base_url', 'email_prefix', 'workflow_rules']) {
       if (body[field] !== undefined) updates[field] = body[field];
     }
 

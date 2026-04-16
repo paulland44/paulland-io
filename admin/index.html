@@ -14156,7 +14156,7 @@
                 cluster: r.cluster, ecan: r.ecan, repoId: r.repo_id,
                 serverUrl: r.server_url, apiVersion: r.api_version || 'legacy',
                 baseUrl: r.base_url || '', emailPrefix: r.email_prefix || '',
-                hasToken: true,
+                workflowRules: r.workflow_rules || null, hasToken: true,
             }));
             return _misProfilesCache;
         } catch (e) {
@@ -16531,6 +16531,16 @@
                         <input class="modal-edit-input" id="connEmailPrefix" placeholder="e.g. QA, DEV, PROD" style="text-transform:uppercase;">
                         <div style="font-size:0.72rem; color:var(--text-muted); margin-top:0.25rem;">Emails with this prefix in the subject (e.g. "QA: Job Name") will route to this connection.</div>
                     </div>
+                    <div class="modal-edit-field" id="connWorkflowRulesSection">
+                        <div class="modal-edit-label">Workflow Rules</div>
+                        <div style="font-size:0.72rem; color:var(--text-muted); margin-bottom:0.5rem;">Map email request types to S2 workflow templates. When an email matches a request type, the workflow is automatically launched after asset upload.</div>
+                        <div id="connWorkflowRulesList"></div>
+                        <button type="button" onclick="addWorkflowRule()" style="background:none; border:1px dashed var(--border); border-radius:var(--radius-sm); padding:0.35rem 0.75rem; color:var(--text-muted); cursor:pointer; font-size:0.78rem; margin-top:0.4rem;">+ Add Rule</button>
+                        <div class="modal-edit-field" style="margin-top:0.6rem;">
+                            <div class="modal-edit-label" style="font-size:0.75rem;">Default Template ID (optional)</div>
+                            <input class="modal-edit-input" id="connDefaultTemplateId" placeholder="S2 workflow template node ID (catch-all)" style="font-family:var(--mono); font-size:0.78rem;">
+                        </div>
+                    </div>
                 </div>
                 <div class="modal-actions">
                     <button class="modal-save-btn" onclick="saveMisConn()">Save</button>
@@ -16618,6 +16628,15 @@
         }
         document.getElementById('connToken').value = '';
         document.getElementById('connTokenHint').style.display = '';
+
+        // Populate workflow rules
+        const rulesList = document.getElementById('connWorkflowRulesList');
+        rulesList.innerHTML = '';
+        const wfr = p.workflowRules;
+        if (wfr?.rules?.length) {
+            wfr.rules.forEach(r => addWorkflowRule(r.request_type, r.template_id, r.template_name));
+        }
+        document.getElementById('connDefaultTemplateId').value = wfr?.default_template_id || '';
     };
 
     window.deleteMisConn = async function(id) {
@@ -16625,6 +16644,26 @@
         await fetch(`/api/mis/connections/${id}`, { method: 'DELETE' });
         await fetchMisProfiles();
         loadSettingsConnections();
+    };
+
+    window.addWorkflowRule = function(requestType, templateId, templateName) {
+        const list = document.getElementById('connWorkflowRulesList');
+        const row = document.createElement('div');
+        row.className = 'wf-rule-row';
+        row.style.cssText = 'display:flex;gap:0.4rem;align-items:center;margin-bottom:0.4rem;';
+        row.innerHTML = `
+            <select class="wf-rule-type modal-edit-input" style="flex:0 0 160px;padding:0.3rem 0.4rem;font-size:0.78rem;">
+                <option value="change_request"${requestType === 'change_request' ? ' selected' : ''}>Change Request</option>
+                <option value="new_artwork"${requestType === 'new_artwork' ? ' selected' : ''}>New Artwork</option>
+                <option value="reprint"${requestType === 'reprint' ? ' selected' : ''}>Reprint</option>
+                <option value="new_job"${requestType === 'new_job' ? ' selected' : ''}>New Job</option>
+            </select>
+            <input class="wf-rule-template modal-edit-input" placeholder="Template Node ID" value="${esc(templateId || '')}" style="flex:1;padding:0.3rem 0.4rem;font-family:var(--mono);font-size:0.78rem;">
+            <input class="wf-rule-name modal-edit-input" placeholder="Name (optional)" value="${esc(templateName || '')}" style="flex:1;padding:0.3rem 0.4rem;font-size:0.78rem;">
+            <button type="button" onclick="this.closest('.wf-rule-row').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0.2rem;" title="Remove rule"><i class="icon" data-lucide="x" style="width:14px;height:14px;"></i></button>
+        `;
+        list.appendChild(row);
+        refreshIcons();
     };
 
     window.saveMisConn = async function() {
@@ -16642,12 +16681,24 @@
                     : document.getElementById('connCluster').value)
                 : null;
             const emailPrefix = document.getElementById('connEmailPrefix')?.value?.trim()?.toUpperCase() || null;
+            // Collect workflow rules
+            const wfRules = [];
+            document.querySelectorAll('.wf-rule-row').forEach(row => {
+                const rt = row.querySelector('.wf-rule-type')?.value;
+                const tid = row.querySelector('.wf-rule-template')?.value?.trim();
+                const tn = row.querySelector('.wf-rule-name')?.value?.trim();
+                if (rt && tid) wfRules.push({ request_type: rt, template_id: tid, template_name: tn || '' });
+            });
+            const defaultTplId = document.getElementById('connDefaultTemplateId')?.value?.trim() || null;
+            const workflowRules = (wfRules.length || defaultTplId) ? { rules: wfRules, default_template_id: defaultTplId } : null;
+
             const body = {
                 name: document.getElementById('connName').value.trim(),
                 type,
                 api_version: apiVersion,
                 base_url: baseUrl,
                 email_prefix: emailPrefix,
+                workflow_rules: workflowRules,
                 cluster,
                 ecan: type === 'wcp' ? document.getElementById('connEcan').value.trim() : null,
                 repo_id: type === 'wcp' ? document.getElementById('connRepoId').value.trim() : null,

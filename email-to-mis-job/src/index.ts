@@ -167,6 +167,7 @@ async function processEmail(
   log('Calling Workers AI for job extraction...');
   const extracted = await extractJob(env, promptData, dynamicCustomerList);
   log(`Extracted job: ${extracted.job_name}`);
+  log(`Request type: ${extracted.request_type || 'new_job'}`);
   if (extracted.customer_match) {
     log(`Customer: ${extracted.customer_match.partnerName} (${extracted.customer_match.confidence})`);
   } else {
