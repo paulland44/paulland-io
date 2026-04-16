@@ -14429,10 +14429,13 @@
     function misUpdateJobId() {
         const el = document.getElementById('misJobCustomer');
         const code = el?._ss ? el._ss.getValue() : '';
-        const safe = code.replace(/\./g, '').replace(/\s+/g, '-');
         const jobs = _cachedMisJobs || [];
         const seq = String(jobs.length + 1).padStart(4, '0');
-        document.getElementById('misJobId').value = safe ? `MIS-${safe}-${seq}` : '';
+        const jobId = `MIS-${seq}`;
+        document.getElementById('misJobId').value = jobId;
+        // Auto-populate AE Job Part ID
+        const aePartId = document.getElementById('aeJobPartId');
+        if (aePartId && !aePartId.value) aePartId.value = `${jobId}-01`;
         misUpdatePreview();
     }
 
@@ -14612,11 +14615,11 @@
         // Legacy WCP-only sections: hide for S2
         const tasksSection = document.getElementById('misTasksSection');
         if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
-        // Site field and manual customer code: hide for S2
+        // Site field and manual customer code: hide for S2 and AE
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
         const custCodeField = document.getElementById('misJobCustomerCode');
-        if (custCodeField) custCodeField.style.display = isS2 ? 'none' : '';
+        if (custCodeField) custCodeField.style.display = (isS2 || isAe) ? 'none' : '';
         // AE section
         const aeSection = document.getElementById('misAeSection');
         if (aeSection) aeSection.style.display = isAe ? '' : 'none';
@@ -15405,11 +15408,11 @@
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
 
-        // Site field and manual customer code: hide for S2
+        // Site field and manual customer code: hide for S2 and AE
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
         const custCodeField = document.getElementById('misJobCustomerCode');
-        if (custCodeField) custCodeField.style.display = isS2 ? 'none' : '';
+        if (custCodeField) custCodeField.style.display = (isS2 || isAe) ? 'none' : '';
 
         // Tasks section: hide for S2 (uses workflows) and AE
         const tasksSection = document.getElementById('misTasksSection');

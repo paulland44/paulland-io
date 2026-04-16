@@ -3816,17 +3816,16 @@ server.tool(
     const isAe = connection?.type === 'ae';
     const isS2 = connection?.api_version === 's2';
 
-    // Auto-generate job_id
-    const code = customer_code || 'GEN';
+    // Auto-generate job_id (sequential, no customer code to avoid exposing internal IDs)
     const existing = await supabaseGet(
-      `mis_jobs?job_id=like.MIS-${code}-%25&select=job_id&order=created_at.desc&limit=1`
+      `mis_jobs?job_id=like.MIS-%25&select=job_id&order=created_at.desc&limit=1`
     );
     let seq = 1;
     if (existing.length && existing[0].job_id) {
-      const match = existing[0].job_id.match(/-(\d+)$/);
+      const match = existing[0].job_id.match(/MIS-(\d+)/);
       if (match) seq = parseInt(match[1], 10) + 1;
     }
-    const job_id = `MIS-${code}-${String(seq).padStart(4, '0')}`;
+    const job_id = `MIS-${String(seq).padStart(4, '0')}`;
 
     // Build payload — different structure for AE vs S2 vs legacy WCP
     let payload: any;
@@ -3834,7 +3833,7 @@ server.tool(
       payload = {
         jobName: job_name,
         jobId: job_id,
-        jobPartId: job_part_id || job_id,
+        jobPartId: job_part_id || `${job_id}-01`,
         customerCode: customer_code || '',
         description: description || '',
         category: category || 'Production',
