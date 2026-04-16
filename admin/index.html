@@ -15565,6 +15565,16 @@
             let data; try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 500) }; }
             if (!resp.ok) { const detail = data.error || data.message || `HTTP ${resp.status}`; throw new Error(typeof detail === 'string' ? detail.slice(0, 300) : JSON.stringify(detail).slice(0, 300)); }
 
+            // Detect AE workflow parameter errors (AE returns HTTP 200 even on failure)
+            if (data.ae_success === false && data.ae_errors?.length) {
+                await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
+                    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ status: 'Error', wcp_response: data }),
+                });
+                _cachedMisJobs = null;
+                throw new Error(`AE workflow parameter errors:\n${data.ae_errors.join('\n')}`);
+            }
+
             const updateFields = { status: 'Created', wcp_response: data };
             if (isS2 && data?.id) updateFields.project_node_id = data.id;
 

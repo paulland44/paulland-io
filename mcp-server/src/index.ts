@@ -4022,6 +4022,27 @@ server.tool(
       };
     }
 
+    // Check for AE-specific errors (AE returns HTTP 200 even when parameters fail)
+    if (result.data?.ae_success === false && result.data?.ae_errors?.length) {
+      // Save response but mark as Error instead of Created
+      await supabasePatch(`mis_jobs?id=eq.${job_id}`, {
+        status: 'Error',
+        wcp_response: result.data,
+      });
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            error: 'AE returned workflow parameter errors. The job was not created on Automation Engine.',
+            ae_errors: result.data.ae_errors,
+            job_id: job.job_id,
+            hint: 'Check that the AE workflow public parameter names match what the API sends (Job ID, Name, Customer ID, Job Part ID, Category).',
+          }, null, 2),
+        }],
+        isError: true,
+      };
+    }
+
     // Update job record on success
     const patchResult = await supabasePatch(`mis_jobs?id=eq.${job_id}`, {
       status: 'Created',

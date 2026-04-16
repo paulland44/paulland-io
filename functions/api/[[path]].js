@@ -466,6 +466,18 @@ async function handleAeRoute(subPath, request, conn, env) {
     const text = await resp.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { rawResponse: text.slice(0, 1000) }; }
+
+    // Detect AE remark errors in XML responses (AE returns HTTP 200 even on failure)
+    if (data.rawResponse) {
+      const remarks = [...data.rawResponse.matchAll(/<remark>(.*?)<\/remark>/gs)].map(m => m[1].trim());
+      if (remarks.length > 0) {
+        data.ae_errors = remarks;
+        data.ae_success = false;
+      } else {
+        data.ae_success = true;
+      }
+    }
+
     return json(data, resp.status);
   }
 
