@@ -79,6 +79,7 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
 | `daily-notes` | `handleUpsertDailyNote` | Create/update daily note by date |
 | `daily-review` | `handleDailyReview` | AI end-of-day review (Claude) |
 | `entity-update` | `handleEntityUpdate` | Generic PATCH for any table |
+| `assets/batch-update` | `handleAssetBatchUpdate` | Bulk asset operations (tags, company, product, delete) |
 | `entity-log` | `handleEntityLog` | Generic INSERT for any table |
 | `generate-summary` | `handleGenerateSummary` | AI weekly/monthly summary |
 | `assets/upload` | `handleAssetUpload` | Upload file to R2 + create metadata |
@@ -211,7 +212,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (69 tools)
+### Tool Groups (70 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -224,7 +225,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
 | Personas & Research | list_personas, get_persona, update_persona_section, update_research | 4 |
-| Assets | list_assets, upload_asset, get_asset_content | 3 |
+| Assets | list_assets, upload_asset, get_asset_content, batch_update_assets | 4 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, list_project_assets, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 16 |

@@ -13223,6 +13223,10 @@
         { name: 'get_asset_content', desc: 'Read file content from asset library (text, XLSX→CSV, or base64)', group: 'Assets', params: 1, paramDetails: [
             { name: 'asset_id', type: 'string', desc: 'UUID of the asset to read' },
         ]},
+        { name: 'batch_update_assets', desc: 'Bulk operations on multiple assets (tags, company, product link, delete)', group: 'Assets', params: 2, paramDetails: [
+            { name: 'asset_ids', type: 'string[]', desc: 'Array of asset UUIDs (max 200)' },
+            { name: 'operation', type: 'object', desc: 'type: add_tags|remove_tags|replace_tags|set_company|set_description|link_product|unlink_product|delete + tags/company_id/description/product_id' },
+        ]},
         { name: 'generate_embedding', desc: 'Generate embedding for single item', group: 'Embeddings', params: 2, paramDetails: [
             { name: 'source_table', type: 'string', desc: 'Table name (e.g. content, daily_notes)' },
             { name: 'source_id', type: 'string', desc: 'Row UUID' },
