@@ -67,11 +67,11 @@ function classifySingle(filename: string, mimeType: string, sizeBytes: number): 
     if (TEXT_PDF_PATTERNS.test(filename)) return 'text-pdf';
     if (ARTWORK_PDF_PATTERNS.test(filename)) return 'artwork-pdf';
 
-    // Fall back to file size
+    // Large files are almost certainly artwork
     if (sizeBytes > ARTWORK_SIZE_THRESHOLD) return 'artwork-pdf';
-    if (sizeBytes < TEXT_SIZE_THRESHOLD) return 'text-pdf';
 
-    // Default: treat unknown PDFs as artwork (safer to store than miss)
+    // Default: treat unknown PDFs as artwork (safer to upload than miss)
+    // Small PDFs can be proofs, logos, or simple artwork — don't skip them
     return 'artwork-pdf';
   }
 
