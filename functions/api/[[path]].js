@@ -1198,7 +1198,7 @@ async function handleUpdateTags(request, env, ctx) {
 async function handleEntityUpdate(request, env, ctx) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items', 'prompts'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
