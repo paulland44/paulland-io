@@ -2,7 +2,7 @@ import type { Env, PromptData, ProcessingResult, ClassifiedAttachment, R2Upload 
 import { parseEmail } from './parse-email.js';
 import { classifyAttachments } from './classify.js';
 import { uploadAttachments } from './store.js';
-import { extractJob } from './extract-job.js';
+import { extractJob, CUSTOMER_LIST } from './extract-job.js';
 import { createMisJob } from './create-job.js';
 
 async function resolveEmailRoute(subject: string, env: Env): Promise<{ cleanSubject: string; connectionId: string | null; autoSubmit: boolean; prefix: string | null }> {
@@ -132,15 +132,30 @@ async function processEmail(
               });
               if (detail.ok) {
                 const d = await detail.json() as any;
-                return { partnerId: d.partnerId || c.name, partnerName: d.partnerName || c.name };
+                const pName = d.partnerName || '';
+                const pId = d.partnerId || c.name;
+                log(`  Customer detail ${c.id}: partnerId=${pId}, partnerName=${pName || '(empty)'}`);
+                return { partnerId: pId, partnerName: pName || c.name, s2NodeId: c.id };
               }
             } catch {}
-            return { partnerId: c.name, partnerName: c.name };
+            return { partnerId: c.name, partnerName: c.name, s2NodeId: c.id };
           }));
-          dynamicCustomerList = enriched.map((r, i) =>
-            r.status === 'fulfilled' ? r.value : { partnerId: items[i].name, partnerName: items[i].name }
-          );
-          log(`Loaded ${dynamicCustomerList.length} customers from target connection`);
+          dynamicCustomerList = enriched.map((r, i) => {
+            const entry = r.status === 'fulfilled' ? r.value : { partnerId: items[i].name, partnerName: items[i].name };
+            // If partnerName is still just the short code (same as name from list),
+            // try to resolve from the hardcoded fallback list
+            if (entry.partnerName === items[i].name || !entry.partnerName) {
+              const fallback = CUSTOMER_LIST.find(f =>
+                f.partnerId === entry.partnerId || f.partnerId === items[i].name
+              );
+              if (fallback) {
+                entry.partnerName = fallback.partnerName;
+                log(`  Enriched ${items[i].name} from fallback list → ${fallback.partnerName}`);
+              }
+            }
+            return entry;
+          });
+          log(`Loaded ${dynamicCustomerList.length} customers: ${dynamicCustomerList.map(c => `${c.partnerId}="${c.partnerName}"`).join(', ')}`);
         }
       }
     } catch (err: any) {

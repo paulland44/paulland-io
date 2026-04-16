@@ -1,6 +1,6 @@
 import type { Env, ExtractedJob, PromptData } from './types.js';
 
-const CUSTOMER_LIST = [
+export const CUSTOMER_LIST = [
   { partnerId: 'DFG', partnerName: 'Dancing Fish Granola Co.' },
   { partnerId: 'FVB', partnerName: 'Frontier Valley Brewing Co.' },
   { partnerId: 'HaFi', partnerName: 'Happy Fish' },
