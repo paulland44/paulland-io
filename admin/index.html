@@ -10304,7 +10304,7 @@
     let salesRevenueYear = 0; // 0 = auto (latest), otherwise 2025 or 2026
     let salesBookingsYear = 0; // 0 = auto (latest), otherwise 2025 or 2026
     let salesOverviewYear = 0; // 0 = auto (latest)
-    let salesSegmentFilter = ''; // '' = all, otherwise top-level segment name e.g. 'Brand Owner'
+    let salesSegmentFilter = new Set(); // empty = all, otherwise set of top-level segment names
 
     async function loadSalesProductDetail(productCode) {
         destroySalesCharts();
@@ -10392,8 +10392,8 @@
         };
 
         // Segment filter — if active, filter the bookings data before analysis
-        const filteredBookings = salesSegmentFilter
-            ? allBookings.filter(r => r.subsegment && r.subsegment.startsWith(salesSegmentFilter))
+        const filteredBookings = salesSegmentFilter.size > 0
+            ? allBookings.filter(r => r.subsegment && [...salesSegmentFilter].some(seg => r.subsegment.startsWith(seg)))
             : allBookings;
         const bk26f = getProductBookings(filteredBookings, productCode, 2026);
         const bk25f = getProductBookings(filteredBookings, productCode, 2025);
@@ -10685,16 +10685,28 @@
             <!-- ═══ BOOKINGS TAB ═══ -->
             <div id="salesTabBookings" style="${tab !== 'bookings' ? 'display:none;' : ''}">
                 ${bkDisplay ? `
-                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-                    <div style="display:flex;align-items:center;gap:0.75rem;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;gap:0.4rem;">
+                    <div style="display:flex;align-items:center;gap:0.5rem;flex-wrap:wrap;">
                         <div style="font-size:0.85rem;color:var(--text-muted);">${bkYearLabel} · ${bkDisplay.uniqueCustomers} customers · ${bkDisplay.uniqueCountries} countries</div>
-                        ${salesSegmentFilter ? `<span style="font-size:0.75rem;background:var(--accent);color:var(--void);padding:0.15rem 0.5rem;border-radius:var(--radius-pill);font-weight:600;cursor:pointer;" class="sales-seg-clear" title="Clear filter">✕ ${esc(salesSegmentFilter)}</span>` : ''}
+                        ${[...salesSegmentFilter].map(seg => `<span style="font-size:0.75rem;background:var(--accent);color:var(--void);padding:0.15rem 0.5rem;border-radius:var(--radius-pill);font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:0.25rem;" class="sales-seg-pill" data-seg="${esc(seg)}" title="Remove filter">✕ ${esc(seg)}</span>`).join('')}
+                        ${salesSegmentFilter.size > 1 ? `<span style="font-size:0.72rem;color:var(--text-muted);cursor:pointer;text-decoration:underline;" class="sales-seg-clear-all">Clear all</span>` : ''}
                     </div>
                     <div style="display:flex;gap:0.25rem;align-items:center;">
-                        <select class="sales-period-select" id="salesSegmentSelect" style="font-size:0.78rem;padding:0.25rem 0.5rem;min-width:100px;">
-                            <option value="">All Segments</option>
-                            ${(bk ? (getProductBookings(allBookings, productCode, bkYear)?.bySegment || []) : []).map(s => `<option value="${esc(s.segment)}" ${salesSegmentFilter === s.segment ? 'selected' : ''}>${esc(s.segment)}</option>`).join('')}
-                        </select>
+                        <div style="position:relative;" id="salesSegmentDropdown">
+                            <button class="sales-period-select" id="salesSegmentToggle" style="font-size:0.78rem;padding:0.25rem 0.5rem;min-width:100px;cursor:pointer;display:flex;align-items:center;gap:0.3rem;">
+                                ${salesSegmentFilter.size === 0 ? 'All Segments' : salesSegmentFilter.size + ' Segment' + (salesSegmentFilter.size > 1 ? 's' : '')}
+                                <svg width="10" height="10" viewBox="0 0 10 10" style="opacity:0.5;"><path d="M2 4l3 3 3-3" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+                            </button>
+                            <div id="salesSegmentPanel" style="display:none;position:absolute;right:0;top:100%;margin-top:0.25rem;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);box-shadow:var(--shadow-md);z-index:100;min-width:180px;max-height:240px;overflow-y:auto;padding:0.25rem 0;">
+                                ${(bk ? (getProductBookings(allBookings, productCode, bkYear)?.bySegment || []) : []).map(s => `
+                                    <label style="display:flex;align-items:center;gap:0.5rem;padding:0.35rem 0.75rem;font-size:0.78rem;cursor:pointer;color:var(--text-body);white-space:nowrap;" onmouseenter="this.style.background='var(--accent-dim)'" onmouseleave="this.style.background='transparent'">
+                                        <input type="checkbox" class="sales-seg-check" value="${esc(s.segment)}" ${salesSegmentFilter.has(s.segment) ? 'checked' : ''} style="accent-color:var(--accent);">
+                                        ${esc(s.segment)}
+                                        <span style="margin-left:auto;font-size:0.7rem;color:var(--text-muted);">$${salesFmtK(s.value / 1000)}k</span>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
                         ${bkAvailYears.map(y => `<button class="sales-period-select sales-bk-year ${y === bkYear ? 'active' : ''}" data-bkyear="${y}" style="cursor:pointer;${y === bkYear ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">${y}</button>`).join('')}
                     </div>
                 </div>
@@ -11249,14 +11261,40 @@
                 });
             });
 
-            // Segment filter
-            document.getElementById('salesSegmentSelect')?.addEventListener('change', (e) => {
-                salesSegmentFilter = e.target.value;
+            // Segment multi-select dropdown
+            const segToggle = document.getElementById('salesSegmentToggle');
+            const segPanel = document.getElementById('salesSegmentPanel');
+            segToggle?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                segPanel.style.display = segPanel.style.display === 'none' ? 'block' : 'none';
+            });
+            segPanel?.addEventListener('click', (e) => e.stopPropagation());
+            document.querySelectorAll('.sales-seg-check').forEach(cb => {
+                cb.addEventListener('change', () => {
+                    if (cb.checked) salesSegmentFilter.add(cb.value);
+                    else salesSegmentFilter.delete(cb.value);
+                    loadSalesProductDetail(productCode);
+                });
+            });
+            document.querySelectorAll('.sales-seg-pill').forEach(pill => {
+                pill.addEventListener('click', () => {
+                    salesSegmentFilter.delete(pill.dataset.seg);
+                    loadSalesProductDetail(productCode);
+                });
+            });
+            document.querySelector('.sales-seg-clear-all')?.addEventListener('click', () => {
+                salesSegmentFilter.clear();
                 loadSalesProductDetail(productCode);
             });
-            document.querySelector('.sales-seg-clear')?.addEventListener('click', () => {
-                salesSegmentFilter = '';
-                loadSalesProductDetail(productCode);
+            // Close dropdown on outside click
+            const closeSegPanel = (e) => {
+                if (segPanel && !document.getElementById('salesSegmentDropdown')?.contains(e.target)) {
+                    segPanel.style.display = 'none';
+                    document.removeEventListener('click', closeSegPanel);
+                }
+            };
+            segToggle?.addEventListener('click', () => {
+                if (segPanel?.style.display === 'block') document.addEventListener('click', closeSegPanel);
             });
         }
     }
