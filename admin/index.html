@@ -15232,6 +15232,13 @@
                         <div class="mis-collapsible-body" style="max-height:2000px;">
                             <div style="padding-top:0.75rem;">
                                 <div id="misFormAssets"></div>
+                                <div style="margin-top:0.6rem;display:flex;gap:0.5rem;align-items:center;">
+                                    <label class="mis-btn" style="cursor:pointer;margin:0;display:inline-flex;align-items:center;gap:0.3rem;">
+                                        <i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i> Upload File
+                                        <input type="file" id="misFormFileInput" style="display:none;" onchange="misUploadFormFile(this)">
+                                    </label>
+                                    <span id="misFormUploadStatus" style="font-size:0.8rem;color:var(--text-muted);"></span>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -16028,10 +16035,40 @@
 
     // ─── MIS: 3-Step File Upload ────────────────────────────────
 
+    // Upload from the MIS job creation/edit form (Assets S2 section)
+    window.misUploadFormFile = async function(inputEl) {
+        const file = inputEl.files?.[0];
+        if (!file) return;
+
+        // Look up the current job to get projectNodeId and connectionId
+        const jobId = _misJobFormJobId;
+        if (!jobId) { showToast('Save and submit the job first before uploading assets.', 'error'); inputEl.value = ''; return; }
+        if (!_cachedMisJobs) await getMisStoredJobs(true);
+        const job = (_cachedMisJobs || []).find(x => x.id === jobId);
+        if (!job) { showToast('Job not found', 'error'); inputEl.value = ''; return; }
+
+        const projectNodeId = job.project_node_id || job.wcp_response?.id;
+        if (!projectNodeId) { showToast('Job has no S2 project node ID — submit the job to S2 first.', 'error'); inputEl.value = ''; return; }
+        const connectionId = job.connection_id;
+        if (!connectionId) { showToast('No connection ID on this job.', 'error'); inputEl.value = ''; return; }
+
+        // Delegate to the shared upload function
+        const statusEl = document.getElementById('misFormUploadStatus');
+        await misUploadFileToProject(projectNodeId, connectionId, file, statusEl, document.getElementById('misFormAssets'));
+        inputEl.value = '';
+    };
+
+    // Upload from the job detail modal
     window.misUploadProjectFile = async function(projectNodeId, connectionId, inputEl) {
         const file = inputEl.files?.[0];
         if (!file) return;
         const statusEl = document.getElementById('misDetailUploadStatus');
+        await misUploadFileToProject(projectNodeId, connectionId, file, statusEl, document.getElementById('misDetailAssets'));
+        inputEl.value = '';
+    };
+
+    // Shared 3-step S2 file upload: (1) create placeholder → (2) PUT to pre-signed URL → (3) finalize
+    async function misUploadFileToProject(projectNodeId, connectionId, file, statusEl, assetsContainer) {
         const setStatus = (msg, isError) => { if (statusEl) { statusEl.textContent = msg; statusEl.style.color = isError ? 'var(--accent)' : 'var(--text-muted)'; } };
 
         try {
@@ -16078,7 +16115,6 @@
             showToast(`Uploaded ${file.name} successfully`, 'success');
 
             // Refresh asset thumbnails
-            const assetsContainer = document.getElementById('misDetailAssets');
             if (assetsContainer) {
                 misLoadProjectThumbnails(projectNodeId, connectionId, assetsContainer);
             }
@@ -16086,10 +16122,8 @@
             console.error('[MIS Upload] Error:', e);
             setStatus(`Upload failed: ${e.message}`, true);
             showToast(`Upload failed: ${e.message}`, 'error');
-        } finally {
-            inputEl.value = ''; // Reset file input
         }
-    };
+    }
 
     // ─── MIS: Job Detail Modal ──────────────────────────────────
 

@@ -288,7 +288,7 @@ async function uploadAssetsToS2(
     }
 
     try {
-      // Step 1: Create asset reference in the project
+      // Step 1: Create asset placeholder — returns { id, contentUri, contentId, version }
       const createResp = await fetch(`${apiUrl}/mis/projects/${projectNodeId}/assets`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
@@ -302,13 +302,16 @@ async function uploadAssetsToS2(
       }
       const assetResult = await createResp.json() as any;
       const assetId = assetResult?.id;
+      const contentUri = assetResult?.contentUri;
+      const contentId = assetResult?.contentId;
+      const contentVersion = assetResult?.version;
       if (!assetId) {
         console.warn(`[email-to-mis] No asset ID returned for ${upload.filename}`);
         failed.push(upload.filename);
         continue;
       }
 
-      // Step 2: Upload file content to the asset
+      // Resolve file content to binary
       let content: ArrayBuffer | Uint8Array;
       if (att.content instanceof ArrayBuffer) {
         content = att.content;
@@ -318,17 +321,54 @@ async function uploadAssetsToS2(
         content = new TextEncoder().encode(att.content as string);
       }
 
-      const uploadResp = await fetch(`${apiUrl}/mis/assets/${assetId}/content`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': att.mimeType || 'application/octet-stream' },
-        body: content,
-      });
-      if (uploadResp.ok) {
-        console.log(`[email-to-mis] Uploaded ${upload.filename} to S2 asset ${assetId}`);
+      // Step 2: Upload binary content
+      let uploadOk = false;
+      if (contentUri && contentId) {
+        // 3-step flow: PUT directly to pre-signed URL (no auth needed)
+        const uploadResp = await fetch(contentUri, {
+          method: 'PUT',
+          headers: { 'Content-Type': att.mimeType || 'application/octet-stream' },
+          body: content,
+        });
+        if (uploadResp.ok) {
+          console.log(`[email-to-mis] Uploaded ${upload.filename} to pre-signed URL`);
+
+          // Step 3: Finalize upload
+          const qs = `contentId=${encodeURIComponent(contentId)}&version=${encodeURIComponent(contentVersion)}&status=completed`;
+          const finalizeResp = await fetch(`${apiUrl}/mis/assets/${assetId}/contentUploadStatus?${qs}`, {
+            method: 'POST',
+            headers,
+          });
+          if (finalizeResp.ok) {
+            console.log(`[email-to-mis] Finalized upload for ${upload.filename}`);
+            uploadOk = true;
+          } else {
+            const err = await finalizeResp.text().catch(() => '');
+            console.warn(`[email-to-mis] Failed to finalize upload for ${upload.filename}: ${finalizeResp.status} ${err.slice(0, 200)}`);
+          }
+        } else {
+          const err = await uploadResp.text().catch(() => '');
+          console.warn(`[email-to-mis] Failed to upload to pre-signed URL for ${upload.filename}: ${uploadResp.status} ${err.slice(0, 200)}`);
+        }
+      } else {
+        // Fallback: legacy single-step upload via proxy (for older S2 versions without contentUri)
+        const uploadResp = await fetch(`${apiUrl}/mis/assets/${assetId}/content`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': att.mimeType || 'application/octet-stream' },
+          body: content,
+        });
+        if (uploadResp.ok) {
+          console.log(`[email-to-mis] Uploaded ${upload.filename} via legacy flow`);
+          uploadOk = true;
+        } else {
+          const err = await uploadResp.text().catch(() => '');
+          console.warn(`[email-to-mis] Failed to upload content for ${upload.filename}: ${uploadResp.status} ${err.slice(0, 200)}`);
+        }
+      }
+
+      if (uploadOk) {
         uploaded.push(upload.filename);
       } else {
-        const err = await uploadResp.text().catch(() => '');
-        console.warn(`[email-to-mis] Failed to upload content for ${upload.filename}: ${uploadResp.status} ${err.slice(0, 200)}`);
         failed.push(upload.filename);
       }
     } catch (err: any) {
