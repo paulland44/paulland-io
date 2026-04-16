@@ -3182,7 +3182,7 @@
         .asset-list { display: flex; flex-direction: column; gap: 0; }
         .asset-list-row {
             display: grid;
-            grid-template-columns: 48px 1fr 120px 100px 80px 36px;
+            grid-template-columns: 36px 48px 1fr 120px 100px 80px 36px;
             align-items: center;
             gap: 0.75rem;
             padding: 0.6rem 0.75rem;
@@ -3244,8 +3244,177 @@
         @media (max-width: 768px) {
             .asset-detail { flex-direction: column; }
             .asset-detail-sidebar { width: 100%; }
-            .asset-list-row { grid-template-columns: 48px 1fr 80px 36px; }
+            .asset-list-row { grid-template-columns: 36px 48px 1fr 80px 36px; }
             .asset-list-type, .asset-list-date { display: none; }
+        }
+
+        /* ─── Asset Multi-Select & Bulk Actions ─── */
+        .asset-select-check {
+            width: 16px; height: 16px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .asset-card.selected {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent), var(--shadow-sm);
+        }
+        .asset-list-row.selected {
+            background: var(--accent-dim);
+        }
+        .asset-card .asset-check-overlay {
+            position: absolute;
+            top: 0.5rem;
+            left: 0.5rem;
+            z-index: 2;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .asset-card:hover .asset-check-overlay,
+        .asset-card.selected .asset-check-overlay,
+        .asset-select-mode .asset-card .asset-check-overlay {
+            opacity: 1;
+        }
+        .asset-card-preview {
+            position: relative;
+        }
+
+        .asset-bulk-bar {
+            position: fixed;
+            bottom: 1.5rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--void-light);
+            border: 1px solid var(--accent);
+            border-radius: var(--radius-pill);
+            padding: 0.5rem 1rem;
+            display: none;
+            align-items: center;
+            gap: 0.75rem;
+            z-index: 100;
+            box-shadow: var(--shadow-lg);
+            backdrop-filter: blur(12px);
+            font-size: 0.85rem;
+        }
+        .asset-bulk-bar.active { display: flex; }
+        .asset-bulk-bar .bulk-count {
+            color: var(--accent);
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        .asset-bulk-bar .bulk-divider {
+            width: 1px;
+            height: 1.2rem;
+            background: var(--border-hover);
+        }
+        .asset-bulk-bar button {
+            background: none;
+            border: 1px solid var(--border-hover);
+            color: var(--text-body);
+            padding: 0.3rem 0.7rem;
+            border-radius: var(--radius-sm);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+        }
+        .asset-bulk-bar button:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .asset-bulk-bar button.bulk-delete-btn {
+            color: var(--red);
+            border-color: var(--red);
+        }
+        .asset-bulk-bar button.bulk-delete-btn:hover {
+            background: var(--red);
+            color: #fff;
+        }
+        .asset-bulk-bar button.bulk-deselect-btn {
+            border: none;
+            color: var(--text-muted);
+            padding: 0.3rem;
+        }
+        .asset-bulk-bar button.bulk-deselect-btn:hover {
+            color: var(--text-body);
+        }
+
+        .asset-search-bar {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+        .asset-search-bar input {
+            flex: 1;
+            background: var(--void-lighter);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 0.5rem 0.75rem;
+            color: var(--text-body);
+            font-size: 0.85rem;
+            font-family: var(--sans);
+            transition: border-color 0.2s;
+        }
+        .asset-search-bar input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .asset-search-bar .search-count {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            white-space: nowrap;
+            align-self: center;
+        }
+
+        /* Bulk edit modal */
+        .bulk-edit-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .bulk-edit-modal {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 1.5rem;
+            width: 480px;
+            max-width: 90vw;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .bulk-edit-modal h3 {
+            margin: 0 0 1rem;
+            font-size: 1rem;
+            color: var(--text-heading);
+        }
+        .bulk-edit-modal .field-group {
+            margin-bottom: 1rem;
+        }
+        .bulk-edit-modal .field-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-bottom: 0.35rem;
+        }
+        .bulk-edit-modal .field-row {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        .bulk-edit-modal .btn-row {
+            display: flex;
+            gap: 0.5rem;
+            justify-content: flex-end;
+            margin-top: 1.5rem;
         }
 
         /* ─── Settings buttons ─── */
@@ -11965,8 +12134,12 @@
     // ─── Assets ───────────────────────────────────────────────
 
     let assetsData = [];
+    let assetsFiltered = []; // search-filtered subset
     let assetFilter = { tag: null, type: null };
     let assetViewMode = localStorage.getItem('assetViewMode') || 'grid';
+    let assetSelectedIds = new Set();
+    let assetLastClickedId = null; // for shift-click range select
+    let assetSearchQuery = '';
 
     async function loadAssets() {
         const main = document.getElementById('mainContent');
@@ -11987,10 +12160,18 @@
         const { data, error } = await query;
         assetsData = data || [];
 
+        // Apply search filter
+        applyAssetSearch();
+
         // Collect asset-specific tags for filter dropdown
         const assetTagSet = new Set();
         (data || []).forEach(a => (a.tags || []).forEach(t => assetTagSet.add(t)));
         const assetTags = [...assetTagSet].sort();
+
+        // Prune selection: remove any IDs not in current dataset
+        for (const id of assetSelectedIds) {
+            if (!assetsData.find(a => a.id === id)) assetSelectedIds.delete(id);
+        }
 
         main.innerHTML = `
             <div class="page-header">
@@ -12013,7 +12194,12 @@
                 ${buildEntityTagEditor([], 'upload')}
             </div>
 
-            <div class="filters" style="margin-bottom: 1rem;">
+            <div class="asset-search-bar">
+                <input type="text" id="assetSearchInput" placeholder="Search assets by filename, description, or tag..." value="${esc(assetSearchQuery)}">
+                <span class="search-count" id="assetSearchCount">${assetSearchQuery ? `${assetsFiltered.length} of ${assetsData.length}` : ''}</span>
+            </div>
+
+            <div class="filters" style="margin-bottom: 1rem; display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;">
                 <button class="filter-btn ${!assetFilter.type ? 'active' : ''}" data-asset-type="">All</button>
                 <button class="filter-btn ${assetFilter.type === 'image' ? 'active' : ''}" data-asset-type="image">Images</button>
                 <button class="filter-btn ${assetFilter.type === 'pdf' ? 'active' : ''}" data-asset-type="pdf">PDFs</button>
@@ -12024,10 +12210,25 @@
                         ${assetTags.map(t => `<option value="${esc(t)}" ${assetFilter.tag === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}
                     </select>
                 ` : ''}
+                <div style="margin-left: auto; display: flex; align-items: center; gap: 0.5rem;">
+                    <label style="font-size: 0.8rem; color: var(--text-muted); display: flex; align-items: center; gap: 0.3rem; cursor: pointer;">
+                        <input type="checkbox" id="assetSelectAll" class="asset-select-check"> Select all
+                    </label>
+                </div>
             </div>
 
             <div id="assetContainer">
                 ${assetViewMode === 'grid' ? renderAssetGrid() : renderAssetList()}
+            </div>
+
+            <div class="asset-bulk-bar" id="assetBulkBar">
+                <span class="bulk-count"><span id="assetBulkCount">0</span> selected</span>
+                <span class="bulk-divider"></span>
+                <button id="assetBulkTagBtn"><i class="icon icon-sm" data-lucide="tags"></i> Tags</button>
+                <button id="assetBulkCompanyBtn"><i class="icon icon-sm" data-lucide="building-2"></i> Company</button>
+                <button id="assetBulkProductBtn"><i class="icon icon-sm" data-lucide="link"></i> Link to Product</button>
+                <button id="assetBulkDeleteBtn" class="bulk-delete-btn"><i class="icon icon-sm" data-lucide="trash-2"></i> Delete</button>
+                <button id="assetBulkDeselectBtn" class="bulk-deselect-btn" title="Deselect all"><i class="icon icon-sm" data-lucide="x"></i></button>
             </div>
         `;
 
@@ -12037,41 +12238,69 @@
         if (assetViewMode === 'grid') renderPdfThumbnails();
     }
 
-    function renderAssetGrid() {
-        if (assetsData.length === 0) {
-            return '<div style="text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>';
+    function applyAssetSearch() {
+        if (!assetSearchQuery) {
+            assetsFiltered = assetsData;
+            return;
         }
-        return `<div class="asset-grid">${assetsData.map(a => renderAssetCard(a)).join('')}</div>`;
+        const q = assetSearchQuery.toLowerCase();
+        assetsFiltered = assetsData.filter(a =>
+            (a.filename || '').toLowerCase().includes(q) ||
+            (a.description || '').toLowerCase().includes(q) ||
+            (a.tags || []).some(t => t.toLowerCase().includes(q))
+        );
+    }
+
+    function rerenderAssetContainer() {
+        const container = document.getElementById('assetContainer');
+        if (!container) return;
+        container.innerHTML = assetViewMode === 'grid' ? renderAssetGrid() : renderAssetList();
+        wireAssetSelectionEvents();
+        wireAssetCopyLinks();
+        if (assetViewMode === 'grid') renderPdfThumbnails();
+        refreshIcons();
+        updateAssetBulkBar();
+    }
+
+    function renderAssetGrid() {
+        if (assetsFiltered.length === 0) {
+            return `<div style="text-align: center; color: var(--text-muted); padding: 3rem;">${assetSearchQuery ? 'No assets match your search.' : 'No assets yet. Upload your first file above.'}</div>`;
+        }
+        return `<div class="asset-grid ${assetSelectedIds.size > 0 ? 'asset-select-mode' : ''}">${assetsFiltered.map(a => renderAssetCard(a)).join('')}</div>`;
     }
 
     function renderAssetList() {
-        if (assetsData.length === 0) {
-            return '<div style="text-align: center; color: var(--text-muted); padding: 3rem;">No assets yet. Upload your first file above.</div>';
+        if (assetsFiltered.length === 0) {
+            return `<div style="text-align: center; color: var(--text-muted); padding: 3rem;">${assetSearchQuery ? 'No assets match your search.' : 'No assets yet. Upload your first file above.'}</div>`;
         }
         return `<div class="asset-list">
             <div class="asset-list-row" style="border-bottom: 1px solid var(--border-hover); cursor: default; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted);">
-                <div></div><div>Name</div><div>Type</div><div style="text-align: right;">Size</div><div>Date</div><div></div>
+                <div></div><div></div><div>Name</div><div>Type</div><div style="text-align: right;">Size</div><div>Date</div><div></div>
             </div>
-            ${assetsData.map(a => renderAssetListRow(a)).join('')}
+            ${assetsFiltered.map(a => renderAssetListRow(a)).join('')}
         </div>`;
     }
 
     function renderAssetCard(asset) {
         const isImage = (asset.mime_type || '').startsWith('image/');
         const isPdf = asset.mime_type === 'application/pdf';
-        const icon = getFileIcon(asset.mime_type);
+        const iconHtml = getFileIcon(asset.mime_type);
         const size = formatFileSize(asset.file_size);
         const date = formatDate(asset.uploaded_at);
         const fileUrl = `/api/assets/file/${asset.r2_key}`;
+        const isSelected = assetSelectedIds.has(asset.id);
 
         return `
-            <div class="asset-card" data-asset-id="${asset.id}">
+            <div class="asset-card ${isSelected ? 'selected' : ''}" data-asset-id="${asset.id}">
                 <div class="asset-card-preview">
+                    <div class="asset-check-overlay">
+                        <input type="checkbox" class="asset-select-check asset-item-check" data-asset-id="${asset.id}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation()">
+                    </div>
                     ${isImage
                         ? `<img src="${esc(fileUrl)}" alt="${esc(asset.filename)}" loading="lazy">`
                         : isPdf
                             ? `<canvas class="pdf-thumb" data-pdf-url="${esc(fileUrl)}" width="200" height="140"></canvas>`
-                            : `<span class="asset-icon">${icon}</span>`
+                            : `<span class="asset-icon">${iconHtml}</span>`
                     }
                 </div>
                 <div class="asset-card-info">
@@ -12093,18 +12322,22 @@
     function renderAssetListRow(asset) {
         const isImage = (asset.mime_type || '').startsWith('image/');
         const isPdf = asset.mime_type === 'application/pdf';
-        const icon = getFileIcon(asset.mime_type);
+        const iconHtml = getFileIcon(asset.mime_type);
         const size = formatFileSize(asset.file_size);
         const date = formatDate(asset.uploaded_at);
         const fileUrl = `/api/assets/file/${asset.r2_key}`;
         const ext = (asset.filename.split('.').pop() || '').toUpperCase();
+        const isSelected = assetSelectedIds.has(asset.id);
 
         return `
-            <div class="asset-list-row" data-asset-id="${asset.id}">
+            <div class="asset-list-row ${isSelected ? 'selected' : ''}" data-asset-id="${asset.id}">
+                <div style="display: flex; align-items: center; justify-content: center;">
+                    <input type="checkbox" class="asset-select-check asset-item-check" data-asset-id="${asset.id}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation()">
+                </div>
                 <div class="asset-list-thumb">
                     ${isImage
                         ? `<img src="${esc(fileUrl)}" alt="" loading="lazy">`
-                        : `<span>${icon}</span>`
+                        : `<span>${iconHtml}</span>`
                     }
                 </div>
                 <div class="asset-list-name" title="${esc(asset.filename)}">${esc(asset.filename)}</div>
@@ -12229,6 +12462,22 @@
             if (e.dataTransfer.files.length) uploadAssetFiles(e.dataTransfer.files);
         });
 
+        // Search
+        let searchTimer;
+        const searchInput = document.getElementById('assetSearchInput');
+        if (searchInput) {
+            searchInput.addEventListener('input', () => {
+                clearTimeout(searchTimer);
+                searchTimer = setTimeout(() => {
+                    assetSearchQuery = searchInput.value.trim();
+                    applyAssetSearch();
+                    rerenderAssetContainer();
+                    const countEl = document.getElementById('assetSearchCount');
+                    if (countEl) countEl.textContent = assetSearchQuery ? `${assetsFiltered.length} of ${assetsData.length}` : '';
+                }, 200);
+            });
+        }
+
         // Type filters
         document.querySelectorAll('[data-asset-type]').forEach(btn => {
             btn.addEventListener('click', () => {
@@ -12255,7 +12504,41 @@
             });
         });
 
-        // Copy link buttons
+        // Select all
+        const selectAllCb = document.getElementById('assetSelectAll');
+        if (selectAllCb) {
+            selectAllCb.checked = assetsFiltered.length > 0 && assetsFiltered.every(a => assetSelectedIds.has(a.id));
+            selectAllCb.addEventListener('change', () => {
+                if (selectAllCb.checked) {
+                    assetsFiltered.forEach(a => assetSelectedIds.add(a.id));
+                } else {
+                    assetsFiltered.forEach(a => assetSelectedIds.delete(a.id));
+                }
+                rerenderAssetContainer();
+            });
+        }
+
+        // Wire selection & copy on initial cards/rows
+        wireAssetSelectionEvents();
+        wireAssetCopyLinks();
+
+        // Bulk action buttons
+        document.getElementById('assetBulkTagBtn')?.addEventListener('click', () => openBulkTagModal());
+        document.getElementById('assetBulkCompanyBtn')?.addEventListener('click', () => openBulkCompanyModal());
+        document.getElementById('assetBulkProductBtn')?.addEventListener('click', () => openBulkProductModal());
+        document.getElementById('assetBulkDeleteBtn')?.addEventListener('click', () => bulkDeleteAssets());
+        document.getElementById('assetBulkDeselectBtn')?.addEventListener('click', () => {
+            assetSelectedIds.clear();
+            assetLastClickedId = null;
+            rerenderAssetContainer();
+            const selectAllCb = document.getElementById('assetSelectAll');
+            if (selectAllCb) selectAllCb.checked = false;
+        });
+
+        updateAssetBulkBar();
+    }
+
+    function wireAssetCopyLinks() {
         document.querySelectorAll('.asset-copy-btn').forEach(btn => {
             btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
@@ -12265,7 +12548,6 @@
                     btn.textContent = '✓';
                     setTimeout(() => { btn.innerHTML = '<i class="icon icon-sm" data-lucide="link"></i>'; refreshIcons(); }, 1500);
                 } catch {
-                    // Fallback
                     const tmp = document.createElement('input');
                     tmp.value = url;
                     document.body.appendChild(tmp);
@@ -12277,14 +12559,65 @@
                 }
             });
         });
+    }
 
-        // Card/row clicks → detail view
+    function wireAssetSelectionEvents() {
+        // Checkbox clicks
+        document.querySelectorAll('.asset-item-check').forEach(cb => {
+            cb.addEventListener('change', (e) => {
+                const id = cb.dataset.assetId;
+
+                // Shift-click range select
+                if (e.shiftKey && assetLastClickedId && assetLastClickedId !== id) {
+                    const ids = assetsFiltered.map(a => a.id);
+                    const startIdx = ids.indexOf(assetLastClickedId);
+                    const endIdx = ids.indexOf(id);
+                    if (startIdx !== -1 && endIdx !== -1) {
+                        const lo = Math.min(startIdx, endIdx);
+                        const hi = Math.max(startIdx, endIdx);
+                        for (let i = lo; i <= hi; i++) {
+                            assetSelectedIds.add(ids[i]);
+                        }
+                        rerenderAssetContainer();
+                        assetLastClickedId = id;
+                        return;
+                    }
+                }
+
+                if (cb.checked) assetSelectedIds.add(id);
+                else assetSelectedIds.delete(id);
+                assetLastClickedId = id;
+
+                // Update visual state without full rerender
+                const card = cb.closest('.asset-card, .asset-list-row');
+                if (card) card.classList.toggle('selected', cb.checked);
+                updateAssetBulkBar();
+                syncSelectAllCheckbox();
+            });
+        });
+
+        // Card/row clicks → detail view (but not when clicking checkbox)
         document.querySelectorAll('.asset-card, .asset-list-row[data-asset-id]').forEach(card => {
-            card.addEventListener('click', () => {
+            card.addEventListener('click', (e) => {
+                if (e.target.closest('.asset-item-check') || e.target.closest('.asset-copy-btn')) return;
                 const asset = assetsData.find(a => a.id === card.dataset.assetId);
                 if (asset) openAssetDetail(asset);
             });
         });
+    }
+
+    function updateAssetBulkBar() {
+        const bar = document.getElementById('assetBulkBar');
+        const countEl = document.getElementById('assetBulkCount');
+        if (!bar) return;
+        const count = assetSelectedIds.size;
+        if (countEl) countEl.textContent = count;
+        bar.classList.toggle('active', count > 0);
+    }
+
+    function syncSelectAllCheckbox() {
+        const cb = document.getElementById('assetSelectAll');
+        if (cb) cb.checked = assetsFiltered.length > 0 && assetsFiltered.every(a => assetSelectedIds.has(a.id));
     }
 
     async function uploadAssetFiles(files) {
@@ -12479,6 +12812,277 @@
                 alert('Failed to delete asset');
             }
         });
+    }
+
+    // ─── Bulk Asset Operations ────────────────────────────────
+
+    function openBulkTagModal() {
+        const count = assetSelectedIds.size;
+        if (!count) return;
+
+        // Gather all tags currently on selected assets
+        const selectedAssets = assetsData.filter(a => assetSelectedIds.has(a.id));
+        const currentTagSet = new Set();
+        selectedAssets.forEach(a => (a.tags || []).forEach(t => currentTagSet.add(t)));
+        const currentTags = [...currentTagSet].sort();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'bulk-edit-modal-overlay';
+        overlay.innerHTML = `
+            <div class="bulk-edit-modal">
+                <h3>Bulk Edit Tags — ${count} asset${count > 1 ? 's' : ''}</h3>
+                <div class="field-group">
+                    <div class="field-label">Action</div>
+                    <select id="bulkTagAction" class="modal-edit-input" style="font-size: 0.85rem;">
+                        <option value="add">Add tags</option>
+                        <option value="remove">Remove tags</option>
+                        <option value="replace">Replace all tags</option>
+                    </select>
+                </div>
+                <div class="field-group" id="bulkTagCurrentGroup">
+                    <div class="field-label">Tags on selected assets</div>
+                    <div style="display:flex; flex-wrap:wrap; gap:0.25rem;">
+                        ${currentTags.length ? currentTags.map(t => `<span class="tag">${esc(t)}</span>`).join('') : '<span style="color:var(--text-muted); font-size:0.8rem;">No tags</span>'}
+                    </div>
+                </div>
+                <div class="field-group">
+                    <div class="field-label">Tags</div>
+                    <div id="bulkTagEditorWrap">${buildTagEditor([], 'bulk')}</div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-action btn-secondary" id="bulkTagCancel">Cancel</button>
+                    <button class="btn-action" id="bulkTagApply">Apply</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('bulkTagCancel').addEventListener('click', () => overlay.remove());
+
+        // Wire tag editor
+        wireTagEditor('bulk');
+
+        document.getElementById('bulkTagApply').addEventListener('click', async () => {
+            const action = document.getElementById('bulkTagAction').value;
+            const editor = document.querySelector('#bulkTagEditorWrap .tag-editor');
+            const newTags = [...editor.querySelectorAll('.tag-remove')].map(el => el.dataset.tag).filter(Boolean);
+
+            if (!newTags.length && action !== 'replace') {
+                alert('Please add at least one tag.');
+                return;
+            }
+
+            const applyBtn = document.getElementById('bulkTagApply');
+            applyBtn.textContent = 'Applying...';
+            applyBtn.disabled = true;
+
+            const ids = [...assetSelectedIds];
+            let errors = 0;
+
+            for (const id of ids) {
+                const asset = assetsData.find(a => a.id === id);
+                if (!asset) continue;
+
+                let updatedTags;
+                if (action === 'add') {
+                    updatedTags = [...new Set([...(asset.tags || []), ...newTags])];
+                } else if (action === 'remove') {
+                    updatedTags = (asset.tags || []).filter(t => !newTags.includes(t));
+                } else { // replace
+                    updatedTags = [...newTags];
+                }
+
+                try {
+                    const res = await fetch('/api/entity-update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'assets', id, updates: { tags: updatedTags } }),
+                    });
+                    if (res.ok) asset.tags = updatedTags;
+                    else errors++;
+                } catch { errors++; }
+            }
+
+            overlay.remove();
+            if (errors) alert(`${errors} asset${errors > 1 ? 's' : ''} failed to update.`);
+            loadAssets();
+        });
+    }
+
+    function openBulkCompanyModal() {
+        const count = assetSelectedIds.size;
+        if (!count) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'bulk-edit-modal-overlay';
+        overlay.innerHTML = `
+            <div class="bulk-edit-modal">
+                <h3>Set Company — ${count} asset${count > 1 ? 's' : ''}</h3>
+                <div class="field-group">
+                    <div class="field-label">Company</div>
+                    <select id="bulkCompanySelect" class="modal-edit-input" style="font-size: 0.85rem;">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-action btn-secondary" id="bulkCompanyCancel">Cancel</button>
+                    <button class="btn-action" id="bulkCompanyApply">Apply</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('bulkCompanyCancel').addEventListener('click', () => overlay.remove());
+
+        // Load companies
+        db.from('companies').select('id, name, type').order('name').then(({ data }) => {
+            const sel = document.getElementById('bulkCompanySelect');
+            sel.innerHTML = `<option value="">— None (clear) —</option>` +
+                (data || []).map(c => `<option value="${c.id}">${esc(c.name)} (${c.type})</option>`).join('');
+        });
+
+        document.getElementById('bulkCompanyApply').addEventListener('click', async () => {
+            const companyId = document.getElementById('bulkCompanySelect').value || null;
+            const applyBtn = document.getElementById('bulkCompanyApply');
+            applyBtn.textContent = 'Applying...';
+            applyBtn.disabled = true;
+
+            const ids = [...assetSelectedIds];
+            let errors = 0;
+
+            for (const id of ids) {
+                const asset = assetsData.find(a => a.id === id);
+                if (!asset) continue;
+                const newMeta = { ...(asset.metadata || {}), company_id: companyId };
+                try {
+                    const res = await fetch('/api/entity-update', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ table: 'assets', id, updates: { metadata: newMeta } }),
+                    });
+                    if (res.ok) asset.metadata = newMeta;
+                    else errors++;
+                } catch { errors++; }
+            }
+
+            overlay.remove();
+            if (errors) alert(`${errors} asset${errors > 1 ? 's' : ''} failed to update.`);
+            loadAssets();
+        });
+    }
+
+    function openBulkProductModal() {
+        const count = assetSelectedIds.size;
+        if (!count) return;
+
+        const overlay = document.createElement('div');
+        overlay.className = 'bulk-edit-modal-overlay';
+        overlay.innerHTML = `
+            <div class="bulk-edit-modal">
+                <h3>Link to Product — ${count} asset${count > 1 ? 's' : ''}</h3>
+                <div class="field-group">
+                    <div class="field-label">Action</div>
+                    <select id="bulkProductAction" class="modal-edit-input" style="font-size: 0.85rem;">
+                        <option value="link">Link all selected to product</option>
+                        <option value="unlink">Unlink all selected from product</option>
+                    </select>
+                </div>
+                <div class="field-group">
+                    <div class="field-label">Product</div>
+                    <select id="bulkProductSelect" class="modal-edit-input" style="font-size: 0.85rem;">
+                        <option value="">Loading...</option>
+                    </select>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-action btn-secondary" id="bulkProductCancel">Cancel</button>
+                    <button class="btn-action" id="bulkProductApply">Apply</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        document.getElementById('bulkProductCancel').addEventListener('click', () => overlay.remove());
+
+        // Load products
+        db.from('products').select('id, name').order('name').then(({ data }) => {
+            const sel = document.getElementById('bulkProductSelect');
+            sel.innerHTML = (data || []).length
+                ? (data || []).map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')
+                : '<option value="">No products found</option>';
+        });
+
+        document.getElementById('bulkProductApply').addEventListener('click', async () => {
+            const productId = document.getElementById('bulkProductSelect').value;
+            const action = document.getElementById('bulkProductAction').value;
+            if (!productId) { alert('Please select a product.'); return; }
+
+            const applyBtn = document.getElementById('bulkProductApply');
+            applyBtn.textContent = 'Applying...';
+            applyBtn.disabled = true;
+
+            const ids = [...assetSelectedIds];
+            let errors = 0;
+
+            if (action === 'link') {
+                for (const assetId of ids) {
+                    try {
+                        const res = await fetch('/api/entity-log', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ table: 'product_assets', data: { product_id: productId, asset_id: assetId } }),
+                        });
+                        if (!res.ok) errors++;
+                    } catch { errors++; }
+                }
+            } else {
+                // Unlink: find junction records then delete them
+                const { data: junctions } = await db.from('product_assets')
+                    .select('id, asset_id')
+                    .eq('product_id', productId)
+                    .in('asset_id', ids);
+                for (const j of (junctions || [])) {
+                    try {
+                        const res = await fetch(`/api/product-link?table=product_assets&id=${j.id}`, { method: 'DELETE' });
+                        if (!res.ok) errors++;
+                    } catch { errors++; }
+                }
+            }
+
+            overlay.remove();
+            if (errors) alert(`${errors} operation${errors > 1 ? 's' : ''} failed.`);
+            else alert(`${action === 'link' ? 'Linked' : 'Unlinked'} ${ids.length} asset${ids.length > 1 ? 's' : ''} ${action === 'link' ? 'to' : 'from'} product.`);
+        });
+    }
+
+    async function bulkDeleteAssets() {
+        const count = assetSelectedIds.size;
+        if (!count) return;
+        if (!confirm(`Delete ${count} asset${count > 1 ? 's' : ''}? This will also remove product links. This cannot be undone.`)) return;
+
+        const ids = [...assetSelectedIds];
+        let deleted = 0;
+        let errors = 0;
+
+        for (const id of ids) {
+            try {
+                // Delete product_assets junction records first
+                const { data: junctions } = await db.from('product_assets').select('id').eq('asset_id', id);
+                for (const j of (junctions || [])) {
+                    await fetch(`/api/product-link?table=product_assets&id=${j.id}`, { method: 'DELETE' }).catch(() => {});
+                }
+                // Delete the asset
+                const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
+                if (res.ok) deleted++;
+                else errors++;
+            } catch { errors++; }
+        }
+
+        assetSelectedIds.clear();
+        assetLastClickedId = null;
+        loadAssets();
+        loadCounts();
+
+        if (errors) alert(`Deleted ${deleted}, ${errors} failed.`);
     }
 
     // ─── MCP Overview Dashboard ─────────────────────────────────

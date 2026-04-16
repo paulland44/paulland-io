@@ -101,6 +101,8 @@ export async function onRequest(ctx) {
         return handleDailyReview(request, env, ctx);
       case 'entity-update':
         return handleEntityUpdate(request, env, ctx);
+      case 'assets/batch-update':
+        return handleAssetBatchUpdate(request, env);
       case 'entity-log':
         return handleEntityLog(request, env, ctx);
       case 'generate-summary':
@@ -1194,6 +1196,188 @@ async function handleEntityUpdate(request, env, ctx) {
   }
 
   return json({ ok: true });
+}
+
+async function handleAssetBatchUpdate(request, env) {
+  const body = await request.json();
+  const { asset_ids, operation } = body;
+
+  if (!Array.isArray(asset_ids) || asset_ids.length === 0) {
+    return json({ error: 'asset_ids must be a non-empty array' }, 400);
+  }
+  if (asset_ids.length > 200) {
+    return json({ error: 'Maximum 200 assets per batch' }, 400);
+  }
+  if (!operation || typeof operation !== 'object' || !operation.type) {
+    return json({ error: 'operation object with type is required' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const headers = {
+    'apikey': serviceKey,
+    'Authorization': `Bearer ${serviceKey}`,
+    'Content-Type': 'application/json',
+  };
+
+  const results = { succeeded: 0, failed: 0, errors: [] };
+
+  // Fetch current assets for tag operations that need current state
+  let currentAssets = [];
+  if (['add_tags', 'remove_tags'].includes(operation.type)) {
+    const idFilter = asset_ids.map(id => `id.eq.${id}`).join(',');
+    const fetchRes = await fetch(
+      `${supabaseUrl}/rest/v1/assets?or=(${idFilter})&select=id,tags`,
+      { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+    );
+    if (fetchRes.ok) currentAssets = await fetchRes.json();
+  }
+
+  switch (operation.type) {
+    case 'add_tags': {
+      const tagsToAdd = operation.tags;
+      if (!Array.isArray(tagsToAdd) || tagsToAdd.length === 0) {
+        return json({ error: 'operation.tags must be a non-empty array' }, 400);
+      }
+      for (const id of asset_ids) {
+        const asset = currentAssets.find(a => a.id === id);
+        const currentTags = asset?.tags || [];
+        const newTags = [...new Set([...currentTags, ...tagsToAdd])];
+        const res = await fetch(`${supabaseUrl}/rest/v1/assets?id=eq.${id}`, {
+          method: 'PATCH', headers: { ...headers, 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ tags: newTags }),
+        });
+        if (res.ok) results.succeeded++; else { results.failed++; results.errors.push(id); }
+      }
+      break;
+    }
+    case 'remove_tags': {
+      const tagsToRemove = operation.tags;
+      if (!Array.isArray(tagsToRemove) || tagsToRemove.length === 0) {
+        return json({ error: 'operation.tags must be a non-empty array' }, 400);
+      }
+      for (const id of asset_ids) {
+        const asset = currentAssets.find(a => a.id === id);
+        const currentTags = asset?.tags || [];
+        const newTags = currentTags.filter(t => !tagsToRemove.includes(t));
+        const res = await fetch(`${supabaseUrl}/rest/v1/assets?id=eq.${id}`, {
+          method: 'PATCH', headers: { ...headers, 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ tags: newTags }),
+        });
+        if (res.ok) results.succeeded++; else { results.failed++; results.errors.push(id); }
+      }
+      break;
+    }
+    case 'replace_tags': {
+      const newTags = operation.tags || [];
+      const idFilter = asset_ids.map(id => `id.eq.${id}`).join(',');
+      const res = await fetch(`${supabaseUrl}/rest/v1/assets?or=(${idFilter})`, {
+        method: 'PATCH', headers: { ...headers, 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ tags: newTags }),
+      });
+      if (res.ok) { results.succeeded = asset_ids.length; }
+      else { results.failed = asset_ids.length; }
+      break;
+    }
+    case 'set_company': {
+      const companyId = operation.company_id ?? null;
+      // Fetch current metadata for each asset to preserve other fields
+      const idFilter = asset_ids.map(id => `id.eq.${id}`).join(',');
+      const fetchRes = await fetch(
+        `${supabaseUrl}/rest/v1/assets?or=(${idFilter})&select=id,metadata`,
+        { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+      );
+      const assets = fetchRes.ok ? await fetchRes.json() : [];
+      for (const id of asset_ids) {
+        const asset = assets.find(a => a.id === id);
+        const newMeta = { ...(asset?.metadata || {}), company_id: companyId };
+        const res = await fetch(`${supabaseUrl}/rest/v1/assets?id=eq.${id}`, {
+          method: 'PATCH', headers: { ...headers, 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ metadata: newMeta }),
+        });
+        if (res.ok) results.succeeded++; else { results.failed++; results.errors.push(id); }
+      }
+      break;
+    }
+    case 'set_description': {
+      const description = operation.description ?? '';
+      const idFilter = asset_ids.map(id => `id.eq.${id}`).join(',');
+      const res = await fetch(`${supabaseUrl}/rest/v1/assets?or=(${idFilter})`, {
+        method: 'PATCH', headers: { ...headers, 'Prefer': 'return=minimal' },
+        body: JSON.stringify({ description }),
+      });
+      if (res.ok) { results.succeeded = asset_ids.length; }
+      else { results.failed = asset_ids.length; }
+      break;
+    }
+    case 'link_product': {
+      const productId = operation.product_id;
+      if (!productId) return json({ error: 'operation.product_id is required' }, 400);
+      for (const assetId of asset_ids) {
+        const res = await fetch(`${supabaseUrl}/rest/v1/product_assets`, {
+          method: 'POST',
+          headers: { ...headers, 'Prefer': 'return=minimal' },
+          body: JSON.stringify({ product_id: productId, asset_id: assetId }),
+        });
+        if (res.ok) results.succeeded++; else { results.failed++; results.errors.push(assetId); }
+      }
+      break;
+    }
+    case 'unlink_product': {
+      const productId = operation.product_id;
+      if (!productId) return json({ error: 'operation.product_id is required' }, 400);
+      // Find matching junction records
+      const idFilter = asset_ids.map(id => `asset_id.eq.${id}`).join(',');
+      const jRes = await fetch(
+        `${supabaseUrl}/rest/v1/product_assets?product_id=eq.${productId}&or=(${idFilter})&select=id`,
+        { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+      );
+      const junctions = jRes.ok ? await jRes.json() : [];
+      for (const j of junctions) {
+        const res = await fetch(`${supabaseUrl}/rest/v1/product_assets?id=eq.${j.id}`, {
+          method: 'DELETE',
+          headers: { ...headers, 'Prefer': 'return=minimal' },
+        });
+        if (res.ok) results.succeeded++; else { results.failed++; }
+      }
+      break;
+    }
+    case 'delete': {
+      for (const id of asset_ids) {
+        // Get asset for r2_key
+        const aRes = await fetch(
+          `${supabaseUrl}/rest/v1/assets?id=eq.${id}&select=id,r2_key`,
+          { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+        );
+        const assets = aRes.ok ? await aRes.json() : [];
+        const asset = assets[0];
+        if (!asset) { results.failed++; results.errors.push(id); continue; }
+
+        // Delete product_assets junctions
+        await fetch(`${supabaseUrl}/rest/v1/product_assets?asset_id=eq.${id}`, {
+          method: 'DELETE', headers: { ...headers, 'Prefer': 'return=minimal' },
+        }).catch(() => {});
+
+        // Delete from R2
+        try { await env.ASSETS_BUCKET.delete(asset.r2_key); } catch {}
+
+        // Delete from Supabase
+        const delRes = await fetch(`${supabaseUrl}/rest/v1/assets?id=eq.${id}`, {
+          method: 'DELETE', headers: { ...headers, 'Prefer': 'return=minimal' },
+        });
+        if (delRes.ok) results.succeeded++; else { results.failed++; results.errors.push(id); }
+      }
+      break;
+    }
+    default:
+      return json({ error: `Unknown operation type: ${operation.type}. Valid types: add_tags, remove_tags, replace_tags, set_company, set_description, link_product, unlink_product, delete` }, 400);
+  }
+
+  return json({ ok: true, ...results });
 }
 
 async function handleEntityLog(request, env, ctx) {

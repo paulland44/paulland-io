@@ -2227,6 +2227,59 @@ server.tool(
   }
 );
 
+server.tool(
+  'batch_update_assets',
+  'Perform bulk operations on multiple assets at once. Supports: add_tags, remove_tags, replace_tags, set_company, set_description, link_product, unlink_product, delete.',
+  {
+    asset_ids: z.array(z.string()).min(1).max(200).describe('Array of asset UUIDs to update'),
+    operation: z.object({
+      type: z.enum(['add_tags', 'remove_tags', 'replace_tags', 'set_company', 'set_description', 'link_product', 'unlink_product', 'delete']).describe('Operation type'),
+      tags: z.array(z.string()).optional().describe('Tags for add_tags, remove_tags, or replace_tags operations'),
+      company_id: z.string().nullable().optional().describe('Company UUID for set_company (null to clear)'),
+      description: z.string().optional().describe('Description text for set_description'),
+      product_id: z.string().optional().describe('Product UUID for link_product or unlink_product'),
+    }).describe('Operation to perform'),
+  },
+  async ({ asset_ids, operation }) => {
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    // Add CF Access headers if available
+    const clientId = _misCfClientId || process.env.CF_ACCESS_CLIENT_ID;
+    const clientSecret = _misCfClientSecret || process.env.CF_ACCESS_CLIENT_SECRET;
+    if (clientId) headers['CF-Access-Client-Id'] = clientId;
+    if (clientSecret) headers['CF-Access-Client-Secret'] = clientSecret;
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/batch-update`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ asset_ids, operation }),
+      });
+
+      const result = await resp.json() as any;
+      if (!resp.ok) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: result.error || 'Batch update failed', status: resp.status }) }], isError: true };
+      }
+
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({
+          ok: true,
+          operation: operation.type,
+          total: asset_ids.length,
+          succeeded: result.succeeded,
+          failed: result.failed,
+          errors: result.errors,
+        }, null, 2) }],
+      };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Batch update error: ${err.message}` }) }], isError: true };
+    }
+  }
+);
+
 // ─── Support Review Tools (Extract / Write) ─────────────────
 
 server.tool(
