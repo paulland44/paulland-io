@@ -908,7 +908,7 @@ server.tool(
 
 server.tool(
   'daily_review_extract',
-  'Fetch a daily note with entity context for Claude to perform the daily review extraction in-context (no API call needed). Returns the note content, known entities, and the system prompt to use.',
+  'Fetch a daily note with entity context for Claude to perform the daily review extraction in-context (no API call needed). Returns the note content, known entities, the system prompt to use, and any image attachments as vision content blocks.',
   {
     date: z.string().describe('Date in YYYY-MM-DD format'),
   },
@@ -923,13 +923,14 @@ server.tool(
     }
     const dailyNote = noteRes[0];
 
-    // Fetch entity context + problems + prompt
-    const [people, products, projects, problemsRes, promptRes] = await Promise.all([
+    // Fetch entity context + problems + prompt + attached images
+    const [people, products, projects, problemsRes, promptRes, imageAssets] = await Promise.all([
       supabaseGet('people?select=id,name,role,organization&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet('projects?select=id,name,product_id&order=name'),
       supabaseGet('content?type=eq.problem&select=id,title,metadata&order=title&limit=100'),
       supabaseGet('prompts?slug=eq.daily-review&limit=1'),
+      supabaseGet(`assets?metadata->>daily_note_date=eq.${date}&select=id,filename,mime_type,file_size&order=uploaded_at.asc`),
     ]);
     const prompt = promptRes?.[0] || null;
 
@@ -940,6 +941,66 @@ server.tool(
       .filter((p: any) => p.metadata?.problem_id && !p.metadata?.is_index)
       .map((p: any) => `${p.metadata.problem_id}: ${p.title}`)
       .join(', ');
+
+    // Filter to supported image types, size-cap each, and cap total count
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+    const MAX_IMAGES = 20;
+    const SUPPORTED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    const skipped: Array<{ id: string; filename: string; reason: string }> = [];
+    const eligible: any[] = [];
+    for (const a of imageAssets || []) {
+      const mime = (a.mime_type || '').toLowerCase();
+      if (!SUPPORTED_IMAGE_MIMES.has(mime)) {
+        skipped.push({ id: a.id, filename: a.filename, reason: `unsupported mime_type: ${a.mime_type}` });
+        continue;
+      }
+      if (typeof a.file_size === 'number' && a.file_size > MAX_IMAGE_BYTES) {
+        skipped.push({ id: a.id, filename: a.filename, reason: `file_size ${a.file_size} exceeds 5MB cap` });
+        continue;
+      }
+      if (eligible.length >= MAX_IMAGES) {
+        skipped.push({ id: a.id, filename: a.filename, reason: `exceeds ${MAX_IMAGES}-image cap` });
+        continue;
+      }
+      eligible.push(a);
+    }
+
+    // Fetch image bytes via Pages API (returns { encoding: "base64", content: "..." })
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const imageHeaders: Record<string, string> = {};
+    if (internalApiKey) imageHeaders['X-Internal-API-Key'] = internalApiKey;
+
+    const imageBlocks: Array<{ type: 'image'; data: string; mimeType: string }> = [];
+    const includedImages: Array<{ id: string; filename: string; mime_type: string; index: number }> = [];
+    for (let i = 0; i < eligible.length; i++) {
+      const a = eligible[i];
+      try {
+        const resp = await fetch(`${apiUrl}/assets/${a.id}/content`, { headers: imageHeaders });
+        if (!resp.ok) {
+          skipped.push({ id: a.id, filename: a.filename, reason: `fetch failed: ${resp.status}` });
+          continue;
+        }
+        const data = (await resp.json()) as any;
+        if (data.encoding !== 'base64' || !data.content) {
+          skipped.push({ id: a.id, filename: a.filename, reason: 'missing base64 content' });
+          continue;
+        }
+        imageBlocks.push({
+          type: 'image' as const,
+          data: data.content,
+          mimeType: a.mime_type,
+        });
+        includedImages.push({
+          id: a.id,
+          filename: a.filename,
+          mime_type: a.mime_type,
+          index: includedImages.length,
+        });
+      } catch (err: any) {
+        skipped.push({ id: a.id, filename: a.filename, reason: `fetch error: ${err.message}` });
+      }
+    }
 
     // Interpolate template variables into system prompt
     let systemPrompt = prompt?.system_prompt || null;
@@ -979,6 +1040,20 @@ server.tool(
       userPrompt += '\n';
     }
 
+    if (includedImages.length > 0) {
+      userPrompt += `### Attached Images\n${includedImages.length} image(s) follow this prompt as separate content blocks. Read any visible text and use it as additional source material for extraction.\n\n`;
+      for (const img of includedImages) {
+        userPrompt += `- Image ${img.index + 1}: ${img.filename}\n`;
+      }
+      userPrompt += '\n';
+    }
+
+    const baseInstructions =
+      'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.';
+    const imageInstructions = includedImages.length
+      ? ` The ${includedImages.length} image block(s) that follow this text are photos/screenshots attached to the daily note. Read any visible text (handwriting, chat screenshots, whiteboards, diagrams, receipts) and treat it as first-class source material alongside the typed notes. When an image materially contributes to an entry, cite it as [image: filename] in the relevant field.`
+      : '';
+
     return {
       content: [
         {
@@ -994,13 +1069,15 @@ server.tool(
               user_prompt_template: prompt?.user_prompt_template || null,
               prompt_version: prompt?.version || null,
               user_prompt: userPrompt,
-              instructions:
-                'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.',
+              attached_images: includedImages,
+              skipped_images: skipped,
+              instructions: baseInstructions + imageInstructions,
             },
             null,
             2
           ),
         },
+        ...imageBlocks,
       ],
     };
   }

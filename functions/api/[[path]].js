@@ -1808,22 +1808,72 @@ async function handleDailyReview(request, env, ctx) {
   }
   const dailyNote = noteRes[0];
 
-  // 2. Fetch context: people, products, projects
-  const [peopleRes, productsRes, projectsRes] = await Promise.all([
+  // 2. Fetch context: people, products, projects, attached images
+  const [peopleRes, productsRes, projectsRes, imageAssetsRes] = await Promise.all([
     supabaseGet(supabaseUrl, serviceKey, 'people?select=id,name,role,organization&order=name'),
     supabaseGet(supabaseUrl, serviceKey, 'products?select=id,name&order=name'),
     supabaseGet(supabaseUrl, serviceKey, 'projects?select=id,name,product_id&order=name'),
+    supabaseGet(supabaseUrl, serviceKey, `assets?metadata->>daily_note_date=eq.${note_date}&select=id,filename,r2_key,mime_type,file_size&order=uploaded_at.asc`),
   ]);
 
   const peopleNames = peopleRes.map(p => p.name);
   const productNames = productsRes.map(p => p.name);
   const projectNames = projectsRes.map(p => p.name);
 
+  // 2b. Load image content from R2 (cap count + size; filter to supported mime types)
+  const imageBlocks = [];
+  const includedImages = [];
+  const skippedImages = [];
+  const bucket = env.ASSETS_BUCKET;
+  if (bucket && imageAssetsRes?.length) {
+    const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+    const MAX_IMAGES = 20;
+    const SUPPORTED = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+    for (const asset of imageAssetsRes) {
+      const mime = (asset.mime_type || '').toLowerCase();
+      if (!SUPPORTED.has(mime)) {
+        skippedImages.push({ id: asset.id, filename: asset.filename, reason: `unsupported mime_type: ${asset.mime_type}` });
+        continue;
+      }
+      if (typeof asset.file_size === 'number' && asset.file_size > MAX_IMAGE_BYTES) {
+        skippedImages.push({ id: asset.id, filename: asset.filename, reason: `file_size ${asset.file_size} exceeds 5MB cap` });
+        continue;
+      }
+      if (includedImages.length >= MAX_IMAGES) {
+        skippedImages.push({ id: asset.id, filename: asset.filename, reason: `exceeds ${MAX_IMAGES}-image cap` });
+        continue;
+      }
+      try {
+        const object = await bucket.get(asset.r2_key);
+        if (!object) {
+          skippedImages.push({ id: asset.id, filename: asset.filename, reason: 'R2 object missing' });
+          continue;
+        }
+        const buf = await object.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        const b64 = btoa(binary);
+        imageBlocks.push({
+          type: 'image',
+          source: { type: 'base64', media_type: mime, data: b64 },
+        });
+        includedImages.push({ id: asset.id, filename: asset.filename, mime_type: mime });
+      } catch (err) {
+        skippedImages.push({ id: asset.id, filename: asset.filename, reason: `R2 read error: ${err.message}` });
+      }
+    }
+  }
+
   // 3. Build the prompt
   const systemPrompt = buildReviewSystemPrompt(peopleNames, productNames, projectNames);
-  const userPrompt = buildReviewUserPrompt(dailyNote, note_date);
+  const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages);
 
-  // 4. Call Claude API
+  // 4. Call Claude API — send text + any image blocks
+  const userContent = imageBlocks.length
+    ? [{ type: 'text', text: userPrompt }, ...imageBlocks]
+    : userPrompt;
+
   let aiResult;
   try {
     const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
@@ -1837,7 +1887,7 @@ async function handleDailyReview(request, env, ctx) {
         model: 'claude-sonnet-4-20250514',
         max_tokens: 8000,
         system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        messages: [{ role: 'user', content: userContent }],
       }),
     });
 
@@ -1869,7 +1919,13 @@ async function handleDailyReview(request, env, ctx) {
     review_type: 'daily',
     source_date: note_date,
     status: 'completed',
-    input_snapshot: { tasks: dailyNote.tasks, notes: dailyNote.notes, meetings: dailyNote.meetings },
+    input_snapshot: {
+      tasks: dailyNote.tasks,
+      notes: dailyNote.notes,
+      meetings: dailyNote.meetings,
+      attached_images: includedImages,
+      skipped_images: skippedImages,
+    },
     output_summary: aiResult.review_summary || '',
     files_updated: writeResults,
     completed_at: new Date().toISOString(),
@@ -2058,7 +2114,7 @@ IMPORTANT:
 - CRITICAL: Do NOT create people entries from tasks. Tasks like "Follow up with X" or "Speak to Y about Z" are action items, not observations. People entries should ONLY come from actual meeting notes, conversations, or written observations.`;
 }
 
-function buildReviewUserPrompt(dailyNote, noteDate) {
+function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = []) {
   let prompt = `## Daily Note for ${noteDate}\n\n`;
 
   if (dailyNote.tasks) {
@@ -2088,6 +2144,14 @@ function buildReviewUserPrompt(dailyNote, noteDate) {
     if (stoic.frustration) prompt += `**Frustration:** ${stoic.frustration}\n`;
     if (stoic.reframe) prompt += `**Reframe:** ${stoic.reframe}\n`;
     if (stoic.opportunity) prompt += `**Opportunity:** ${stoic.opportunity}\n`;
+    prompt += '\n';
+  }
+
+  if (attachedImages.length > 0) {
+    prompt += `### Attached Images\n${attachedImages.length} image(s) are attached to this daily note and appear as separate content blocks following this text. Read any visible text (handwriting, chat screenshots, whiteboards, diagrams) and treat it as first-class source material alongside the typed notes. When an image materially contributes to an entry, cite it as [image: filename] in the relevant field.\n\n`;
+    attachedImages.forEach((img, i) => {
+      prompt += `- Image ${i + 1}: ${img.filename}\n`;
+    });
     prompt += '\n';
   }
 
