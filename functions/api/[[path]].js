@@ -196,8 +196,16 @@ async function handleMisConnections(path, request, env) {
     const { name, type, cluster, ecan, repo_id, server_url, token, is_active, api_version, base_url, email_prefix } = body;
 
     if (!name || !type) return json({ error: 'name and type are required' }, 400);
-    if (type === 'wcp' && (!cluster || !ecan || !repo_id)) {
-      return json({ error: 'WCP connections require cluster, ecan, and repo_id' }, 400);
+    if (type === 'wcp') {
+      if (api_version === 's2') {
+        if (!base_url || !repo_id) {
+          return json({ error: 'S2 WCP connections require base_url and repo_id' }, 400);
+        }
+      } else {
+        if (!cluster || !ecan || !repo_id) {
+          return json({ error: 'Legacy WCP connections require cluster, ecan, and repo_id' }, 400);
+        }
+      }
     }
     if (type === 'ae' && !server_url) {
       return json({ error: 'AE connections require server_url' }, 400);
