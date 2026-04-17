@@ -1995,20 +1995,36 @@
         @keyframes pm-spin { to { transform: rotate(360deg); } }
 
         /* Sticky toolbar: activated on focus of an editor inside a meeting
-           card or the main Notes section. The tasks column has its own sticky
-           ancestor so it is intentionally excluded. */
+           card or the main Notes section. The toolbar is pinned to the
+           viewport top via position: fixed; width/left are measured in JS
+           so it aligns with the column. A placeholder preserves layout.
+           The tasks column has its own sticky ancestor so it is intentionally
+           excluded. */
         .meeting-card.toolbar-sticky-active .daily-toolbar,
         #sectionNotes.toolbar-sticky-active .daily-toolbar {
-            position: sticky;
+            position: fixed;
             top: 0;
-            z-index: 5;
+            z-index: 50;
             background: var(--void-lighter);
-            box-shadow: 0 1px 0 var(--border);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+            border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+        }
+        .daily-toolbar-placeholder {
+            display: none;
+        }
+        .meeting-card.toolbar-sticky-active .daily-toolbar-placeholder,
+        #sectionNotes.toolbar-sticky-active .daily-toolbar-placeholder {
+            display: block;
         }
         @media (max-width: 960px) {
             .meeting-card.toolbar-sticky-active .daily-toolbar,
             #sectionNotes.toolbar-sticky-active .daily-toolbar {
                 position: static;
+                box-shadow: none;
+            }
+            .meeting-card.toolbar-sticky-active .daily-toolbar-placeholder,
+            #sectionNotes.toolbar-sticky-active .daily-toolbar-placeholder {
+                display: none;
             }
         }
 
@@ -4956,11 +4972,9 @@
             },
             onFocus: () => {
                 // Only one editor may own the sticky toolbar at a time.
-                document.querySelectorAll('.toolbar-sticky-active').forEach(el => {
-                    el.classList.remove('toolbar-sticky-active');
-                });
+                deactivateAllStickyToolbars();
                 const host = getStickyHost();
-                if (host) host.classList.add('toolbar-sticky-active');
+                if (host) activateStickyToolbar(host);
             },
             onBlur: () => {
                 // Delay so clicks on the toolbar itself don't strip the class
@@ -4968,7 +4982,7 @@
                 setTimeout(() => {
                     if (!editor.isFocused) {
                         const host = getStickyHost();
-                        if (host) host.classList.remove('toolbar-sticky-active');
+                        if (host) deactivateStickyToolbar(host);
                     }
                 }, 200);
             },
@@ -5724,6 +5738,80 @@
             const b = buttons[parseInt(btn.dataset.idx)];
             if (b && b.active) btn.classList.toggle('is-active', b.active());
         });
+    }
+
+    // ── Sticky (fixed-position) toolbar helpers ──────────────────────────
+    // position: sticky bounds to its parent box, which is tiny inside a
+    // meeting card. We use position: fixed instead and re-measure on resize.
+    let stickyToolbarResizeHandler = null;
+
+    function measureStickyToolbar(host) {
+        const toolbar = host.querySelector(':scope > .daily-section-content > .daily-toolbar, :scope > .meeting-card-expanded-content > .daily-toolbar');
+        if (!toolbar) return;
+        const placeholder = toolbar.nextElementSibling && toolbar.nextElementSibling.classList.contains('daily-toolbar-placeholder')
+            ? toolbar.nextElementSibling
+            : null;
+        // Temporarily clear inline styles so we can read the natural box
+        const prevLeft = toolbar.style.left;
+        const prevWidth = toolbar.style.width;
+        toolbar.style.left = '';
+        toolbar.style.width = '';
+        // Use the toolbar's parent width/left as the reference (avoids recursion)
+        const parent = toolbar.parentElement;
+        const parentRect = parent.getBoundingClientRect();
+        const parentStyle = getComputedStyle(parent);
+        const padLeft = parseFloat(parentStyle.paddingLeft) || 0;
+        const padRight = parseFloat(parentStyle.paddingRight) || 0;
+        const left = parentRect.left + padLeft;
+        const width = parentRect.width - padLeft - padRight;
+        toolbar.style.left = left + 'px';
+        toolbar.style.width = width + 'px';
+        if (placeholder) {
+            // Preserve layout: placeholder matches toolbar height
+            placeholder.style.height = toolbar.offsetHeight + 'px';
+        }
+        // Restore is not needed; we just applied the new values
+        void prevLeft; void prevWidth;
+    }
+
+    function activateStickyToolbar(host) {
+        const toolbar = host.querySelector(':scope > .daily-section-content > .daily-toolbar, :scope > .meeting-card-expanded-content > .daily-toolbar');
+        if (!toolbar) return;
+        // Ensure a placeholder sibling exists so the editor doesn't jump up
+        let placeholder = toolbar.nextElementSibling;
+        if (!placeholder || !placeholder.classList.contains('daily-toolbar-placeholder')) {
+            placeholder = document.createElement('div');
+            placeholder.className = 'daily-toolbar-placeholder';
+            toolbar.after(placeholder);
+        }
+        host.classList.add('toolbar-sticky-active');
+        measureStickyToolbar(host);
+        // Re-measure on resize so the fixed toolbar stays aligned with the column
+        if (stickyToolbarResizeHandler) {
+            window.removeEventListener('resize', stickyToolbarResizeHandler);
+        }
+        stickyToolbarResizeHandler = () => {
+            const active = document.querySelector('.toolbar-sticky-active');
+            if (active) measureStickyToolbar(active);
+        };
+        window.addEventListener('resize', stickyToolbarResizeHandler);
+    }
+
+    function deactivateStickyToolbar(host) {
+        host.classList.remove('toolbar-sticky-active');
+        const toolbar = host.querySelector('.daily-toolbar');
+        if (toolbar) {
+            toolbar.style.left = '';
+            toolbar.style.width = '';
+        }
+        if (stickyToolbarResizeHandler && !document.querySelector('.toolbar-sticky-active')) {
+            window.removeEventListener('resize', stickyToolbarResizeHandler);
+            stickyToolbarResizeHandler = null;
+        }
+    }
+
+    function deactivateAllStickyToolbars() {
+        document.querySelectorAll('.toolbar-sticky-active').forEach(el => deactivateStickyToolbar(el));
     }
 
     function scheduleDailySave() {
