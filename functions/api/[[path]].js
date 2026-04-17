@@ -2229,6 +2229,8 @@ async function handleAssetUpload(request, env) {
   const tags = formData.get('tags') || '';
   const description = formData.get('description') || '';
   const productId = formData.get('product_id') || null;
+  const dailyNoteDateRaw = formData.get('daily_note_date') || '';
+  const dailyNoteDate = /^\d{4}-\d{2}-\d{2}$/.test(dailyNoteDateRaw) ? dailyNoteDateRaw : null;
 
   // Generate a unique R2 key: YYYY/MM/uuid-filename
   const now = new Date();
@@ -2254,7 +2256,7 @@ async function handleAssetUpload(request, env) {
     tags: tagArray,
     description: description,
     uploaded_at: now.toISOString(),
-    metadata: {},
+    metadata: dailyNoteDate ? { daily_note_date: dailyNoteDate } : {},
   };
 
   const insertRes = await fetch(`${supabaseUrl}/rest/v1/assets`, {

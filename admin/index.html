@@ -4654,6 +4654,7 @@
         fd.append('file', file, file.name || 'pasted-image.png');
         fd.append('tags', 'daily-note,inline');
         fd.append('description', 'Pasted into daily note ' + (dailyNoteDate || '') );
+        if (dailyNoteDate) fd.append('daily_note_date', dailyNoteDate);
 
         const res = await fetch('/api/assets/upload', {
             method: 'POST',
@@ -12739,7 +12740,8 @@
         assetsFiltered = assetsData.filter(a =>
             (a.filename || '').toLowerCase().includes(q) ||
             (a.description || '').toLowerCase().includes(q) ||
-            (a.tags || []).some(t => t.toLowerCase().includes(q))
+            (a.tags || []).some(t => t.toLowerCase().includes(q)) ||
+            (a.metadata?.daily_note_date || '').toLowerCase().includes(q)
         );
     }
 
@@ -12801,6 +12803,12 @@
                         <button class="asset-copy-btn" data-copy-url="${location.origin}${fileUrl}" title="Copy link" onclick="event.stopPropagation()"><i class="icon icon-sm" data-lucide="link"></i></button>
                     </div>
                     <div class="asset-card-meta">${size} · ${date}</div>
+                    ${asset.metadata?.daily_note_date ? `
+                        <div class="asset-card-meta" style="display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.2rem;" title="Pasted into daily note ${esc(asset.metadata.daily_note_date)}">
+                            <i class="icon icon-sm" data-lucide="calendar-days" style="width: 0.85rem; height: 0.85rem;"></i>
+                            ${esc(asset.metadata.daily_note_date)}
+                        </div>
+                    ` : ''}
                     ${(asset.tags || []).length ? `
                         <div class="asset-card-tags">
                             ${asset.tags.map(t => `<span class="tag">${esc(t)}</span>`).join('')}
@@ -12832,7 +12840,7 @@
                         : `<span>${iconHtml}</span>`
                     }
                 </div>
-                <div class="asset-list-name" title="${esc(asset.filename)}">${esc(asset.filename)}</div>
+                <div class="asset-list-name" title="${esc(asset.filename)}">${esc(asset.filename)}${asset.metadata?.daily_note_date ? ` <span style="color: var(--text-muted); font-size: 0.75rem; margin-left: 0.4rem;" title="Pasted into daily note ${esc(asset.metadata.daily_note_date)}">· ${esc(asset.metadata.daily_note_date)}</span>` : ''}</div>
                 <div class="asset-list-type">${ext}</div>
                 <div class="asset-list-size">${size}</div>
                 <div class="asset-list-date">${date}</div>
@@ -13221,6 +13229,16 @@
                         <div class="asset-detail-label">Tags</div>
                         ${buildTagEditor(asset.tags || [], 'asset')}
                     </div>
+                    ${asset.metadata?.daily_note_date ? `
+                    <div class="asset-detail-field">
+                        <div class="asset-detail-label">Source</div>
+                        <button class="tag" id="assetSourceDailyNoteBtn" data-date="${esc(asset.metadata.daily_note_date)}"
+                            style="cursor: pointer; display: inline-flex; align-items: center; gap: 0.35rem; background: var(--surface); border: 1px solid var(--border); color: var(--text-body); padding: 0.35rem 0.6rem; border-radius: var(--radius-pill); font-size: 0.8rem;">
+                            <i class="icon icon-sm" data-lucide="calendar-days"></i>
+                            Daily note · ${esc(asset.metadata.daily_note_date)}
+                        </button>
+                    </div>
+                    ` : ''}
                     <div class="asset-detail-field">
                         <div class="asset-detail-label">Link</div>
                         <div style="display: flex; gap: 0.4rem; align-items: center;">
@@ -13239,6 +13257,17 @@
 
         // Wire back button
         document.getElementById('assetBackBtn').addEventListener('click', () => loadAssets());
+
+        // Wire source daily-note chip (only rendered when metadata.daily_note_date exists)
+        document.getElementById('assetSourceDailyNoteBtn')?.addEventListener('click', (e) => {
+            const date = e.currentTarget.dataset.date;
+            if (!date) return;
+            currentSubView = null;
+            document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+            document.querySelector('[data-view="daily-note"]')?.classList.add('active');
+            currentView = 'daily-note';
+            loadDailyNote(date);
+        });
 
         // Wire copy link
         document.getElementById('assetCopyLinkBtn').addEventListener('click', async () => {
