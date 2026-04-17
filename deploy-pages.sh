@@ -6,6 +6,7 @@ TMPDIR=$(mktemp -d)
 trap "rm -rf $TMPDIR" EXIT
 
 rsync -a \
+  --exclude='capture-worker' \
   --exclude='email-to-mis-job' \
   --exclude='mcp-server' \
   --exclude='mcp-worker' \

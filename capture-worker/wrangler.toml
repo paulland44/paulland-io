@@ -1,0 +1,22 @@
+name = "capture-worker"
+main = "src/index.ts"
+compatibility_date = "2026-03-17"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/30 * * * *"]
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+head_sampling_rate = 1
+
+# Secrets (set via `wrangler secret put`):
+# SUPABASE_URL
+# SUPABASE_SERVICE_KEY
+# READWISE_TOKEN
+# OUTLOOK_ICS_URL
+# USER_TIMEZONE           — optional, defaults to Europe/London
