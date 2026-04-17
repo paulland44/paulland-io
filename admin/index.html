@@ -3962,6 +3962,7 @@
             { view: 'sales-transactions', label: 'Transactions' },
             { view: 'sales-storage', label: 'Storage' },
             { view: 'sales-phoenix', label: 'Phoenix' },
+            { view: 'sales-wcr-pipeline', label: 'WCR Pipeline' },
         ]},
         support: { tabs: [
             { view: 'support-dashboard', label: 'Dashboard' },
@@ -4199,6 +4200,7 @@
             case 'sales-transactions': await loadSalesProductDetail('PC3751'); break;
             case 'sales-storage': await loadSalesProductDetail('PC3752'); break;
             case 'sales-phoenix': await loadSalesProductDetail('PC3360'); break;
+            case 'sales-wcr-pipeline': await loadWcrPipeline(); break;
             case 'support-dashboard': await loadSupportDashboard(); break;
             case 'settings-appearance': await loadSettingsView(); break;
             case 'settings-connections': await loadSettingsConnections(); break;
@@ -11750,6 +11752,367 @@
         }
     }
 
+    // ─── WCR Pack Pipeline ─────────────────────────────────────
+
+    let wcrPipelineCharts = [];
+    function destroyWcrPipelineCharts() {
+        wcrPipelineCharts.forEach(c => { try { c.destroy(); } catch (e) {} });
+        wcrPipelineCharts = [];
+    }
+
+    function wcrFmtUsd(v) {
+        if (v == null || isNaN(v)) return '—';
+        if (Math.abs(v) >= 1_000_000) return `$${(v / 1_000_000).toFixed(2)}M`;
+        if (Math.abs(v) >= 1_000) return `$${(v / 1_000).toFixed(1)}k`;
+        return `$${Math.round(v)}`;
+    }
+
+    async function loadWcrPipeline() {
+        destroyWcrPipelineCharts();
+        destroySalesCharts?.();
+        destroyDailyEditors?.();
+
+        const main = document.getElementById('mainContent');
+        if (!main) return;
+
+        main.innerHTML = `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
+            <div style="padding:2rem;color:var(--text-muted);">Loading…</div>`;
+
+        // 1. Fetch all weekly summaries for this report type, sorted by report_date desc
+        const { data: summaries, error: sumErr } = await db
+            .from('content')
+            .select('id, title, body, tags, status, metadata, captured_at, updated_at')
+            .eq('type', 'summary')
+            .contains('tags', ['wcr-pack-opps'])
+            .order('captured_at', { ascending: false });
+
+        if (sumErr) {
+            main.innerHTML = `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
+                <div style="padding:2rem;color:var(--text-muted);">Error loading: ${esc(sumErr.message)}</div>`;
+            return;
+        }
+
+        const reports = (summaries || []).filter(r => r.metadata?.report_type === 'wcr-pack-opps');
+
+        if (!reports.length) {
+            main.innerHTML = `
+                <div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
+                <div style="padding:2rem;">
+                    <div style="color:var(--text-muted);margin-bottom:1rem;">
+                        No WCR Pack opportunity reports yet.
+                    </div>
+                    <div style="font-size:0.85rem;color:var(--text-body);line-height:1.6;">
+                        <strong>To get started:</strong>
+                        <ol style="margin-top:0.5rem;padding-left:1.2rem;">
+                            <li>Upload the weekly Salesforce WCR Pack PDF to Assets, tagged <code>wcr-pack-opps</code>.</li>
+                            <li>From Claude, run the <code>wcr-pack-opps</code> skill, or call the <code>wcr_pack_opps_extract</code>
+                                then <code>wcr_pack_opps_write</code> MCP tools.</li>
+                            <li>Come back here to see the snapshot, themes, and trend.</li>
+                        </ol>
+                    </div>
+                </div>`;
+            refreshIcons();
+            return;
+        }
+
+        // 2. Fetch the opportunities table for the most-recent snapshot (for drill-down)
+        const latest = reports[0];
+        const latestDate = latest.metadata?.report_date;
+
+        let latestOpps = [];
+        if (latestDate) {
+            const { data: oppData } = await db
+                .from('wcr_pack_opportunities')
+                .select('opportunity_id, opportunity_name, account_name, regional_division, region, opportunity_owner, stage, amount_usd, close_date, close_reason, close_reason_detail, close_comment, marketing_generated')
+                .eq('report_date', latestDate);
+            latestOpps = oppData || [];
+        }
+
+        // 3. Pull signals linked to this summary via content_links
+        const { data: signalLinks } = await db
+            .from('content_links')
+            .select('source_id')
+            .eq('target_id', latest.id)
+            .eq('link_type', 'evidence');
+        const signalIds = (signalLinks || []).map(l => l.source_id);
+
+        let signals = [];
+        if (signalIds.length) {
+            const { data: sigData } = await db
+                .from('content')
+                .select('id, title, metadata, tags')
+                .in('id', signalIds)
+                .eq('type', 'signal');
+            signals = sigData || [];
+        }
+
+        // 4. Companies (competitors) linked to this summary
+        const { data: companyLinks } = await db
+            .from('company_content')
+            .select('company_id, companies(id, name, is_competitor)')
+            .eq('content_id', latest.id);
+        const competitors = (companyLinks || [])
+            .map(l => l.companies)
+            .filter(c => c && c.is_competitor);
+
+        // 5. Build headline metric cards from summary.metadata.metrics
+        const metrics = latest.metadata?.metrics || {};
+        const cards = [
+            { label: 'Total opps', value: metrics.total_records ?? latestOpps.length },
+            { label: 'Total value', value: wcrFmtUsd(metrics.total_value_usd) },
+            { label: 'Live pipeline', value: `${metrics.live_pipeline_count ?? '—'} · ${wcrFmtUsd(metrics.live_pipeline_value_usd)}` },
+            { label: 'Closed Won', value: `${metrics.closed_won_count ?? '—'} · ${wcrFmtUsd(metrics.closed_won_value_usd)}` },
+            { label: 'Closed Lost', value: metrics.closed_lost_count ?? '—' },
+            { label: 'Snapshots', value: reports.length },
+        ];
+
+        // 6. Build stage table from metadata.metrics.by_stage (or fall back to computing from rows)
+        let byStage = metrics.by_stage;
+        if (!byStage || !Object.keys(byStage).length) {
+            byStage = {};
+            latestOpps.forEach(o => { if (o.stage) byStage[o.stage] = (byStage[o.stage] || 0) + 1; });
+        }
+        const stageOrder = ['1 Qualified', '2 Identify Needs', '3 Validate/Present Solution', '4 Negotiate/Review', '5 Closing', 'Closed Won', 'Closed Lost'];
+        const stageRows = stageOrder.filter(s => byStage[s] != null).concat(Object.keys(byStage).filter(s => !stageOrder.includes(s)));
+
+        // 7. Build trend data across all report_dates (last 12 snapshots)
+        const trendReports = reports.slice(0, 12).reverse();
+        const trendLabels = trendReports.map(r => r.metadata?.report_date || r.captured_at?.slice(0, 10));
+        const trendPipeline = trendReports.map(r => r.metadata?.metrics?.live_pipeline_value_usd || 0);
+        const trendLost = trendReports.map(r => r.metadata?.metrics?.closed_lost_count || 0);
+
+        // 8. Closed-lost reason mix
+        const byReason = metrics.by_close_reason_detail || {};
+        const reasonRows = Object.entries(byReason)
+            .sort(([, a], [, b]) => b - a);
+
+        // 9. Region mix
+        const byRegion = metrics.by_region || {};
+        const regionRows = Object.entries(byRegion).sort(([, a], [, b]) => b - a).slice(0, 12);
+
+        main.innerHTML = `
+            <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
+                <div>
+                    <h2 class="page-title">WCR Pack Pipeline</h2>
+                    <div style="font-size: 0.8rem; color: var(--text-muted);">
+                        Latest snapshot: <strong>${esc(latest.metadata?.period_label || latestDate || '—')}</strong>
+                        · ${reports.length} snapshot${reports.length !== 1 ? 's' : ''}
+                    </div>
+                </div>
+                ${reports.length > 1 ? `
+                <select class="sales-period-select" id="wcrPeriodSelect">
+                    ${reports.map((r, i) => `<option value="${r.id}" ${i === 0 ? 'selected' : ''}>${esc(r.metadata?.period_label || r.metadata?.report_date || r.captured_at?.slice(0, 10))}</option>`).join('')}
+                </select>
+                ` : ''}
+            </div>
+
+            <div class="sales-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
+                ${cards.map(c => `
+                    <div style="padding:0.85rem 1rem;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);">
+                        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.35rem;">${esc(c.label)}</div>
+                        <div style="font-size:1.15rem;font-weight:600;color:var(--text-heading);">${esc(String(c.value))}</div>
+                    </div>
+                `).join('')}
+            </div>
+
+            <div class="sales-dashboard-grid">
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="layers" style="width:16px;height:16px;"></i> Stage funnel</h3>
+                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+                        <thead><tr style="text-align:left;color:var(--text-muted);">
+                            <th style="padding:0.35rem 0;">Stage</th><th style="text-align:right;">Count</th>
+                        </tr></thead>
+                        <tbody>
+                            ${stageRows.map(s => `<tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">${esc(s)}</td>
+                                <td style="text-align:right;font-weight:600;">${byStage[s] || 0}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="x-circle" style="width:16px;height:16px;"></i> Closed-lost reasons</h3>
+                    ${reasonRows.length ? `
+                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+                        <thead><tr style="text-align:left;color:var(--text-muted);">
+                            <th style="padding:0.35rem 0;">Reason</th><th style="text-align:right;">Count</th>
+                        </tr></thead>
+                        <tbody>
+                            ${reasonRows.map(([r, n]) => `<tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">${esc(r)}</td>
+                                <td style="text-align:right;font-weight:600;">${n}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No closed-lost data in this snapshot.</div>'}
+                </div>
+            </div>
+
+            ${reports.length > 1 ? `
+            <div class="sales-dashboard-grid">
+                <div class="sales-chart-card" style="grid-column: 1 / -1;">
+                    <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Pipeline trend</h3>
+                    <div style="height:280px;"><canvas id="wcrTrendChart"></canvas></div>
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="sales-dashboard-grid">
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="globe" style="width:16px;height:16px;"></i> By region</h3>
+                    ${regionRows.length ? `
+                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+                        <thead><tr style="text-align:left;color:var(--text-muted);">
+                            <th style="padding:0.35rem 0;">Region</th><th style="text-align:right;">Count</th>
+                        </tr></thead>
+                        <tbody>
+                            ${regionRows.map(([r, n]) => `<tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">${esc(r)}</td>
+                                <td style="text-align:right;font-weight:600;">${n}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No region breakdown in metadata.</div>'}
+                </div>
+
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="swords" style="width:16px;height:16px;"></i> Competitors mentioned</h3>
+                    ${competitors.length ? `
+                    <div style="display:flex;flex-direction:column;gap:0.35rem;font-size:0.85rem;">
+                        ${competitors.map(c => `
+                            <a href="#" data-competitor-id="${c.id}" class="wcr-competitor-link" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);text-decoration:none;display:flex;justify-content:space-between;">
+                                <span>${esc(c.name)}</span>
+                                <span style="color:var(--text-muted);">→</span>
+                            </a>
+                        `).join('')}
+                    </div>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No competitor mentions in this snapshot.</div>'}
+                </div>
+            </div>
+
+            ${signals.length ? `
+            <div class="support-section">
+                <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Closed-lost themes / signals</h3>
+                <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                    ${signals.map(s => `
+                        <a href="#" data-signal-id="${s.id}" class="wcr-signal-link" style="padding:0.6rem 0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);text-decoration:none;display:block;">
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;">
+                                <strong style="color:var(--text-heading);">${esc(s.title)}</strong>
+                                <span style="font-size:0.7rem;color:var(--text-muted);white-space:nowrap;">
+                                    ${s.metadata?.occurrence_count ? `seen ${s.metadata.occurrence_count}×` : 'new'}
+                                    ${s.metadata?.severity ? ` · ${esc(s.metadata.severity)}` : ''}
+                                </span>
+                            </div>
+                            ${s.metadata?.theme_slug ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.2rem;font-family:var(--mono);">${esc(s.metadata.theme_slug)}</div>` : ''}
+                        </a>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
+
+            <div class="support-section">
+                <h3><i data-lucide="file-text" style="width:16px;height:16px;"></i> Weekly report body</h3>
+                <div class="content-body">${renderBody(latest.body || '')}</div>
+            </div>
+        `;
+
+        refreshIcons();
+
+        // Wire signal drill-down → open content modal
+        main.querySelectorAll('.wcr-signal-link').forEach(el => {
+            el.addEventListener('click', async (e) => {
+                e.preventDefault();
+                const id = el.dataset.signalId;
+                const { data } = await db.from('content').select('*').eq('id', id).single();
+                if (data && typeof openContentModal === 'function') openContentModal(data);
+            });
+        });
+
+        // Wire competitor drill-down → competitor detail view
+        main.querySelectorAll('.wcr-competitor-link').forEach(el => {
+            el.addEventListener('click', (e) => {
+                e.preventDefault();
+                const id = el.dataset.competitorId;
+                if (typeof loadCompetitorDetail === 'function') {
+                    currentSubView = { type: 'competitor-detail', id };
+                    currentView = 'competition';
+                    loadCompetitorDetail(id);
+                }
+            });
+        });
+
+        // Wire period selector
+        document.getElementById('wcrPeriodSelect')?.addEventListener('change', async (e) => {
+            const id = e.target.value;
+            const pick = reports.find(r => r.id === id);
+            if (!pick) return;
+            // Re-run with this snapshot pinned as "latest"
+            reports.splice(reports.indexOf(pick), 1);
+            reports.unshift(pick);
+            // Simple approach: reload view. The dropdown order resets.
+            await loadWcrPipeline();
+        });
+
+        // Trend chart
+        if (reports.length > 1 && typeof Chart !== 'undefined') {
+            const ctx = document.getElementById('wcrTrendChart');
+            if (ctx) {
+                const style = getComputedStyle(document.documentElement);
+                const muted = style.getPropertyValue('--text-muted').trim() || '#888';
+                const border = style.getPropertyValue('--border').trim() || '#333';
+
+                wcrPipelineCharts.push(new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: trendLabels,
+                        datasets: [
+                            {
+                                type: 'bar',
+                                label: 'Live pipeline ($)',
+                                data: trendPipeline,
+                                backgroundColor: 'rgba(100,149,237,0.5)',
+                                borderRadius: 4,
+                                yAxisID: 'y',
+                            },
+                            {
+                                type: 'line',
+                                label: 'Closed lost (count)',
+                                data: trendLost,
+                                borderColor: 'rgb(220,120,60)',
+                                backgroundColor: 'rgba(220,120,60,0.2)',
+                                tension: 0.3,
+                                yAxisID: 'y2',
+                            },
+                        ],
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+                        },
+                        scales: {
+                            x: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
+                            y: {
+                                position: 'left',
+                                ticks: { color: muted, callback: v => wcrFmtUsd(v) },
+                                grid: { color: border },
+                                beginAtZero: true,
+                            },
+                            y2: {
+                                position: 'right',
+                                ticks: { color: muted },
+                                grid: { display: false },
+                                beginAtZero: true,
+                            },
+                        },
+                    },
+                }));
+            }
+        }
+    }
+
     // ─── Support Dashboard ─────────────────────────────────────
 
     let supportCharts = [];
@@ -15140,11 +15503,16 @@
         // Legacy WCP-only sections: hide for S2
         const tasksSection = document.getElementById('misTasksSection');
         if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
-        // Site field and manual customer code: hide for S2 and AE
+        // Site field and manual customer code: hide for S2 and AE — but if S2 customers
+        // failed to load, keep the manual code input visible so the user can still submit.
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
         const custCodeField = document.getElementById('misJobCustomerCode');
-        if (custCodeField) custCodeField.style.display = (isS2 || isAe) ? 'none' : '';
+        if (custCodeField) {
+            const customersLoaded = !!(cachedCustomers?.items?.length || cachedCustomers?.data?.length || (Array.isArray(cachedCustomers) && cachedCustomers.length));
+            const hideCustCode = isAe || (isS2 && customersLoaded);
+            custCodeField.style.display = hideCustCode ? 'none' : '';
+        }
         // AE section
         const aeSection = document.getElementById('misAeSection');
         if (aeSection) aeSection.style.display = isAe ? '' : 'none';
@@ -15744,17 +16112,17 @@
         `;
 
         // Wire up searchable customer select (normalized format: {value, label})
-        if (customers.length) {
-            window._misCustomerSS = createSearchableSelect('misJobCustomer',
-                customers.map(c => ({ value: c.value, label: c.label, searchText: `${c.label} ${c.value}` })),
-                { placeholder: 'Search customers...', onchange: (val) => {
-                    const codeInput = document.getElementById('misJobCustomerCode');
-                    if (codeInput) codeInput.value = val;
-                    if (!isEdit) misUpdateJobId();
-                    misUpdatePreview();
-                }}
-            );
-        }
+        // Always render, even when empty, so the field is visible and the placeholder
+        // signals whether customers loaded.
+        window._misCustomerSS = createSearchableSelect('misJobCustomer',
+            customers.map(c => ({ value: c.value, label: c.label, searchText: `${c.label} ${c.value}` })),
+            { placeholder: customers.length ? 'Search customers...' : 'No customers loaded — enter ID below', onchange: (val) => {
+                const codeInput = document.getElementById('misJobCustomerCode');
+                if (codeInput) codeInput.value = val;
+                if (!isEdit) misUpdateJobId();
+                misUpdatePreview();
+            }}
+        );
 
         // Wire up S2 workflow template searchable select
         misRebuildWorkflowDropdown();
@@ -15791,17 +16159,19 @@
                         partnerName: c.partnerName || '', partnerId: c.partnerId || c.name || '',
                     }));
                     const custContainer = document.getElementById('misJobCustomer');
-                    if (custContainer && custs.length) {
+                    if (custContainer) {
                         custContainer.innerHTML = '';
                         window._misCustomerSS = createSearchableSelect('misJobCustomer',
                             custs.map(c => ({ value: c.value, label: c.label, searchText: `${c.label} ${c.value}` })),
-                            { placeholder: 'Search customers...', onchange: (val) => {
+                            { placeholder: custs.length ? 'Search customers...' : 'No customers loaded — enter ID below', onchange: (val) => {
                                 const codeInput = document.getElementById('misJobCustomerCode');
                                 if (codeInput) codeInput.value = val;
                                 misUpdatePreview();
                             }}
                         );
                     }
+                    // Re-evaluate section visibility (may need to show manual customer code input)
+                    misUpdateFormSections();
                     // Rebuild S2 workflow dropdown
                     misRebuildWorkflowDropdown();
                     // Rebuild task template selects on existing task cards
@@ -15942,11 +16312,16 @@
             if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
         });
 
-        // Site field and manual customer code: hide for S2 and AE
+        // Site field and manual customer code: hide for S2 and AE — but if S2 customers
+        // failed to load, keep the manual code input visible so the user can still submit.
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
         if (siteField) siteField.style.display = isS2 ? 'none' : '';
         const custCodeField = document.getElementById('misJobCustomerCode');
-        if (custCodeField) custCodeField.style.display = (isS2 || isAe) ? 'none' : '';
+        if (custCodeField) {
+            const customersLoaded = !!(cachedCustomers?.items?.length || cachedCustomers?.data?.length || (Array.isArray(cachedCustomers) && cachedCustomers.length));
+            const hideCustCode = isAe || (isS2 && customersLoaded);
+            custCodeField.style.display = hideCustCode ? 'none' : '';
+        }
 
         // Tasks section: hide for S2 (uses workflows) and AE
         const tasksSection = document.getElementById('misTasksSection');
@@ -17200,19 +17575,20 @@
                 body.base_url = normalized;
             }
 
-            if (editId) {
-                await fetch(`/api/mis/connections/${editId}`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-            } else {
-                if (!token) throw new Error('Token is required for new connections');
-                await fetch('/api/mis/connections', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
+            const saveUrl = editId ? `/api/mis/connections/${editId}` : '/api/mis/connections';
+            const saveMethod = editId ? 'PATCH' : 'POST';
+            if (!editId && !token) throw new Error('Token is required for new connections');
+            const res = await fetch(saveUrl, {
+                method: saveMethod,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                const errBody = await res.text();
+                console.error('[saveMisConn] failed', res.status, errBody, 'payload:', body);
+                let parsed = {};
+                try { parsed = JSON.parse(errBody); } catch {}
+                throw new Error(parsed.error || parsed.message || errBody || `Save failed (${res.status})`);
             }
 
             await fetchMisProfiles();

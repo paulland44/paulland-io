@@ -11,6 +11,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import * as XLSX from 'xlsx';
+import { extractText as extractPdfText } from 'unpdf';
 
 import {
   supabaseGet,
@@ -3563,6 +3564,376 @@ server.tool(
           period,
           writes: results,
           action: existing.length ? 'updated' : 'created',
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+// ─── WCR Pack Opportunities Tools (Extract / Write) ──────────
+
+server.tool(
+  'wcr_pack_opps_extract',
+  'Fetch the weekly WebCenter Pack opportunities PDF (from Salesforce) from the asset library and return extracted text plus prior snapshots, existing signals, known competitors, and the analysis prompt. Claude then parses the report inline and calls wcr_pack_opps_write with structured results.',
+  {
+    asset_id: z.string().optional().describe('UUID of the uploaded WCR Pack opps PDF asset. If omitted, uses the most recent asset tagged "wcr-pack-opps".'),
+    report_date: z.string().optional().describe('Report date in YYYY-MM-DD format. Defaults to today; can also be inferred from the PDF header.'),
+  },
+  async ({ asset_id, report_date }) => {
+    const reportDate = report_date || new Date().toISOString().split('T')[0];
+
+    // 1. Find the asset
+    let asset: any;
+    if (asset_id) {
+      const rows = await supabaseGet(`assets?id=eq.${asset_id}&select=id,filename,mime_type,r2_key,tags`);
+      asset = rows?.[0];
+    } else {
+      const rows = await supabaseGet('assets?tags=cs.{wcr-pack-opps}&order=uploaded_at.desc&limit=1&select=id,filename,mime_type,r2_key,tags');
+      asset = rows?.[0];
+    }
+    if (!asset) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No WCR Pack opps asset found. Upload the weekly Salesforce PDF and tag it "wcr-pack-opps".' }) }] };
+    }
+
+    // 2. Fetch prompt template
+    const prompts = await supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template');
+    const prompt = prompts?.[0];
+
+    // 3. Fetch and parse PDF
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = {};
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    let pages: string[] = [];
+    let totalPages = 0;
+    let parseError = '';
+
+    try {
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      if (!resp.ok) {
+        parseError = `Failed to fetch file: ${resp.status}`;
+      } else {
+        const fileData = await resp.json();
+        if (fileData.encoding !== 'base64') {
+          parseError = 'Expected base64-encoded PDF';
+        } else {
+          const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+          const extracted = await extractPdfText(binary, { mergePages: false });
+          pages = extracted.text;
+          totalPages = extracted.totalPages;
+        }
+      }
+    } catch (err: any) {
+      parseError = `PDF parse error: ${err.message}`;
+    }
+
+    // 4. Fetch prior snapshots (last 4 report_dates) for trend/stalled-deal analysis
+    const priorSnapshots = await supabaseGet(
+      `wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,opportunity_name,account_name,stage,amount_usd,close_date,close_reason_detail`
+    );
+
+    // Group by report_date so Claude can see up to the last 4 snapshots
+    const byDate: Record<string, any[]> = {};
+    for (const row of priorSnapshots || []) {
+      if (!byDate[row.report_date]) byDate[row.report_date] = [];
+      byDate[row.report_date].push(row);
+    }
+    const lastDates = Object.keys(byDate).sort().reverse().slice(0, 4);
+    const priorByDate = lastDates.map(d => ({ report_date: d, rows: byDate[d] }));
+
+    // 5. Fetch existing WCR Pack signals (for theme_slug-based dedup)
+    const existingSignals = await supabaseGet(
+      `content?type=eq.signal&metadata->>product_area=eq.WCR Pack&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100`
+    );
+
+    // 6. Fetch known competitors
+    const competitors = await supabaseGet('companies?is_competitor=eq.true&select=id,name&order=name');
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          report_date: reportDate,
+          asset_id: asset.id,
+          file_name: asset.filename,
+          pdf: {
+            total_pages: totalPages,
+            pages, // one string per page, order-preserved
+          },
+          prior_snapshots: priorByDate,
+          existing_signals: (existingSignals || []).map((s: any) => ({
+            id: s.id,
+            title: s.title,
+            theme_slug: s.metadata?.theme_slug || null,
+            occurrence_count: s.metadata?.occurrence_count || 0,
+            first_seen_report: s.metadata?.first_seen_report || null,
+            last_seen_report: s.metadata?.last_seen_report || null,
+          })),
+          known_competitors: (competitors || []).map((c: any) => ({ id: c.id, name: c.name })),
+          parse_error: parseError || undefined,
+          system_prompt: prompt?.system_prompt || null,
+          user_prompt_template: prompt?.user_prompt_template || null,
+        }, null, 2),
+      }],
+    };
+  }
+);
+
+server.tool(
+  'wcr_pack_opps_write',
+  'Write the parsed WCR Pack opportunities snapshot. Inserts rows into wcr_pack_opportunities (one per opp for this report_date), creates/updates the weekly summary content item, deduplicates signals by theme_slug (appends evidence if existing, creates if new), links signals to the summary, and upserts competitor mentions. Idempotent: re-running with the same report_date replaces that snapshot.',
+  {
+    report_date: z.string().describe('Report date in YYYY-MM-DD format'),
+    asset_id: z.string().optional().describe('UUID of the source PDF asset'),
+    period_label: z.string().describe('Human-readable label, e.g. "Week 16, 2026" or "17 April 2026"'),
+    opportunities: z.array(z.object({
+      opportunity_id: z.string().describe('Stable Salesforce opp identifier (e.g. "ARTWORKR S.R.L_O20")'),
+      opportunity_name: z.string().nullable().optional(),
+      account_name: z.string().nullable().optional(),
+      regional_division: z.string().nullable().optional(),
+      region: z.string().nullable().optional(),
+      opportunity_owner: z.string().nullable().optional(),
+      software: z.string().nullable().optional(),
+      main_products: z.array(z.string()).optional().default([]),
+      amount_usd: z.number().nullable().optional(),
+      amount_software_usd: z.number().nullable().optional(),
+      stage: z.string().nullable().optional(),
+      close_date: z.string().nullable().optional().describe('YYYY-MM-DD'),
+      close_reason: z.string().nullable().optional(),
+      close_reason_detail: z.string().nullable().optional(),
+      close_comment: z.string().nullable().optional(),
+      next_action: z.string().nullable().optional(),
+      created_date: z.string().nullable().optional().describe('YYYY-MM-DD'),
+      marketing_generated: z.boolean().nullable().optional(),
+    })).describe('All opportunity rows parsed from the PDF'),
+    summary: z.object({
+      title: z.string().describe('Weekly summary title, e.g. "WCR Pack pipeline — 17 April 2026"'),
+      body: z.string().describe('Markdown body — pipeline totals, stage mix, regional mix, themes, velocity'),
+      metrics: z.object({
+        total_records: z.number(),
+        total_value_usd: z.number(),
+        closed_won_count: z.number(),
+        closed_won_value_usd: z.number(),
+        closed_lost_count: z.number(),
+        live_pipeline_count: z.number(),
+        live_pipeline_value_usd: z.number(),
+        by_stage: z.record(z.string(), z.number()).optional().default({}),
+        by_region: z.record(z.string(), z.number()).optional().default({}),
+        by_close_reason_detail: z.record(z.string(), z.number()).optional().default({}),
+      }).describe('Headline metrics for the admin dashboard to render without re-parsing'),
+    }),
+    signals: z.array(z.object({
+      theme_slug: z.string().describe('Stable kebab-case slug, WCR-prefixed (e.g. "wcr-sna-parity-gap", "wcr-hybrid-price-undercut"). Used for deduplication.'),
+      title: z.string(),
+      description: z.string().describe('One-line description of the theme'),
+      evidence_block: z.string().describe('Markdown evidence block to append to the signal body — deals/quotes observed in this report'),
+      severity: z.enum(['high', 'medium', 'low']).optional().default('medium'),
+    })).optional().default([]),
+    competitors: z.array(z.object({
+      name: z.string().describe('Competitor name (e.g. "Hybrid", "Kodak Insight")'),
+      lost_deal_count: z.number().optional().default(0),
+      notes: z.string().optional(),
+    })).optional().default([]),
+  },
+  async ({ report_date, asset_id, period_label, opportunities, summary, signals, competitors }) => {
+    const results = {
+      opportunities_inserted: 0,
+      opportunities_replaced: 0,
+      signals_created: 0,
+      signals_updated: 0,
+      competitors_upserted: 0,
+      links_created: 0,
+    };
+
+    // 1. Idempotent: delete existing snapshot for this report_date before re-insert
+    const existingOppRows = await supabaseGet(`wcr_pack_opportunities?report_date=eq.${report_date}&select=id`);
+    if (existingOppRows && existingOppRows.length > 0) {
+      await supabaseDelete(`wcr_pack_opportunities?report_date=eq.${report_date}`);
+      results.opportunities_replaced = existingOppRows.length;
+    }
+
+    // 2. Insert opportunity rows in batches of 50
+    const batchSize = 50;
+    for (let i = 0; i < opportunities.length; i += batchSize) {
+      const batch = opportunities.slice(i, i + batchSize).map(o => ({
+        report_date,
+        opportunity_id: o.opportunity_id,
+        opportunity_name: o.opportunity_name ?? null,
+        account_name: o.account_name ?? null,
+        regional_division: o.regional_division ?? null,
+        region: o.region ?? null,
+        opportunity_owner: o.opportunity_owner ?? null,
+        software: o.software ?? null,
+        main_products: o.main_products ?? [],
+        amount_usd: o.amount_usd ?? null,
+        amount_software_usd: o.amount_software_usd ?? null,
+        stage: o.stage ?? null,
+        close_date: o.close_date || null,
+        close_reason: o.close_reason ?? null,
+        close_reason_detail: o.close_reason_detail ?? null,
+        close_comment: o.close_comment ?? null,
+        next_action: o.next_action ?? null,
+        created_date: o.created_date || null,
+        marketing_generated: o.marketing_generated ?? null,
+        source_file: asset_id ?? null,
+      }));
+      const res = await supabasePost('wcr_pack_opportunities', batch);
+      if (res.ok) results.opportunities_inserted += batch.length;
+    }
+
+    // 3. Create or update the weekly summary content item
+    const summaryMetadata = {
+      report_type: 'wcr-pack-opps',
+      report_date,
+      period_label,
+      asset_id: asset_id ?? null,
+      metrics: summary.metrics,
+    };
+
+    const existingSummary = await supabaseGet(
+      `content?type=eq.summary&tags=cs.{wcr-pack-opps}&metadata->>report_date=eq.${report_date}&limit=1&select=id`
+    );
+
+    let summaryId: string;
+    if (existingSummary && existingSummary.length > 0) {
+      summaryId = existingSummary[0].id;
+      await supabasePatch(`content?id=eq.${summaryId}`, {
+        title: summary.title,
+        body: summary.body,
+        tags: ['wcr-pack-opps', 'pipeline', report_date],
+        status: 'reviewed',
+        metadata: summaryMetadata,
+      });
+    } else {
+      const created = await supabasePost('content', {
+        type: 'summary',
+        title: summary.title,
+        body: summary.body,
+        tags: ['wcr-pack-opps', 'pipeline', report_date],
+        status: 'reviewed',
+        metadata: summaryMetadata,
+      }, true);
+      summaryId = created.data?.[0]?.id || '';
+    }
+
+    // 4. Handle signals with theme_slug dedup
+    for (const sig of signals) {
+      const existingRows = await supabaseGet(
+        `content?type=eq.signal&metadata->>theme_slug=eq.${encodeURIComponent(sig.theme_slug)}&limit=1&select=id,body,metadata`
+      );
+
+      const evidenceEntry = `\n\n### ${report_date} — ${period_label}\n\n${sig.evidence_block}\n`;
+
+      if (existingRows && existingRows.length > 0) {
+        const existing = existingRows[0];
+        const prevMeta = existing.metadata || {};
+        const newBody = `${evidenceEntry}\n---\n${existing.body || ''}`; // newest first
+        await supabasePatch(`content?id=eq.${existing.id}`, {
+          body: newBody,
+          metadata: {
+            ...prevMeta,
+            last_seen_report: report_date,
+            occurrence_count: (prevMeta.occurrence_count || 1) + 1,
+            severity: sig.severity,
+          },
+          status: 'active',
+        });
+        results.signals_updated++;
+        embedItem('content', existing.id).catch(() => {});
+
+        // Link signal -> summary
+        if (summaryId) {
+          await supabasePost('content_links', {
+            source_id: existing.id,
+            target_id: summaryId,
+            link_type: 'evidence',
+            context: `Evidence surfaced in WCR Pack report ${report_date}`,
+          });
+          results.links_created++;
+        }
+      } else {
+        const created = await supabasePost('content', {
+          type: 'signal',
+          title: sig.title,
+          body: `${sig.description}\n${evidenceEntry}`,
+          tags: ['wcr-pack-opps', 'signal', sig.theme_slug],
+          status: 'active',
+          metadata: {
+            theme_slug: sig.theme_slug,
+            product_area: 'WCR Pack',
+            first_seen_report: report_date,
+            last_seen_report: report_date,
+            occurrence_count: 1,
+            severity: sig.severity,
+          },
+        }, true);
+        const newId = created.data?.[0]?.id;
+        if (newId) {
+          results.signals_created++;
+          embedItem('content', newId).catch(() => {});
+          if (summaryId) {
+            await supabasePost('content_links', {
+              source_id: newId,
+              target_id: summaryId,
+              link_type: 'evidence',
+              context: `First surfaced in WCR Pack report ${report_date}`,
+            });
+            results.links_created++;
+          }
+        }
+      }
+    }
+
+    // 5. Upsert competitors
+    for (const comp of competitors) {
+      const existingCo = await supabaseGet(
+        `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,is_competitor`
+      );
+      let companyId: string;
+      if (existingCo && existingCo.length > 0) {
+        companyId = existingCo[0].id;
+        if (!existingCo[0].is_competitor) {
+          await supabasePatch(`companies?id=eq.${companyId}`, { is_competitor: true });
+        }
+      } else {
+        const created = await supabasePost('companies', {
+          name: comp.name,
+          is_competitor: true,
+          notes: comp.notes || `Surfaced from WCR Pack closed-lost analysis (${report_date})`,
+        }, true);
+        companyId = created.data?.[0]?.id || '';
+      }
+      if (companyId && summaryId) {
+        await supabasePost('company_content', {
+          company_id: companyId,
+          content_id: summaryId,
+        });
+        results.competitors_upserted++;
+      }
+    }
+
+    // 6. Audit
+    await supabasePost('ai_reviews', {
+      review_type: 'wcr_pack_opps',
+      source_date: report_date,
+      status: 'completed',
+      output_summary: `${opportunities.length} opps, ${signals.length} signals, ${competitors.length} competitors`,
+      files_updated: { content_id: summaryId, asset_id, ...results },
+      completed_at: new Date().toISOString(),
+    });
+
+    // 7. Embed the summary
+    if (summaryId) embedItem('content', summaryId).catch(() => {});
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ok: true,
+          report_date,
+          content_id: summaryId,
+          ...results,
         }, null, 2),
       }],
     };

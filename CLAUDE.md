@@ -69,6 +69,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
 | `bookings` | Weekly bookings order-line data | week, year, order_number, end_user, customer_name, subsegment, booking_type, product_code, region, subregion, country, channel, order_type, sales_rep, sales_org, value_2023, value_2024, value_2025, value_2026, source_file |
 | `revenue` | Monthly revenue by product and type | period, year, month, product_code, product_name, revenue_type, actual, prior_year, two_year_back, growth_dollar, growth_pct, fc, fc_gap, source_file |
+| `wcr_pack_opportunities` | Weekly WebCenter Pack pipeline snapshots (parsed from Salesforce PDF) | report_date, opportunity_id, account_name, regional_division, region, opportunity_owner, stage, amount_usd, close_date, close_reason, close_reason_detail, close_comment, marketing_generated, source_file. Unique (report_date, opportunity_id) — same opp across N weekly reports = N rows, enabling stage/value trend analysis. |
 | `persona_log` | Incremental updates to personas | content_id, log_date, entry, source, source_ref, section_updated |
 | `research_log` | Incremental updates to research docs | content_id, log_date, entry, source, source_ref, section_updated |
 
@@ -243,6 +244,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 18 |
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
+| WCR Pack Pipeline | wcr_pack_opps_extract, wcr_pack_opps_write | 2 |
 | Utility | get_system_status | 1 |
 
 ### Content Types
@@ -302,12 +304,13 @@ The `content_links` table enables linking any content item to any other (signal�
 | Support Review | `support-review` | get_prompt, support_review_extract, support_review_write |
 | Sales Report | `sales-report` | get_prompt, sales_report_extract, sales_report_write |
 | Bookings Report | `bookings-report` | get_prompt, bookings_report_extract, bookings_report_write |
+| WCR Pack Opportunities | `wcr-pack-opps-report` | get_prompt, wcr_pack_opps_extract, wcr_pack_opps_write |
 
 ### Prompt Templates (12 prompts, stored in Supabase `prompts` table)
 
 Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
 
-Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`, `sales-report`, `bookings-report`
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`, `sales-report`, `bookings-report`, `wcr-pack-opps-report`
 
 ### Worker Secrets (set via `wrangler secret put`)
 
