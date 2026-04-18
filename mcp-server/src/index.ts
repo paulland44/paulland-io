@@ -11,7 +11,6 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import * as XLSX from 'xlsx';
-import { extractText as extractPdfText } from 'unpdf';
 
 import {
   supabaseGet,
@@ -3572,12 +3571,42 @@ server.tool(
 
 // ─── WCR Pack Opportunities Tools (Extract / Write) ──────────
 
+// Parse "USD 18.499,26" (European format) → 18499.26. "-" or "" → null.
+function parseEuroUsd(v: any): number | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s || s === '-') return null;
+  const clean = s.replace(/^USD\s*/, '').replace(/\./g, '').replace(/,/g, '.').trim();
+  const n = parseFloat(clean);
+  return isNaN(n) ? null : n;
+}
+
+// Normalise an Excel cell that may already be a JS Date, an Excel serial number,
+// or a string to a YYYY-MM-DD string (or null).
+function toIsoDate(v: any): string | null {
+  if (v == null || v === '' || v === '-') return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === 'number') {
+    // Excel serial date: days since 1899-12-30 (XLSX.js convention)
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  const s = String(v).trim();
+  // Already ISO-ish
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  // DD/MM/YYYY
+  const eu = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (eu) return `${eu[3]}-${eu[2].padStart(2, '0')}-${eu[1].padStart(2, '0')}`;
+  return null;
+}
+
 server.tool(
   'wcr_pack_opps_extract',
-  'Fetch the weekly WebCenter Pack opportunities PDF (from Salesforce) from the asset library and return extracted text plus prior snapshots, existing signals, known competitors, and the analysis prompt. Claude then parses the report inline and calls wcr_pack_opps_write with structured results.',
+  'Parse the weekly WebCenter Pack opportunities XLSX (Salesforce export) from the asset library and return structured rows plus prior snapshots, existing signals, known competitors, and the analysis prompt. Claude then clusters themes and calls wcr_pack_opps_write with the analysis.',
   {
-    asset_id: z.string().optional().describe('UUID of the uploaded WCR Pack opps PDF asset. If omitted, uses the most recent asset tagged "wcr-pack-opps".'),
-    report_date: z.string().optional().describe('Report date in YYYY-MM-DD format. Defaults to today; can also be inferred from the PDF header.'),
+    asset_id: z.string().optional().describe('UUID of the uploaded WCR Pack opps XLSX asset. If omitted, uses the most recent asset tagged "wcr-pack-opps".'),
+    report_date: z.string().optional().describe('Report date in YYYY-MM-DD format. Defaults to today.'),
   },
   async ({ asset_id, report_date }) => {
     const reportDate = report_date || new Date().toISOString().split('T')[0];
@@ -3592,48 +3621,157 @@ server.tool(
       asset = rows?.[0];
     }
     if (!asset) {
-      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No WCR Pack opps asset found. Upload the weekly Salesforce PDF and tag it "wcr-pack-opps".' }) }] };
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No WCR Pack opps asset found. Upload the weekly Salesforce XLSX and tag it "wcr-pack-opps".' }) }] };
     }
 
     // 2. Fetch prompt template
     const prompts = await supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template');
     const prompt = prompts?.[0];
 
-    // 3. Fetch and parse PDF
+    // 3. Fetch and parse XLSX
     const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
     const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
-    const headers: Record<string, string> = {};
-    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+    const fetchHeaders: Record<string, string> = {};
+    if (internalApiKey) fetchHeaders['X-Internal-API-Key'] = internalApiKey;
 
-    let pages: string[] = [];
-    let totalPages = 0;
+    let opportunities: any[] = [];
+    let grandTotalPrinted: number | null = null;
+    let grandTotalParsed = 0;
+    let runAt: string | null = null;
     let parseError = '';
 
     try {
-      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers });
+      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers: fetchHeaders });
       if (!resp.ok) {
         parseError = `Failed to fetch file: ${resp.status}`;
       } else {
         const fileData = await resp.json();
         if (fileData.encoding !== 'base64') {
-          parseError = 'Expected base64-encoded PDF';
+          parseError = 'Expected base64-encoded XLSX';
         } else {
           const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
-          const extracted = await extractPdfText(binary, { mergePages: false });
-          pages = extracted.text;
-          totalPages = extracted.totalPages;
+          const workbook = XLSX.read(binary, { type: 'array', cellDates: true });
+          const ws = workbook.Sheets[workbook.SheetNames[0]];
+          if (!ws) {
+            parseError = 'No sheets in workbook';
+          } else {
+            const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+
+            // Find header row (contains "Account Regional Division")
+            let headerIdx = -1;
+            for (let i = 0; i < rows.length; i++) {
+              const v0 = rows[i]?.[0];
+              if (v0 && String(v0).trim().startsWith('Account Regional')) {
+                headerIdx = i;
+                break;
+              }
+              // Also capture the "Run at:" metadata for context
+              if (v0 && String(v0).startsWith('Run at:')) {
+                const m = String(v0).match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+                if (m) runAt = toIsoDate(m[1]);
+              }
+            }
+            if (headerIdx < 0) {
+              parseError = 'Could not locate header row ("Account Regional Division")';
+            } else {
+              // Track current close-date group header ("Close Date: Jun FY 2025")
+              // and apply it as close_date to every data row until the next group header.
+              // "January 1900" is Salesforce's placeholder for open opps — null close_date.
+              let currentGroupCloseDate: string | null = null;
+
+              const parseGroupCloseDate = (label: string): string | null => {
+                // "Close Date: Jun FY 2025 (N records)" → last day of Jun 2025
+                // "Close Date: January 1900 (N records)" → null (Salesforce placeholder for "no close date")
+                const m = label.match(/Close Date:\s*([A-Za-z]+)\s+(?:FY\s*)?(\d{4})/);
+                if (!m) return null;
+                const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
+                  'january','february','march','april','june','july','august','september','october','november','december'];
+                const monIdx = monthNames.indexOf(m[1].toLowerCase()) % 12;
+                const year = parseInt(m[2]);
+                if (monIdx < 0 || year < 2000) return null; // year<2000 filters "January 1900"
+                // Last day of month
+                const last = new Date(Date.UTC(year, monIdx + 1, 0));
+                return last.toISOString().slice(0, 10);
+              };
+
+              const cleanDash = (v: any) => {
+                if (v == null) return null;
+                const s = String(v).trim();
+                return (!s || s === '-') ? null : s;
+              };
+
+              for (let i = headerIdx + 1; i < rows.length; i++) {
+                const r = rows[i] || [];
+                const c0 = r[0] == null ? '' : String(r[0]).trim();
+
+                // Group header row ("Close Date: Jun FY 2025 (3 records)")
+                if (c0.startsWith('Close Date:')) {
+                  currentGroupCloseDate = parseGroupCloseDate(c0);
+                  continue;
+                }
+
+                // Grand total footer
+                if (c0.startsWith('Grand Totals')) {
+                  const raw = r[7] ?? rows[i + 1]?.[7];
+                  grandTotalPrinted = parseEuroUsd(raw);
+                  continue;
+                }
+
+                // Sub-total row (blank col 0): skip
+                if (!c0) continue;
+
+                // Skip footer text rows (Confidential / Copyright) — real data rows
+                // always have an Opportunity Name in col 4.
+                if (r[4] == null || String(r[4]).trim() === '') continue;
+
+                // Data row. Columns (0-indexed, matching XLSX header row 19):
+                // 0 Account Regional Division | 1 Account Region | 2 Opportunity Owner
+                // 3 Account Name | 4 Opportunity Name | 5 Software
+                // 6 Amount (converted) | 7 Amount of Software (converted) | 8 Next Action
+                // 9 Created Date | 10 Stage mapping | 11 Close Reason
+                // 12 Close Reason Detail | 13 Close Comment | 14 Marketing Generated
+
+                const software = r[5] == null ? '' : String(r[5]);
+                const amountUsd = parseEuroUsd(r[6]);
+                const amountSoftwareUsd = parseEuroUsd(r[7]);
+                // Validate against printed grand total — Salesforce totals use Amount of Software
+                if (amountSoftwareUsd != null) grandTotalParsed += amountSoftwareUsd;
+
+                opportunities.push({
+                  opportunity_id: cleanDash(r[4]),
+                  opportunity_name: cleanDash(r[4]),
+                  account_name: cleanDash(r[3]),
+                  regional_division: cleanDash(r[0]),
+                  region: cleanDash(r[1]),
+                  opportunity_owner: cleanDash(r[2]),
+                  software: cleanDash(r[5]),
+                  main_products: software
+                    ? software.split(/[;,]/).map(s => s.trim()).filter(Boolean)
+                    : [],
+                  amount_usd: amountUsd,
+                  amount_software_usd: amountSoftwareUsd,
+                  stage: cleanDash(r[10]),
+                  close_date: currentGroupCloseDate,
+                  close_reason: cleanDash(r[11]),
+                  close_reason_detail: cleanDash(r[12]),
+                  close_comment: cleanDash(r[13]),
+                  next_action: cleanDash(r[8]),
+                  created_date: toIsoDate(r[9]),
+                  marketing_generated: r[14] == null ? null : String(r[14]).trim() === '1',
+                });
+              }
+            }
+          }
         }
       }
     } catch (err: any) {
-      parseError = `PDF parse error: ${err.message}`;
+      parseError = `XLSX parse error: ${err.message}`;
     }
 
     // 4. Fetch prior snapshots (last 4 report_dates) for trend/stalled-deal analysis
     const priorSnapshots = await supabaseGet(
       `wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,opportunity_name,account_name,stage,amount_usd,close_date,close_reason_detail`
     );
-
-    // Group by report_date so Claude can see up to the last 4 snapshots
     const byDate: Record<string, any[]> = {};
     for (const row of priorSnapshots || []) {
       if (!byDate[row.report_date]) byDate[row.report_date] = [];
@@ -3657,9 +3795,15 @@ server.tool(
           report_date: reportDate,
           asset_id: asset.id,
           file_name: asset.filename,
-          pdf: {
-            total_pages: totalPages,
-            pages, // one string per page, order-preserved
+          run_at: runAt,
+          opportunities,
+          validation: {
+            row_count: opportunities.length,
+            grand_total_parsed: Math.round(grandTotalParsed * 100) / 100,
+            grand_total_printed: grandTotalPrinted,
+            discrepancy: grandTotalPrinted != null
+              ? Math.round(Math.abs(grandTotalParsed - grandTotalPrinted) * 100) / 100
+              : null,
           },
           prior_snapshots: priorByDate,
           existing_signals: (existingSignals || []).map((s: any) => ({
