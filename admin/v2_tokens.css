@@ -1,0 +1,121 @@
+/* ============================================================
+   v2 tokens — review proposal
+   Crisper hierarchy, real light theme, single accent system.
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;1,300&family=Inconsolata:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap');
+
+:root,
+[data-v2-theme="dark"] {
+  /* Surfaces — 4 explicit elevations, matched to preview cards */
+  --v2-bg:        #0E0E13;   /* page */
+  --v2-surface:   #1C1C25;   /* sidebar, topbar */
+  --v2-card:      #2A2933;   /* cards, inputs at rest */
+  --v2-card-hi:   #353441;   /* hover, raised */
+
+  /* Text — 4 explicit roles with WCAG-checked contrast on --v2-card */
+  --v2-text:      #ECE6D6;   /* primary  · 13.8:1 */
+  --v2-text-2:    #B8AE96;   /* secondary· 8.1:1 */
+  --v2-text-3:    #807865;   /* tertiary · 4.6:1  AA body */
+  --v2-text-4:    #5A5448;   /* disabled · 2.7:1  decorative only */
+
+  /* Lines & overlays */
+  --v2-border:       rgba(236, 230, 214, 0.08);
+  --v2-border-hover: rgba(236, 230, 214, 0.16);
+  --v2-divider:      rgba(236, 230, 214, 0.06);
+  --v2-overlay:      rgba(8, 8, 12, 0.55);
+
+  /* Hover fills */
+  --v2-hover:    rgba(236, 230, 214, 0.04);
+  --v2-press:    rgba(236, 230, 214, 0.08);
+
+  /* Accent — sage default; auto-tinted variants */
+  --v2-accent:        #5BB088;
+  --v2-accent-hover:  #6FC09A;
+  --v2-accent-soft:   rgba(91, 176, 136, 0.14);
+  --v2-accent-text:   #5BB088;     /* same as accent in dark, contrast on --v2-card 4.5:1 */
+  --v2-on-accent:     #0E0E13;
+
+  /* Semantic */
+  --v2-info:    #6BA3E8;
+  --v2-warn:    #E0B560;
+  --v2-danger:  #E37070;
+  --v2-success: var(--v2-accent);
+
+  /* Shadows — softened, no double-inner-stroke */
+  --v2-shadow-sm: 0 1px 2px rgba(0,0,0,0.32);
+  --v2-shadow-md: 0 6px 18px rgba(0,0,0,0.36);
+  --v2-shadow-lg: 0 18px 48px rgba(0,0,0,0.45);
+
+  /* Focus ring */
+  --v2-focus: 0 0 0 2px var(--v2-bg), 0 0 0 4px var(--v2-accent);
+}
+
+[data-v2-theme="light"] {
+  --v2-bg:        #FAF8F3;
+  --v2-surface:   #F2EFE7;
+  --v2-card:      #FFFFFF;
+  --v2-card-hi:   #F6F3EC;
+
+  --v2-text:      #1A1A22;     /* 16.4:1 */
+  --v2-text-2:    #4A4A55;     /* 9.1:1  */
+  --v2-text-3:    #767582;     /* 4.6:1  AA body */
+  --v2-text-4:    #B5B3AE;
+
+  --v2-border:       rgba(26, 26, 34, 0.10);
+  --v2-border-hover: rgba(26, 26, 34, 0.20);
+  --v2-divider:      rgba(26, 26, 34, 0.06);
+  --v2-overlay:      rgba(26, 26, 34, 0.40);
+
+  --v2-hover:    rgba(26, 26, 34, 0.04);
+  --v2-press:    rgba(26, 26, 34, 0.08);
+
+  --v2-accent:        #2F7A58;
+  --v2-accent-hover:  #266547;
+  --v2-accent-soft:   rgba(47, 122, 88, 0.10);
+  --v2-accent-text:   #2F7A58;
+  --v2-on-accent:     #FFFFFF;
+
+  --v2-info:    #2F6CB5;
+  --v2-warn:    #966B0F;
+  --v2-danger:  #B43838;
+  --v2-success: var(--v2-accent);
+
+  --v2-shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+  --v2-shadow-md: 0 4px 14px rgba(20, 20, 30, 0.08);
+  --v2-shadow-lg: 0 16px 40px rgba(20, 20, 30, 0.14);
+
+  --v2-focus: 0 0 0 2px var(--v2-bg), 0 0 0 4px var(--v2-accent);
+}
+
+/* Accent variants — applied in addition to data-v2-theme */
+[data-v2-accent="gold"]  { --v2-accent:#C8A436; --v2-accent-hover:#D8B450; --v2-accent-soft:rgba(200,164,54,0.14); --v2-accent-text:#C8A436; }
+[data-v2-accent="ocean"] { --v2-accent:#4F8FCC; --v2-accent-hover:#65A0D8; --v2-accent-soft:rgba(79,143,204,0.14); --v2-accent-text:#4F8FCC; }
+[data-v2-accent="ember"] { --v2-accent:#D4636F; --v2-accent-hover:#E07785; --v2-accent-soft:rgba(212,99,111,0.14); --v2-accent-text:#D4636F; }
+[data-v2-accent="violet"]{ --v2-accent:#9474D4; --v2-accent-hover:#A687E0; --v2-accent-soft:rgba(148,116,212,0.14); --v2-accent-text:#9474D4; }
+
+[data-v2-theme="light"][data-v2-accent="gold"]  { --v2-accent:#7A6010; --v2-accent-hover:#604808; --v2-accent-soft:rgba(122,96,16,0.10); --v2-accent-text:#7A6010; }
+[data-v2-theme="light"][data-v2-accent="ocean"] { --v2-accent:#2659A0; --v2-accent-hover:#1E4A88; --v2-accent-soft:rgba(38,89,160,0.10); --v2-accent-text:#2659A0; }
+[data-v2-theme="light"][data-v2-accent="ember"] { --v2-accent:#9A2828; --v2-accent-hover:#801E1E; --v2-accent-soft:rgba(154,40,40,0.10); --v2-accent-text:#9A2828; }
+[data-v2-theme="light"][data-v2-accent="violet"]{ --v2-accent:#5A3A98; --v2-accent-hover:#4A2E7E; --v2-accent-soft:rgba(90,58,152,0.10); --v2-accent-text:#5A3A98; }
+
+/* Type */
+:root {
+  --v2-serif: 'Cormorant Garamond', Georgia, serif;
+  --v2-sans:  'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --v2-mono:  'Inconsolata', 'SF Mono', Menlo, monospace;
+}
+
+/* Radii — pulled in to feel crisp */
+:root {
+  --v2-r-sm: 4px;
+  --v2-r-md: 6px;
+  --v2-r-lg: 10px;
+  --v2-r-pill: 999px;
+}
+
+/* Spacing — explicit 4 px grid */
+:root {
+  --v2-1: 4px; --v2-2: 8px;  --v2-3: 12px; --v2-4: 16px;
+  --v2-5: 20px; --v2-6: 24px; --v2-8: 32px; --v2-10: 40px; --v2-12: 48px;
+}
