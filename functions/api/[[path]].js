@@ -3356,15 +3356,114 @@ function fillTemplate(template, vars) {
     vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : '');
 }
 
+// ─── LLM streaming dispatcher ────────────────────────────────
+// Routes to Anthropic (claude-*) or Cloudflare Workers AI (@cf/*)
+// and normalises both to `data: {type:'delta', text:'…'}` frames.
+// `data: {type:'error', error:'…'}` for failures, `[DONE]` at end.
+
+async function streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder }) {
+  const sendErr = (msg) => writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`));
+  const sendDelta = (text) => writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`));
+
+  if (typeof model !== 'string' || !model) {
+    await sendErr('Model not specified');
+    return;
+  }
+
+  // ── Anthropic ──
+  if (model.startsWith('claude-')) {
+    const anthropicKey = env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) { await sendErr('ANTHROPIC_API_KEY not configured'); return; }
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: maxTokens,
+        stream: true,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userMessage }],
+      }),
+    });
+    if (!res.ok) { await sendErr(await res.text()); return; }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (!data || data === '[DONE]') continue;
+        let parsed;
+        try { parsed = JSON.parse(data); } catch { continue; }
+        if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+          await sendDelta(parsed.delta.text);
+        } else if (parsed.type === 'error') {
+          await sendErr(parsed.error?.message || JSON.stringify(parsed.error));
+        }
+      }
+    }
+    return;
+  }
+
+  // ── Cloudflare Workers AI ──
+  if (model.startsWith('@cf/')) {
+    if (!env.AI) { await sendErr('Workers AI binding not available'); return; }
+    let stream;
+    try {
+      stream = await env.AI.run(model, {
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        stream: true,
+        max_tokens: maxTokens,
+      });
+    } catch (err) { await sendErr(`Workers AI error: ${err.message}`); return; }
+
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (!data || data === '[DONE]') continue;
+        let parsed;
+        try { parsed = JSON.parse(data); } catch { continue; }
+        const text = parsed.response
+          ?? parsed.choices?.[0]?.delta?.content
+          ?? parsed.delta?.text
+          ?? '';
+        if (text) await sendDelta(text);
+      }
+    }
+    return;
+  }
+
+  await sendErr(`Unknown model prefix: ${model}`);
+}
+
 // ─── Signal Synthesis (streaming) ─────────────────────────────
 
 async function handleSignalSynthesis(request, env) {
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
-  }
-
-  const { signal_ids, format = 'narrative', focus = 'strategic-implications', context } = await request.json();
+  const { signal_ids, format = 'narrative', focus = 'strategic-implications', context, model: modelOverride } = await request.json();
   if (!signal_ids?.length || signal_ids.length < 2) {
     return json({ error: 'At least 2 signal IDs required' }, 400);
   }
@@ -3447,56 +3546,17 @@ ${extraContext}
 
 Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.`;
 
-  const model = promptRow?.model || 'claude-sonnet-4-20250514';
+  const model = modelOverride || promptRow?.model || 'claude-sonnet-4-6';
   const maxTokens = promptRow?.max_tokens || 4000;
 
-  // Stream Claude response via TransformStream (same pattern as competitor research)
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
   const encoder = new TextEncoder();
 
   const streamPromise = (async () => {
     try {
-      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          stream: true,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userMessage }],
-        }),
-      });
-
-      if (!claudeRes.ok) {
-        const errText = await claudeRes.text();
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errText })}\n\n`));
-        await writer.close();
-        return;
-      }
-
-      const reader = claudeRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            await writer.write(encoder.encode(line + '\n\n'));
-          }
-        }
-      }
-
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model })}\n\n`));
+      await streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder });
       await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
@@ -3505,7 +3565,6 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.
     }
   })();
 
-  // Don't await — let it stream
   streamPromise.catch(() => {});
 
   return new Response(readable, {
@@ -3520,12 +3579,7 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.
 // ─── Reflection Synthesis ─────────────────────────────────────
 
 async function handleReflectionSynthesis(request, env) {
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
-  }
-
-  const { from_date, to_date, categories, context } = await request.json();
+  const { from_date, to_date, categories, context, model: modelOverride } = await request.json();
   if (!from_date || !to_date) {
     return json({ error: 'from_date and to_date required' }, 400);
   }
@@ -3603,7 +3657,7 @@ ${reflectionsBlock}
 
 Please synthesise per the system prompt.`;
 
-  const model = promptRow?.model || 'claude-sonnet-4-20250514';
+  const model = modelOverride || promptRow?.model || 'claude-sonnet-4-6';
   const maxTokens = promptRow?.max_tokens || 4000;
 
   const { readable, writable } = new TransformStream();
@@ -3612,49 +3666,14 @@ Please synthesise per the system prompt.`;
 
   const streamPromise = (async () => {
     try {
-      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: {
-          'x-api-key': anthropicKey,
-          'anthropic-version': '2023-06-01',
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          max_tokens: maxTokens,
-          stream: true,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userMessage }],
-        }),
-      });
-
-      if (!claudeRes.ok) {
-        const errText = await claudeRes.text();
-        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errText })}\n\n`));
-        await writer.close();
-        return;
-      }
-
-      // Send source counts first so the client can show them in the header
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', log_count: logData.length, content_count: contentData.length, source_ids: { log: logData.map(r => r.id), content: contentData.map(r => r.id) } })}\n\n`));
-
-      const reader = claudeRes.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop();
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            await writer.write(encoder.encode(line + '\n\n'));
-          }
-        }
-      }
-
+      await writer.write(encoder.encode(`data: ${JSON.stringify({
+        type: 'meta',
+        model,
+        log_count: logData.length,
+        content_count: contentData.length,
+        source_ids: { log: logData.map(r => r.id), content: contentData.map(r => r.id) },
+      })}\n\n`));
+      await streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder });
       await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));

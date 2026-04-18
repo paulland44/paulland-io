@@ -6811,13 +6811,22 @@
                             <option value="opportunity-identification">Opportunity identification</option>
                         </select>
                     </div>
+                    <div>
+                        <div style="font-size:0.75rem;color:var(--text-muted);margin-bottom:0.35rem;text-transform:uppercase;letter-spacing:0.05em">Model</div>
+                        <select id="synthModel" class="filter-select">
+                            ${SYNTHESIS_MODELS.map(m => {
+                                const sel = m.id === getStoredSynthesisModel() ? ' selected' : '';
+                                return `<option value="${m.id}"${sel}>${m.label} · ${m.cost === 'free' ? 'free' : m.provider}</option>`;
+                            }).join('')}
+                        </select>
+                    </div>
                 </div>
                 <textarea id="synthContext" class="input" rows="2" placeholder="Optional: Add context or guidance for the synthesis..." style="width:100%;margin-bottom:0.75rem"></textarea>
                 <div style="display:flex;gap:0.5rem">
-                    <button class="btn btn-primary" id="generateSynthesis"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Generate</button>
-                    <button class="btn" id="closeSynthesis">Cancel</button>
+                    <button class="btn-action" id="generateSynthesis"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Generate</button>
+                    <button class="btn-secondary filter-btn" id="closeSynthesis">Cancel</button>
                     <span style="flex:1"></span>
-                    <button class="btn" id="saveSynthesis" style="display:none"><i class="icon" data-lucide="save" style="width:14px;height:14px"></i> Save as Summary</button>
+                    <button class="btn-action" id="saveSynthesis" style="display:none"><i class="icon" data-lucide="save" style="width:14px;height:14px"></i> Save as Summary</button>
                 </div>
                 <div class="synthesis-result" id="synthesisResult"></div>
             </div>
@@ -6831,14 +6840,21 @@
 
         let synthesisText = '';
 
+        let synthesisModel = null;
+        let synthesisMeta = null;
+
         // Generate
         document.getElementById('generateSynthesis').addEventListener('click', async () => {
             const format = document.querySelector('input[name="synthFormat"]:checked').value;
             const focus = document.getElementById('synthFocus').value;
+            const model = document.getElementById('synthModel').value;
+            setStoredSynthesisModel(model);
+            synthesisModel = model;
             const context = document.getElementById('synthContext').value.trim();
             const resultDiv = document.getElementById('synthesisResult');
-            resultDiv.innerHTML = '<div class="ask-loading"><span class="spinner"></span> Synthesising signals...</div>';
+            resultDiv.innerHTML = `<div class="ask-loading"><span class="spinner"></span> Synthesising signals with ${esc(modelLabelFor(model))}...</div>`;
             synthesisText = '';
+            synthesisMeta = null;
 
             try {
                 const res = await fetch('/api/signal-synthesis', {
@@ -6846,7 +6862,7 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         signal_ids: [...signalIds],
-                        format, focus, context: context || undefined,
+                        format, focus, model, context: context || undefined,
                     }),
                 });
 
@@ -6855,7 +6871,6 @@
                     throw new Error(err.error || 'Synthesis failed');
                 }
 
-                // Handle streaming SSE response
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
                 let buffer = '';
@@ -6874,8 +6889,9 @@
                         if (data === '[DONE]') break;
                         let parsed;
                         try { parsed = JSON.parse(data); } catch { continue; }
-                        if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                            synthesisText += parsed.delta.text;
+                        if (parsed.type === 'meta') synthesisMeta = parsed;
+                        else if (parsed.type === 'delta' && parsed.text) {
+                            synthesisText += parsed.text;
                             output.innerHTML = marked.parse(synthesisText);
                         } else if (parsed.type === 'error') {
                             const msg = typeof parsed.error === 'string'
@@ -6886,7 +6902,6 @@
                     }
                 }
 
-                // Show save button
                 if (synthesisText) {
                     document.getElementById('saveSynthesis').style.display = '';
                 }
@@ -6910,7 +6925,11 @@
                         data: {
                             type: 'signal-synthesis',
                             content: synthesisText,
-                            metadata: { source_signal_ids: [...signalIds], focus, format },
+                            metadata: {
+                                source_signal_ids: [...signalIds],
+                                focus, format,
+                                model: synthesisMeta?.model || synthesisModel,
+                            },
                             period_start: new Date().toISOString().split('T')[0],
                             period_end: new Date().toISOString().split('T')[0],
                         },
@@ -7889,6 +7908,28 @@
 
     // ─── Reflections ──────────────────────────────────────────
 
+    // Models available for synthesis. `claude-*` routes to Anthropic,
+    // `@cf/*` routes to Cloudflare Workers AI (free).
+    const SYNTHESIS_MODELS = [
+        { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', provider: 'Anthropic', cost: 'paid' },
+        { id: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', provider: 'Anthropic', cost: 'paid' },
+        { id: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', label: 'Llama 3.3 70B', provider: 'Workers AI', cost: 'free' },
+        { id: '@cf/meta/llama-4-scout-17b-16e-instruct', label: 'Llama 4 Scout 17B', provider: 'Workers AI', cost: 'free' },
+        { id: '@cf/qwen/qwq-32b', label: 'Qwen QwQ 32B', provider: 'Workers AI', cost: 'free' },
+        { id: '@cf/mistralai/mistral-small-3.1-24b-instruct', label: 'Mistral Small 3.1', provider: 'Workers AI', cost: 'free' },
+    ];
+    const DEFAULT_SYNTHESIS_MODEL = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+    function modelLabelFor(id) {
+        return SYNTHESIS_MODELS.find(m => m.id === id)?.label || id;
+    }
+    function getStoredSynthesisModel() {
+        try { return localStorage.getItem('synthesisModel') || DEFAULT_SYNTHESIS_MODEL; }
+        catch { return DEFAULT_SYNTHESIS_MODEL; }
+    }
+    function setStoredSynthesisModel(id) {
+        try { localStorage.setItem('synthesisModel', id); } catch {}
+    }
+
     let reflectionState = {
         from: null,      // ISO date string (YYYY-MM-DD)
         to: null,
@@ -7898,6 +7939,7 @@
         synthesisText: '',
         synthesisSources: null,
         rawExpanded: false,
+        model: null,      // resolved from localStorage on first render
     };
 
     async function loadReflections() {
@@ -7924,10 +7966,12 @@
             .limit(1);
         if (savedSyntheses?.length) {
             reflectionState.synthesisText = savedSyntheses[0].content || '';
+            const meta = savedSyntheses[0].metadata || {};
             reflectionState.synthesisSources = {
                 period_start: savedSyntheses[0].period_start,
                 period_end: savedSyntheses[0].period_end,
-                ...(savedSyntheses[0].metadata || {}),
+                source_count: meta.source_count,
+                model: meta.model,
             };
         }
 
@@ -7958,10 +8002,18 @@
 
     function renderReflections() {
         const main = document.getElementById('mainContent');
-        const { from, to, categories, logData, contentData, synthesisText, synthesisSources, rawExpanded } = reflectionState;
+        if (!reflectionState.model) reflectionState.model = getStoredSynthesisModel();
+        const { from, to, categories, logData, contentData, synthesisText, synthesisSources, rawExpanded, model } = reflectionState;
         const total = logData.length + contentData.length;
 
         const catChip = (cat, label) => `<button class="filter-btn${categories.includes(cat) ? ' active' : ''}" data-cat="${cat}">${label}</button>`;
+
+        const modelOptions = SYNTHESIS_MODELS.map(m =>
+            `<option value="${m.id}"${m.id === model ? ' selected' : ''}>${m.label} · ${m.cost === 'free' ? 'free' : m.provider}</option>`
+        ).join('');
+        const modelPicker = `
+            <select id="synthesisModelPicker" class="filter-select" style="padding: 0.4rem 0.6rem; min-width: 220px;">${modelOptions}</select>
+        `;
 
         main.innerHTML = `
             <div class="page-header">
@@ -7974,10 +8026,13 @@
                 ${synthesisText ? `
                     <div class="synthesis-card-header">
                         <div>
-                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Latest synthesis</div>
+                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Latest synthesis${synthesisSources?.model ? ` · <span style="text-transform:none;color:var(--text-body);font-weight:500;">${esc(modelLabelFor(synthesisSources.model))}</span>` : ''}</div>
                             <div class="synthesis-card-meta">${synthesisSources?.period_start || from} → ${synthesisSources?.period_end || to}${synthesisSources?.source_count ? ` · ${synthesisSources.source_count} reflections` : ''}</div>
                         </div>
-                        <button class="btn-secondary filter-btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            ${modelPicker}
+                            <button class="btn-secondary filter-btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
+                        </div>
                     </div>
                     <div class="synthesis-card-body ask-answer" id="synthesisBody">${marked.parse(synthesisText)}</div>
                 ` : `
@@ -7986,7 +8041,10 @@
                             <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> No synthesis yet</div>
                             <div class="synthesis-card-meta">Generate one to see themes, shifts, and open questions across this period.</div>
                         </div>
-                        <button class="btn-action" id="btnSynthesise" ${total === 0 ? 'disabled' : ''}><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesise</button>
+                        <div style="display: flex; gap: 0.5rem; align-items: center;">
+                            ${modelPicker}
+                            <button class="btn-action" id="btnSynthesise" ${total === 0 ? 'disabled' : ''}><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesise</button>
+                        </div>
                     </div>
                 `}
             </div>
@@ -8038,18 +8096,22 @@
             reflectionState.rawExpanded = !reflectionState.rawExpanded;
             renderReflections();
         });
+        document.getElementById('synthesisModelPicker')?.addEventListener('change', (e) => {
+            reflectionState.model = e.target.value;
+            setStoredSynthesisModel(e.target.value);
+        });
         document.getElementById('btnSynthesise')?.addEventListener('click', runReflectionSynthesis);
         document.getElementById('btnResynthesise')?.addEventListener('click', runReflectionSynthesis);
     }
 
     async function runReflectionSynthesis() {
         const card = document.getElementById('synthesisCard');
-        const { from, to, categories } = reflectionState;
+        const { from, to, categories, model } = reflectionState;
 
         card.innerHTML = `
             <div class="synthesis-card-header">
                 <div>
-                    <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesising…</div>
+                    <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesising · <span style="text-transform:none;color:var(--text-body);font-weight:500;">${esc(modelLabelFor(model))}</span></div>
                     <div class="synthesis-card-meta">${from} → ${to}</div>
                 </div>
                 <button class="btn-secondary filter-btn" id="btnCancelSynth" disabled>Cancel</button>
@@ -8064,7 +8126,12 @@
             const res = await fetch('/api/reflection-synthesis', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ from_date: from, to_date: to, categories: categories.length ? categories : undefined }),
+                body: JSON.stringify({
+                    from_date: from,
+                    to_date: to,
+                    categories: categories.length ? categories : undefined,
+                    model,
+                }),
             });
             if (!res.ok) {
                 const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -8089,8 +8156,8 @@
                     let parsed;
                     try { parsed = JSON.parse(data); } catch { continue; }
                     if (parsed.type === 'meta') meta = parsed;
-                    else if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
-                        text += parsed.delta.text;
+                    else if (parsed.type === 'delta' && parsed.text) {
+                        text += parsed.text;
                         body.innerHTML = marked.parse(text);
                     } else if (parsed.type === 'error') {
                         const msg = typeof parsed.error === 'string'
@@ -8105,7 +8172,7 @@
 
             // Save to summaries
             const sourceCount = (meta?.log_count || 0) + (meta?.content_count || 0);
-            const saveRes = await fetch('/api/entity-log', {
+            await fetch('/api/entity-log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -8114,6 +8181,7 @@
                         type: 'reflection-synthesis',
                         content: text,
                         metadata: {
+                            model: meta?.model || model,
                             source_count: sourceCount,
                             log_count: meta?.log_count || 0,
                             content_count: meta?.content_count || 0,
@@ -8131,6 +8199,7 @@
                 period_start: from,
                 period_end: to,
                 source_count: sourceCount,
+                model: meta?.model || model,
             };
             renderReflections();
         } catch (err) {

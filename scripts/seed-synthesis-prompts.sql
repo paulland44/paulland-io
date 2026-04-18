@@ -32,7 +32,7 @@ Tone: direct, warm, not sycophantic. Don't flatter. Don't add filler. Quote him 
 {{extra_context}}
 
 Please synthesise per the system prompt.$$,
- 'claude-sonnet-4-20250514', 4000, 'markdown')
+ 'claude-sonnet-4-6', 4000, 'markdown')
 ON CONFLICT (slug) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,
   user_prompt_template = EXCLUDED.user_prompt_template,
@@ -60,7 +60,7 @@ Ground your analysis in the specific signals provided. Reference them by their t
 {{extra_context}}
 
 Please synthesise these {{signal_count}} signals with a focus on {{focus_label}}.$$,
- 'claude-sonnet-4-20250514', 4000, 'markdown')
+ 'claude-sonnet-4-6', 4000, 'markdown')
 ON CONFLICT (slug) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,
   user_prompt_template = EXCLUDED.user_prompt_template,
