@@ -1518,6 +1518,140 @@
             gap: 1.5rem;
         }
 
+        /* ── Overview: Business pulse (Band 2) ─────────── */
+        .overview-pulse {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 1rem;
+            margin-bottom: 1.5rem;
+        }
+        .pulse-card {
+            background: var(--void-lighter);
+            border-radius: var(--radius-md);
+            padding: 1rem 1.2rem;
+            box-shadow: var(--shadow-sm);
+            cursor: pointer;
+            transition: box-shadow 0.2s, transform 0.2s;
+            border-left: 3px solid var(--accent);
+            display: flex;
+            flex-direction: column;
+            gap: 0.35rem;
+            min-width: 0;
+        }
+        .pulse-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .pulse-card.empty { border-left-color: var(--border); }
+        .pulse-label {
+            font-size: 0.72rem;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .pulse-value {
+            font-family: var(--mono);
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--accent);
+            line-height: 1.1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .pulse-value.small { font-size: 1rem; color: var(--text-body); font-family: var(--sans); font-weight: 600; }
+        .pulse-value.muted { color: var(--text-muted); opacity: 0.5; }
+        .pulse-sub {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .pulse-delta {
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            font-weight: 600;
+        }
+        .pulse-delta.positive { color: #4ade80; }
+        .pulse-delta.negative { color: #f87171; }
+
+        @media (max-width: 900px) {
+            .overview-pulse { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 600px) {
+            .overview-pulse { grid-template-columns: 1fr; }
+        }
+
+        /* ── Overview: Attention queue (Band 3 right) ─── */
+        .attn-row {
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+            border-radius: var(--radius-sm);
+        }
+        .attn-row:last-child { border-bottom: none; }
+        .attn-row:hover:not(.empty) { background: var(--hover-subtle); }
+        .attn-row.empty { color: var(--text-muted); font-style: italic; cursor: default; }
+        .attn-lead { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--text-body); }
+        .attn-lead .icon svg { width: 14px; height: 14px; opacity: 0.7; }
+        .attn-lead strong { color: var(--accent); font-family: var(--mono); font-weight: 600; }
+        .attn-sub {
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            padding: 0.15rem 0 0.15rem 1.5rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* ── Overview: Knowledge strip (Band 4) ────────── */
+        .overview-knowledge-strip {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 0.6rem;
+            margin-bottom: 1.5rem;
+        }
+        .knowledge-chip {
+            background: var(--void-lighter);
+            border-radius: var(--radius-sm);
+            padding: 0.55rem 0.8rem;
+            cursor: pointer;
+            transition: background 0.15s, transform 0.15s;
+            box-shadow: var(--shadow-sm);
+            min-width: 0;
+        }
+        .knowledge-chip:hover { transform: translateY(-1px); }
+        .knowledge-chip.warn { border-left: 2px solid var(--accent); padding-left: 0.65rem; }
+        .chip-label {
+            font-size: 0.68rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+        .chip-lead {
+            font-size: 0.82rem;
+            color: var(--text-body);
+            font-family: var(--mono);
+            margin-top: 0.15rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .knowledge-chip.warn .chip-lead { color: var(--accent); font-weight: 600; }
+
+        @media (max-width: 900px) {
+            .overview-knowledge-strip { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 600px) {
+            .overview-knowledge-strip { grid-template-columns: repeat(2, 1fr); }
+        }
+
         .tag-cloud {
             display: flex;
             flex-wrap: wrap;
@@ -4383,61 +4517,142 @@
 
         const now = new Date();
         const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
         const yesterdayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).toISOString();
         const todayDateStr = now.toISOString().split('T')[0];
 
-        // Targeted count queries instead of fetching all content
+        // Parallel fetch — knowledge counts, sales/bookings, WCR snapshot dates, recent items
         const [
-            articleCount, articleWeekCount,
-            thoughtCount, thoughtWeekCount,
-            signalCount, signalWeekCount,
-            reflectionCount, reflectionWeekCount,
-            summariesCount,
             recentContent,
-            feedItemCount, uncapturedFeedCount,
+            uncapturedFeedCount,
+            feedItemPreview,
             dailyNoteToday,
-            unembeddedCount,
             untaggedArticles,
-            tagData, sourceData,
+            signalIdsRes,
+            linkedSignalSourceIdsRes,
+            problemCount, problemsActiveMonth,
+            strategiesMonth,
+            lastReflection,
+            articleWeekCount,
+            wcrDatesRes,
+            salesReports, bookingsData,
         ] = await Promise.all([
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article').gte('captured_at', weekAgo),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought').gte('captured_at', weekAgo),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal').gte('captured_at', weekAgo),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection'),
-            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'reflection').gte('captured_at', weekAgo),
-            db.from('summaries').select('id', { count: 'exact', head: true }),
             db.from('content').select('id, title, type, tags, source, captured_at, url, metadata')
-                .order('captured_at', { ascending: false }).limit(15),
-            db.from('feed_items').select('id', { count: 'exact', head: true }),
+                .in('type', ['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'summary'])
+                .order('captured_at', { ascending: false }).limit(8),
             db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false).eq('dismissed', false),
+            db.from('feed_items').select('id, item_title').eq('captured', false).eq('dismissed', false).order('added_at', { ascending: false }).limit(3),
             db.from('daily_notes').select('id, tasks, meetings, notes').eq('note_date', todayDateStr).maybeSingle(),
-            db.from('content').select('id', { count: 'exact', head: true }).is('embedded_at', null),
-            db.from('content').select('id, title', { count: 'exact' }).eq('type', 'article').filter('tags', 'eq', '{}').limit(8),
-            db.from('content').select('tags').not('tags', 'is', null).limit(500),
-            db.from('content').select('source').eq('type', 'article').not('source', 'is', null).limit(500),
+            db.from('content').select('id, title', { count: 'exact' }).eq('type', 'article').filter('tags', 'eq', '{}').limit(50),
+            db.from('content').select('id').eq('type', 'signal'),
+            db.from('content_links').select('source_id').not('source_id', 'is', null),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'problem'),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'problem').gte('updated_at', monthStart),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'strategy').gte('updated_at', monthStart),
+            db.from('content').select('captured_at').eq('type', 'reflection').order('captured_at', { ascending: false }).limit(1).maybeSingle(),
+            db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article').gte('captured_at', weekAgo),
+            db.from('wcr_pack_opportunities').select('report_date').order('report_date', { ascending: false }).limit(2000),
+            fetchSalesReports(),
+            fetchBookingsData(),
         ]);
 
         const recent = recentContent.data || [];
         const dailyNote = dailyNoteToday.data;
         const hasDailyNote = !!dailyNote;
 
-        const totalContent = (articleCount.count || 0) + (thoughtCount.count || 0) + (signalCount.count || 0) + (reflectionCount.count || 0);
-        const embeddedCount = totalContent - (unembeddedCount.count || 0);
-        const embedPct = totalContent > 0 ? Math.round((embeddedCount / totalContent) * 100) : 0;
+        // ── Band 2: Business pulse ───────────────────────────────
+        // Latest sales — aggregate products from most-recent report
+        const sortedReports = (salesReports || []).slice().sort((a, b) => (b.metadata?.period || '').localeCompare(a.metadata?.period || ''));
+        const latestSales = sortedReports[0];
+        let salesTotal = null, salesFcGap = null, salesGrowthPct = null, salesPeriodLabel = '—';
+        let topProductCode = null, topProductName = '', topProductDetail = '', topProductLabel = 'Top mover';
+        if (latestSales) {
+            salesPeriodLabel = latestSales.metadata?.period_label || latestSales.metadata?.period || '—';
+            const products = latestSales.metadata?.products || {};
+            salesTotal = 0;
+            let fcGapSum = 0, hasFcGap = false;
+            let pySum = 0;
+            let worstGap = 0;
+            for (const [code, p] of Object.entries(products)) {
+                const m = p.monthly || {};
+                salesTotal += m.actual || 0;
+                if (m.fc_gap != null) { fcGapSum += m.fc_gap; hasFcGap = true; }
+                pySum += m.prior_year || 0;
+                if (m.fc_gap != null && m.fc_gap < worstGap) {
+                    worstGap = m.fc_gap;
+                    topProductCode = code;
+                    topProductName = p.name || code;
+                    topProductDetail = `${salesFmtK(m.fc_gap)}k vs FC`;
+                    topProductLabel = 'Needs watching';
+                }
+            }
+            if (hasFcGap) salesFcGap = fcGapSum;
+            if (pySum > 0) salesGrowthPct = (salesTotal - pySum) / pySum;
+            if (!topProductCode) {
+                // No negative FC gap — surface best-growing product instead
+                let bestGrowth = -Infinity;
+                for (const [code, p] of Object.entries(products)) {
+                    const g = p.monthly?.growth_pct;
+                    if (g != null && g > bestGrowth) { bestGrowth = g; topProductCode = code; topProductName = p.name || code; topProductDetail = `${salesFmtPct(g)} YoY`; }
+                }
+                topProductLabel = 'Top grower';
+            }
+        }
 
-        // Tags from limited dataset
-        const tagCounts = {};
-        (tagData.data || []).forEach(c => (c.tags || []).forEach(t => { tagCounts[t] = (tagCounts[t] || 0) + 1; }));
-        const topTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 15);
+        // Bookings — YTD current year across all products (bookings stored in raw $)
+        const currentYear = now.getFullYear();
+        const valueCol = `value_${currentYear}`;
+        let bookingsYtdDollars = 0;
+        (bookingsData || []).forEach(r => { bookingsYtdDollars += r[valueCol] || 0; });
+        const bookingsYtdK = bookingsYtdDollars / 1000; // convert to $k for display
+        // Revenue YTD from latest sales report (products[].ytd.actual stored in $k)
+        let revenueYtdK = 0;
+        if (latestSales) {
+            for (const p of Object.values(latestSales.metadata?.products || {})) {
+                revenueYtdK += p.ytd?.actual || 0;
+            }
+        }
+        const bbRatio = (bookingsYtdK > 0 && revenueYtdK > 0) ? bookingsYtdK / revenueYtdK : null;
 
-        // Sources from limited dataset
-        const sourceCounts = {};
-        (sourceData.data || []).forEach(a => { if (a.source) sourceCounts[a.source] = (sourceCounts[a.source] || 0) + 1; });
-        const topSources = Object.entries(sourceCounts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+        // WCR pipeline — compare two most recent snapshots
+        const wcrDates = [...new Set((wcrDatesRes.data || []).map(r => r.report_date))].sort().reverse();
+        let wcrOpenTotal = null, wcrDelta = null, wcrLatestDate = null;
+        if (wcrDates.length > 0) {
+            wcrLatestDate = wcrDates[0];
+            const latestRes = await db.from('wcr_pack_opportunities')
+                .select('amount_software_usd, stage')
+                .eq('report_date', wcrLatestDate);
+            const openStages = (latestRes.data || []).filter(o => !/closed/i.test(o.stage || ''));
+            wcrOpenTotal = openStages.reduce((s, o) => s + (o.amount_software_usd || 0), 0);
+            if (wcrDates.length > 1) {
+                const prevRes = await db.from('wcr_pack_opportunities')
+                    .select('amount_software_usd, stage')
+                    .eq('report_date', wcrDates[1]);
+                const prevOpen = (prevRes.data || []).filter(o => !/closed/i.test(o.stage || ''))
+                    .reduce((s, o) => s + (o.amount_software_usd || 0), 0);
+                wcrDelta = wcrOpenTotal - prevOpen;
+            }
+        }
+
+        // ── Band 3/4: Knowledge attention ────────────────────────
+        // Unlinked signals — signals with no outgoing content_links row
+        const signalIds = new Set((signalIdsRes.data || []).map(s => s.id));
+        const linkedSourceIds = new Set((linkedSignalSourceIdsRes.data || []).map(l => l.source_id));
+        let unlinkedSignalCount = 0;
+        signalIds.forEach(id => { if (!linkedSourceIds.has(id)) unlinkedSignalCount++; });
+        const signalTotal = signalIds.size;
+
+        const untaggedCount = untaggedArticles.count || 0;
+        const feedPending = uncapturedFeedCount.count || 0;
+        const feedPreviewItems = feedItemPreview.data || [];
+        const problemTotal = problemCount.count || 0;
+        const problemActive = problemsActiveMonth.count || 0;
+        const strategyMonthCount = strategiesMonth.count || 0;
+        const lastReflectionDate = lastReflection.data?.captured_at;
+        const reflectionDaysAgo = lastReflectionDate
+            ? Math.max(0, Math.floor((now - new Date(lastReflectionDate)) / 86400000))
+            : null;
 
         // Greeting
         const hour = now.getHours();
@@ -4491,17 +4706,116 @@
             `;
         }
 
-        // Needs attention items (untagged articles)
-        const attentionItems = untaggedArticles.data || [];
-        const attentionHtml = attentionItems.length === 0
-            ? '<div class="empty-attention">All clear — nothing needs attention</div>'
-            : attentionItems.map(a => `
-                <div class="attention-item" data-id="${a.id}">
-                    <span class="attention-icon">${icon('tag')}</span>
-                    <span class="attention-title">${esc(a.title)}</span>
-                    <span class="attention-reason">No tags</span>
-                </div>
-            `).join('');
+        // Business pulse card renderers. Input values are in $k; salesFmtK promotes to 'm' (millions)
+        // when >= 1000 k — in that case the 'k' suffix is already implied so we omit it.
+        const fmtUsdK = (v) => {
+            if (v == null) return '—';
+            if (Math.abs(v) >= 1000) return `$${salesFmtK(v)}`;
+            return `$${salesFmtK(v)}k`;
+        };
+        const deltaChip = (v) => {
+            if (v == null) return '';
+            const cls = v >= 0 ? 'positive' : 'negative';
+            const arrow = v >= 0 ? '&#9650;' : '&#9660;';
+            const body = Math.abs(v) >= 1000 ? salesFmtK(Math.abs(v)) : `${salesFmtK(Math.abs(v))}k`;
+            return `<span class="pulse-delta ${cls}">${arrow} $${body}</span>`;
+        };
+        const pctChip = (v) => {
+            if (v == null) return '';
+            const cls = v >= 0 ? 'positive' : 'negative';
+            const arrow = v >= 0 ? '&#9650;' : '&#9660;';
+            return `<span class="pulse-delta ${cls}">${arrow} ${(Math.abs(v) * 100).toFixed(1)}%</span>`;
+        };
+
+        const fcGapText = (salesFcGap != null && Math.abs(salesFcGap) >= 1)
+            ? `FC gap: ${salesFcGap >= 0 ? '+' : ''}${salesFmtK(salesFcGap)}k`
+            : '';
+        const salesSubParts = [
+            fcGapText,
+            revenueYtdK > 0 ? `YTD ${fmtUsdK(revenueYtdK)}` : '',
+            pctChip(salesGrowthPct),
+        ].filter(Boolean).join(' · ');
+        const salesCard = latestSales
+            ? `<div class="pulse-card" data-nav="sales-dashboard">
+                    <div class="pulse-label">Latest sales — ${esc(salesPeriodLabel)}</div>
+                    <div class="pulse-value">${fmtUsdK(salesTotal)}</div>
+                    <div class="pulse-sub">${salesSubParts || '&nbsp;'}</div>
+                </div>`
+            : `<div class="pulse-card empty" data-nav="sales-dashboard">
+                    <div class="pulse-label">Latest sales</div>
+                    <div class="pulse-value muted">—</div>
+                    <div class="pulse-sub">No sales report yet</div>
+                </div>`;
+
+        const bookingsCard = `<div class="pulse-card" data-nav="sales-dashboard">
+                <div class="pulse-label">Bookings YTD ${currentYear}</div>
+                <div class="pulse-value">${bookingsYtdK > 0 ? fmtUsdK(bookingsYtdK) : '—'}</div>
+                <div class="pulse-sub">${bbRatio != null
+                    ? `B:B <span class="pulse-delta ${bbRatio >= 1 ? 'positive' : 'negative'}">${bbRatio.toFixed(2)}</span> vs revenue`
+                    : 'Awaiting data'}</div>
+            </div>`;
+
+        const wcrCard = wcrOpenTotal != null
+            ? `<div class="pulse-card" data-nav="sales-wcr-pipeline">
+                    <div class="pulse-label">WCR Pack open pipeline</div>
+                    <div class="pulse-value">${fmtUsdK(wcrOpenTotal / 1000)}</div>
+                    <div class="pulse-sub">${wcrDelta != null ? `Δ week ${deltaChip(wcrDelta / 1000)}` : 'First snapshot'}</div>
+                </div>`
+            : `<div class="pulse-card empty" data-nav="sales-wcr-pipeline">
+                    <div class="pulse-label">WCR Pack pipeline</div>
+                    <div class="pulse-value muted">—</div>
+                    <div class="pulse-sub">No snapshot yet</div>
+                </div>`;
+
+        const topProductCard = topProductCode
+            ? `<div class="pulse-card" data-nav="sales-dashboard">
+                    <div class="pulse-label">${topProductLabel}</div>
+                    <div class="pulse-value small">${esc(topProductName)}</div>
+                    <div class="pulse-sub">${esc(topProductDetail)}</div>
+                </div>`
+            : `<div class="pulse-card empty" data-nav="sales-dashboard">
+                    <div class="pulse-label">Top mover</div>
+                    <div class="pulse-value muted">—</div>
+                    <div class="pulse-sub">No movement to flag</div>
+                </div>`;
+
+        // Attention queue — Band 3 right column
+        const feedInboxHtml = feedPending === 0
+            ? `<div class="attn-row empty"><span>${icon('inbox')}</span> Inbox clear</div>`
+            : `<div class="attn-row" data-nav="feed-items">
+                    <span class="attn-lead">${icon('inbox')} <strong>${feedPending}</strong> feed items awaiting triage</span>
+                </div>` + feedPreviewItems.slice(0, 3).map(f =>
+                    `<div class="attn-sub">· ${esc(f.item_title || '(untitled)')}</div>`
+                ).join('');
+
+        const untaggedHtml = untaggedCount === 0
+            ? ''
+            : `<div class="attn-row" data-nav="articles-untagged">
+                    <span class="attn-lead">${icon('tag')} <strong>${untaggedCount}</strong> articles without tags</span>
+                </div>`;
+
+        const unlinkedSignalsHtml = unlinkedSignalCount === 0
+            ? ''
+            : `<div class="attn-row" data-nav="signals">
+                    <span class="attn-lead">${icon('radio')} <strong>${unlinkedSignalCount}</strong> signals not linked to a problem</span>
+                </div>`;
+
+        const attentionHtml = (feedInboxHtml + untaggedHtml + unlinkedSignalsHtml) || '<div class="attn-row empty">All clear — nothing needs attention</div>';
+
+        // Band 4 — actionable knowledge chips
+        const chips = [
+            { label: 'Articles', lead: untaggedCount > 0 ? `${untaggedCount} untagged` : `${articleWeekCount.count || 0} this week`, nav: untaggedCount > 0 ? 'articles-untagged' : 'articles', warn: untaggedCount > 0 },
+            { label: 'Signals', lead: unlinkedSignalCount > 0 ? `${unlinkedSignalCount} unlinked / ${signalTotal}` : `${signalTotal} linked`, nav: 'signals', warn: unlinkedSignalCount > 0 },
+            { label: 'Problems', lead: `${problemActive} active / ${problemTotal}`, nav: 'problems', warn: false },
+            { label: 'Strategies', lead: `${strategyMonthCount} updated this month`, nav: 'strategy-overview', warn: false },
+            { label: 'Reflections', lead: reflectionDaysAgo == null ? 'None yet' : reflectionDaysAgo === 0 ? 'Today' : `${reflectionDaysAgo}d ago`, nav: 'reflections', warn: reflectionDaysAgo != null && reflectionDaysAgo > 14 },
+        ];
+        const chipsHtml = chips.map(c => `
+            <div class="knowledge-chip${c.warn ? ' warn' : ''}" data-nav="${c.nav}">
+                <div class="chip-label">${c.label}</div>
+                <div class="chip-lead">${esc(c.lead)}</div>
+            </div>
+        `).join('');
 
         main.innerHTML = `
             <div class="overview-greeting">
@@ -4523,99 +4837,32 @@
                 <div class="today-panel-preview">${todayPreviewHtml}</div>
             </div>
 
-            <div class="overview-stats">
-                <div class="stat-card" style="cursor:pointer" data-nav="articles">
-                    <div class="stat-card-value">${articleCount.count || 0}</div>
-                    <div class="stat-card-label">Articles</div>
-                    <div class="stat-card-sub">${articleWeekCount.count || 0} this week</div>
-                </div>
-                <div class="stat-card" style="cursor:pointer" data-nav="thoughts">
-                    <div class="stat-card-value">${thoughtCount.count || 0}</div>
-                    <div class="stat-card-label">Thoughts</div>
-                    <div class="stat-card-sub">${thoughtWeekCount.count || 0} this week</div>
-                </div>
-                <div class="stat-card" style="cursor:pointer" data-nav="signals">
-                    <div class="stat-card-value">${signalCount.count || 0}</div>
-                    <div class="stat-card-label">Signals</div>
-                    <div class="stat-card-sub">${signalWeekCount.count || 0} this week</div>
-                </div>
-                <div class="stat-card" style="cursor:pointer" data-nav="reflections">
-                    <div class="stat-card-value">${reflectionCount.count || 0}</div>
-                    <div class="stat-card-label">Reflections</div>
-                    <div class="stat-card-sub">${reflectionWeekCount.count || 0} this week</div>
-                </div>
-                <div class="stat-card" style="cursor:pointer" data-nav="summaries">
-                    <div class="stat-card-value">${summariesCount.count || 0}</div>
-                    <div class="stat-card-label">Summaries</div>
-                    <div class="stat-card-sub">${Object.keys(tagCounts).length} unique tags</div>
-                </div>
+            <div class="overview-pulse">
+                ${salesCard}
+                ${bookingsCard}
+                ${wcrCard}
+                ${topProductCard}
             </div>
 
             <div class="overview-columns-2">
                 <div class="overview-section">
-                    <div class="overview-section-title">Recent Activity</div>
-                    ${activityHtml || '<div class="empty-attention">No recent activity</div>'}
+                    <div class="overview-section-title">Recent capture</div>
+                    ${activityHtml || '<div class="attn-row empty">No recent activity</div>'}
                 </div>
                 <div class="overview-section">
-                    <div class="health-group">
-                        <div class="health-group-title">Inbox</div>
-                        <div class="health-row" data-nav="feed-items">
-                            <span class="health-row-label">${icon('inbox')} Pending feed items</span>
-                            <span class="health-row-value${(uncapturedFeedCount.count || 0) > 50 ? ' warn' : ''}">${uncapturedFeedCount.count || 0}</span>
-                        </div>
-                    </div>
-                    <div class="health-group">
-                        <div class="health-group-title">Content Health</div>
-                        <div class="health-row">
-                            <span class="health-row-label">${icon('cpu')} Embedding coverage</span>
-                            <span class="health-row-value${embedPct < 50 ? ' warn' : ''}">${embedPct}%</span>
-                        </div>
-                        <div class="embed-bar"><div class="embed-bar-fill" style="width:${embedPct}%"></div></div>
-                        <div class="health-row" data-nav="articles">
-                            <span class="health-row-label">${icon('tag')} Untagged articles</span>
-                            <span class="health-row-value${(untaggedArticles.count || 0) > 0 ? ' warn' : ''}">${untaggedArticles.count || 0}</span>
-                        </div>
-                    </div>
-                    <div class="health-group">
-                        <div class="health-group-title">Needs Attention</div>
-                        ${attentionHtml}
-                    </div>
+                    <div class="overview-section-title">Attention queue</div>
+                    ${attentionHtml}
                 </div>
             </div>
 
-            <div class="overview-bottom">
-                <div class="overview-section">
-                    <div class="overview-section-title">Top Tags</div>
-                    <div class="tag-cloud" id="overviewTagCloud">
-                        ${topTags.map(([tag, count]) =>
-                            `<span class="tag" data-tag="${esc(tag)}">${esc(tag)}<span class="tag-count">${count}</span></span>`
-                        ).join('')}
-                        ${topTags.length === 0 ? '<div class="empty-attention">No tags yet</div>' : ''}
-                    </div>
-                </div>
-                <div class="overview-section">
-                    <div class="overview-section-title">Top Sources</div>
-                    ${topSources.map(([name, count]) =>
-                        `<div class="source-item"><span class="source-name">${esc(name)}</span><span class="source-count">${count}</span></div>`
-                    ).join('')}
-                    ${topSources.length === 0 ? '<div class="empty-attention">No sources yet</div>' : ''}
-                </div>
+            <div class="overview-knowledge-strip">
+                ${chipsHtml}
             </div>
         `;
 
         // Wire up daily note pill + today panel
         document.getElementById('dailyNotePill')?.addEventListener('click', () => navigateToView('daily-note'));
         document.getElementById('todayPanel')?.addEventListener('click', () => navigateToView('daily-note'));
-
-        // Wire up stat card clicks
-        main.querySelectorAll('.stat-card[data-nav]').forEach(el => {
-            el.addEventListener('click', () => navigateToView(el.dataset.nav));
-        });
-
-        // Wire up health row clicks
-        main.querySelectorAll('.health-row[data-nav]').forEach(el => {
-            el.addEventListener('click', () => navigateToView(el.dataset.nav));
-        });
 
         // Wire up recent activity clicks
         main.querySelectorAll('.activity-item').forEach(el => {
@@ -4625,20 +4872,16 @@
             });
         });
 
-        // Wire up attention item clicks
-        main.querySelectorAll('.attention-item').forEach(el => {
-            el.addEventListener('click', async () => {
-                const { data } = await db.from('content').select('*').eq('id', el.dataset.id).maybeSingle();
-                if (data) openContentModal(data);
-            });
-        });
-
-        // Wire up tag cloud clicks — switch to articles filtered by tag
-        document.getElementById('overviewTagCloud')?.querySelectorAll('.tag').forEach(el => {
+        // Pulse cards, attention rows, and chips navigate to their view
+        main.querySelectorAll('.pulse-card[data-nav], .attn-row[data-nav], .knowledge-chip[data-nav]').forEach(el => {
             el.addEventListener('click', () => {
-                const tag = el.dataset.tag;
-                articleFilters = { source: null, tag: tag, dateRange: null, status: null, page: 1 };
-                navigateToView('articles');
+                const target = el.dataset.nav;
+                if (target === 'articles-untagged') {
+                    articleFilters = { source: null, tag: null, dateRange: null, status: null, page: 1 };
+                    navigateToView('articles');
+                } else {
+                    navigateToView(target);
+                }
             });
         });
 
