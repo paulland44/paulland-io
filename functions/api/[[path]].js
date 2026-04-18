@@ -3337,6 +3337,25 @@ ${(item.body || '(No body content)').slice(0, 15000)}`;
   }
 }
 
+// ─── Prompt loader (for streaming handlers) ──────────────────
+// Fetches a prompt row from the `prompts` table by slug so it can
+// be edited from admin → Tools → Prompts. Returns null on miss.
+
+async function loadPromptBySlug(env, slug) {
+  try {
+    const rows = await supabaseGet(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY,
+      `prompts?slug=eq.${slug}&limit=1`);
+    return rows?.[0] || null;
+  } catch {
+    return null;
+  }
+}
+
+function fillTemplate(template, vars) {
+  return (template || '').replace(/\{\{(\w+)\}\}/g, (_, k) =>
+    vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : '');
+}
+
 // ─── Signal Synthesis (streaming) ─────────────────────────────
 
 async function handleSignalSynthesis(request, env) {
@@ -3387,13 +3406,7 @@ async function handleSignalSynthesis(request, env) {
 Use bullet points within each section. Be specific and actionable.`
     : `Write a flowing narrative analysis that connects the signals, identifies patterns, and draws out strategic meaning. Use paragraphs, not bullet lists. Be insightful and forward-looking.`;
 
-  const systemPrompt = `You are a strategic intelligence analyst working with Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager at Esko.
-
-Your task is to synthesise multiple strategic signals into a coherent analysis focused on: ${focusLabels[focus] || focus}.
-
-${formatInstructions}
-
-Ground your analysis in the specific signals provided. Reference them by their titles when relevant. Draw connections between signals that the reader might miss. End with a clear "so what" — what should the reader do or think differently based on this synthesis.`;
+  const focusLabel = focusLabels[focus] || focus;
 
   const signalsContext = signals.map((s, i) =>
     `### Signal ${i + 1}: ${s.title}
@@ -3402,13 +3415,40 @@ Tags: ${(s.tags || []).join(', ')}
 Date: ${s.captured_at || 'Unknown'}`
   ).join('\n\n---\n\n');
 
-  const userMessage = `## Signals to Synthesise
+  const extraContext = context ? `\n## Additional Context\n\n${context}` : '';
+
+  // Load editable prompt from DB (falls back to inline default if missing)
+  const promptRow = await loadPromptBySlug(env, 'signal-synthesis');
+  const vars = {
+    focus_label: focusLabel,
+    format_instructions: formatInstructions,
+    signals_context: signalsContext,
+    extra_context: extraContext,
+    signal_count: signals.length,
+  };
+
+  const systemPrompt = promptRow?.system_prompt
+    ? fillTemplate(promptRow.system_prompt, vars)
+    : `You are a strategic intelligence analyst working with Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager at Esko.
+
+Your task is to synthesise multiple strategic signals into a coherent analysis focused on: ${focusLabel}.
+
+${formatInstructions}
+
+Ground your analysis in the specific signals provided. Reference them by their titles when relevant. Draw connections between signals that the reader might miss. End with a clear "so what" — what should the reader do or think differently based on this synthesis.`;
+
+  const userMessage = promptRow?.user_prompt_template
+    ? fillTemplate(promptRow.user_prompt_template, vars)
+    : `## Signals to Synthesise
 
 ${signalsContext}
 
-${context ? `\n## Additional Context\n\n${context}` : ''}
+${extraContext}
 
-Please synthesise these ${signals.length} signals with a focus on ${focusLabels[focus] || focus}.`;
+Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.`;
+
+  const model = promptRow?.model || 'claude-sonnet-4-20250514';
+  const maxTokens = promptRow?.max_tokens || 4000;
 
   // Stream Claude response via TransformStream (same pattern as competitor research)
   const { readable, writable } = new TransformStream();
@@ -3425,8 +3465,8 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabels[
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
+          model,
+          max_tokens: maxTokens,
           stream: true,
           system: systemPrompt,
           messages: [{ role: 'user', content: userMessage }],
@@ -3519,7 +3559,25 @@ async function handleReflectionSynthesis(request, env) {
     `[${(r.captured_at || '').slice(0, 10)}] ${r.title}\n${r.body || ''}`
   ).join('\n\n---\n\n');
 
-  const systemPrompt = `You are a thoughtful coach and sparring partner to Paul Land, a Domain Lead and Product Manager at Esko. Your job is to synthesise a period of his personal reflections into a short, honest mirror — helping him see patterns he's too close to notice.
+  const reflectionsBlock = [
+    logData.length ? `### From daily reviews (${logData.length})\n\n${logBlock}` : '',
+    contentData.length ? `### Captured reflections (${contentData.length})\n\n${contentBlock}` : '',
+  ].filter(Boolean).join('\n\n');
+
+  const extraContext = context ? `\nAdditional guidance from Paul for this synthesis: ${context}` : '';
+
+  // Load editable prompt from DB (falls back to inline default if missing)
+  const promptRow = await loadPromptBySlug(env, 'reflection-synthesis');
+  const vars = {
+    from_date,
+    to_date,
+    reflections: reflectionsBlock,
+    extra_context: extraContext,
+  };
+
+  const systemPrompt = promptRow?.system_prompt
+    ? fillTemplate(promptRow.system_prompt, vars) + extraContext
+    : `You are a thoughtful coach and sparring partner to Paul Land, a Domain Lead and Product Manager at Esko. Your job is to synthesise a period of his personal reflections into a short, honest mirror — helping him see patterns he's too close to notice.
 
 Write four sections in markdown, in this exact order:
 
@@ -3535,11 +3593,18 @@ A bulleted list of the questions he's still working through. These are the thing
 ## Suggested links
 Bulleted list of suggestions for where these reflections might belong in his knowledge base. Example: "Link the 3 reflections about CSR workload to problem P3" or "This cluster of thinking about energy belongs on your personal development file". Be concrete.
 
-Tone: direct, warm, not sycophantic. Don't flatter. Don't add filler. Quote him sparingly — only when a phrase is genuinely revealing.${context ? '\n\nAdditional guidance from Paul for this synthesis: ' + context : ''}`;
+Tone: direct, warm, not sycophantic. Don't flatter. Don't add filler. Quote him sparingly — only when a phrase is genuinely revealing.${extraContext}`;
 
-  const userMessage = `## Reflections from ${from_date} to ${to_date}
+  const userMessage = promptRow?.user_prompt_template
+    ? fillTemplate(promptRow.user_prompt_template, vars)
+    : `## Reflections from ${from_date} to ${to_date}
 
-${logData.length ? `### From daily reviews (${logData.length})\n\n${logBlock}\n\n` : ''}${contentData.length ? `### Captured reflections (${contentData.length})\n\n${contentBlock}\n\n` : ''}Please synthesise per the system prompt.`;
+${reflectionsBlock}
+
+Please synthesise per the system prompt.`;
+
+  const model = promptRow?.model || 'claude-sonnet-4-20250514';
+  const maxTokens = promptRow?.max_tokens || 4000;
 
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -3555,8 +3620,8 @@ ${logData.length ? `### From daily reviews (${logData.length})\n\n${logBlock}\n\
           'content-type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
+          model,
+          max_tokens: maxTokens,
           stream: true,
           system: systemPrompt,
           messages: [{ role: 'user', content: userMessage }],

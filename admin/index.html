@@ -7974,7 +7974,7 @@
                             <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Latest synthesis</div>
                             <div class="synthesis-card-meta">${synthesisSources?.period_start || from} → ${synthesisSources?.period_end || to}${synthesisSources?.source_count ? ` · ${synthesisSources.source_count} reflections` : ''}</div>
                         </div>
-                        <button class="btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
+                        <button class="btn-secondary filter-btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
                     </div>
                     <div class="synthesis-card-body ask-answer" id="synthesisBody">${marked.parse(synthesisText)}</div>
                 ` : `
@@ -7983,7 +7983,7 @@
                             <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> No synthesis yet</div>
                             <div class="synthesis-card-meta">Generate one to see themes, shifts, and open questions across this period.</div>
                         </div>
-                        <button class="btn btn-primary" id="btnSynthesise" ${total === 0 ? 'disabled' : ''}><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesise</button>
+                        <button class="btn-action" id="btnSynthesise" ${total === 0 ? 'disabled' : ''}><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesise</button>
                     </div>
                 `}
             </div>
@@ -8049,7 +8049,7 @@
                     <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesising…</div>
                     <div class="synthesis-card-meta">${from} → ${to}</div>
                 </div>
-                <button class="btn" id="btnCancelSynth" disabled>Cancel</button>
+                <button class="btn-secondary filter-btn" id="btnCancelSynth" disabled>Cancel</button>
             </div>
             <div class="synthesis-card-body ask-answer" id="synthesisBody"><span class="spinner"></span> Reading reflections…</div>
         `;
