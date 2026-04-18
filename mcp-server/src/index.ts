@@ -3829,7 +3829,7 @@ server.tool(
   'Write the parsed WCR Pack opportunities snapshot. Inserts rows into wcr_pack_opportunities (one per opp for this report_date), creates/updates the weekly summary content item, deduplicates signals by theme_slug (appends evidence if existing, creates if new), links signals to the summary, and upserts competitor mentions. Idempotent: re-running with the same report_date replaces that snapshot.',
   {
     report_date: z.string().describe('Report date in YYYY-MM-DD format'),
-    asset_id: z.string().optional().describe('UUID of the source PDF asset'),
+    asset_id: z.string().optional().describe('UUID of the source XLSX asset'),
     period_label: z.string().describe('Human-readable label, e.g. "Week 16, 2026" or "17 April 2026"'),
     opportunities: z.array(z.object({
       opportunity_id: z.string().describe('Stable Salesforce opp identifier (e.g. "ARTWORKR S.R.L_O20")'),
@@ -3850,7 +3850,7 @@ server.tool(
       next_action: z.string().nullable().optional(),
       created_date: z.string().nullable().optional().describe('YYYY-MM-DD'),
       marketing_generated: z.boolean().nullable().optional(),
-    })).describe('All opportunity rows parsed from the PDF'),
+    })).describe('All opportunity rows parsed from the XLSX'),
     summary: z.object({
       title: z.string().describe('Weekly summary title, e.g. "WCR Pack pipeline — 17 April 2026"'),
       body: z.string().describe('Markdown body — pipeline totals, stage mix, regional mix, themes, velocity'),
