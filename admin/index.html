@@ -14395,6 +14395,18 @@
             { name: 'asset_id', type: 'string', desc: 'Asset UUID of the bookings XLSX' },
             { name: 'replace_source', type: 'boolean?', desc: 'Delete existing rows from same source first' },
         ]},
+        { name: 'wcr_pack_opps_extract', desc: 'Parse the weekly WCR Pack opportunities XLSX and return pre-computed metrics, closed-lost detail, prior snapshots, existing signals, and known competitors', group: 'Sales', params: 2, paramDetails: [
+            { name: 'asset_id', type: 'string?', desc: 'Asset UUID (or latest tagged wcr-pack-opps)' },
+            { name: 'report_date', type: 'string?', desc: 'Report date YYYY-MM-DD (defaults to today)' },
+        ]},
+        { name: 'wcr_pack_opps_write', desc: 'Re-parses the XLSX server-side, bulk-inserts rows, upserts the weekly summary, dedupes signals by id/theme_slug, links competitors. Idempotent by report_date.', group: 'Sales', params: 6, paramDetails: [
+            { name: 'report_date', type: 'string', desc: 'Report date YYYY-MM-DD' },
+            { name: 'asset_id', type: 'string', desc: 'Source XLSX asset UUID' },
+            { name: 'period_label', type: 'string', desc: 'e.g. "17 April 2026"' },
+            { name: 'summary', type: 'object', desc: 'Weekly summary title + markdown body' },
+            { name: 'signals', type: 'array?', desc: 'Closed-lost themes (id-first dedup, then theme_slug)' },
+            { name: 'competitors', type: 'array?', desc: 'Competitor mentions (id-first dedup, then name)' },
+        ]},
     ];
 
     const MCP_SKILLS = [
@@ -14536,6 +14548,20 @@
                 'Upload adapted bookings XLSX to assets',
                 'Call import_bookings to populate bookings table',
                 'Dashboard updates automatically from table data',
+            ],
+        },
+        {
+            name: 'WCR Pack Opportunities',
+            slug: 'wcr-pack-opps',
+            desc: 'Process the weekly Salesforce WCR Pack opportunities XLSX — insert pipeline snapshot rows, produce a weekly summary, dedupe closed-lost themes into reusable signals, and log competitor mentions.',
+            tools: ['get_prompt', 'wcr_pack_opps_extract', 'wcr_pack_opps_write'],
+            prompt: 'wcr-pack-opps-report',
+            steps: [
+                'Upload the weekly Salesforce XLSX to Assets (tagged wcr-pack-opps)',
+                'Call wcr_pack_opps_extract for pre-computed metrics + closed-lost detail',
+                'Cluster closed-lost themes, extract competitors, write the summary body',
+                'Call wcr_pack_opps_write — tool re-parses the XLSX server-side and persists',
+                'Dashboard populates at Sales → WCR Pipeline',
             ],
         },
     ];
