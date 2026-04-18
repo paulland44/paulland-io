@@ -212,6 +212,7 @@
             display: flex;
             align-items: center;
             justify-content: flex-end;
+            gap: 1rem;
             padding: 0 1.5rem;
             z-index: 9;
         }
@@ -220,18 +221,79 @@
             display: inline-flex;
             align-items: center;
             gap: 0.4rem;
-            padding: 0.35rem 0.85rem;
-            background: var(--v2-accent-soft);
-            border: 1px solid var(--v2-accent);
-            border-radius: var(--v2-r-sm);
-            color: var(--v2-accent-text);
+            padding: 0.35rem 0.5rem;
+            background: none;
+            border: none;
+            color: var(--v2-text-3);
             font-size: 0.82rem;
             font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: color 0.2s;
         }
-        .today-btn:hover { background: var(--v2-accent); color: var(--v2-on-accent); }
+        .today-btn:hover { color: var(--v2-accent-text); }
         .today-btn .icon svg { width: 14px; height: 14px; }
+
+        /* ─── Top-bar theme controls ─── */
+        .topbar-theme {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .topbar-accents {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding-right: 0.6rem;
+            border-right: 1px solid var(--v2-border);
+            margin-right: 0.15rem;
+        }
+        .topbar-accent-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            padding: 0;
+            background-clip: content-box;
+            cursor: pointer;
+            transition: transform 0.15s, border-color 0.15s;
+        }
+        .topbar-accent-dot:hover { transform: scale(1.15); }
+        .topbar-accent-dot.active { border-color: var(--v2-text); }
+        .topbar-theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
+            background: none;
+            border: none;
+            color: var(--v2-text-3);
+            cursor: pointer;
+            border-radius: var(--v2-r-sm);
+            transition: color 0.2s, background 0.2s;
+        }
+        .topbar-theme-toggle:hover { color: var(--v2-text); background: var(--v2-hover); }
+        .topbar-theme-toggle .icon svg { width: 16px; height: 16px; }
+
+        /* ─── Ghost icon button (pencil / submit / action icons) ─── */
+        .icon-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.25rem;
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            border-radius: var(--radius-sm);
+            transition: color 0.15s, background 0.15s;
+            vertical-align: middle;
+        }
+        .icon-btn:hover { color: var(--accent); background: var(--hover-subtle); }
+        .icon-btn.icon-btn-accent { color: var(--accent); }
+        .icon-btn.icon-btn-danger { color: var(--red, #ef4444); }
+        .icon-btn.icon-btn-danger:hover { color: var(--red, #ef4444); background: rgba(239,68,68,0.1); }
+        .icon-btn .icon svg { width: 14px; height: 14px; }
 
         /* ─── Sub-tabs (horizontal) ─── */
         .sub-tabs {
@@ -3016,6 +3078,9 @@
         }
 
         .btn-action {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
             padding: 0.5rem 1.2rem;
             background: var(--accent);
             color: var(--void);
@@ -3026,6 +3091,7 @@
             cursor: pointer;
             transition: opacity 0.2s, transform 0.2s;
         }
+        .btn-action .icon svg { width: 14px; height: 14px; }
         .btn-action:hover { opacity: 0.9; transform: translateY(-1px); }
         .btn-action:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
 
@@ -3733,7 +3799,8 @@
         </nav>
 
         <div class="top-bar">
-            <span></span>
+            <span style="flex:1"></span>
+            <div class="topbar-theme" id="topbarTheme"></div>
             <button class="today-btn" id="todayBtn">
                 <i class="icon" data-lucide="calendar-days"></i> Today
             </button>
@@ -3812,6 +3879,60 @@
         // Font size
         const sizes = { small: '0.9rem', medium: '1rem', large: '1.1rem' };
         document.body.style.fontSize = sizes[appSettings.fontSize] || sizes.medium;
+        // Sync top-bar theme controls + any settings-view buttons that are visible
+        syncThemeControls();
+    }
+
+    const ACCENT_COLORS = [
+        { id: 'sage', label: 'Sage', color: '#3d8b6e' },
+        { id: 'gold', label: 'Gold', color: '#b89a30' },
+        { id: 'ocean', label: 'Ocean', color: '#4078b8' },
+        { id: 'ember', label: 'Ember', color: '#c45050' },
+        { id: 'violet', label: 'Violet', color: '#8860c4' },
+    ];
+
+    function renderTopbarTheme() {
+        const el = document.getElementById('topbarTheme');
+        if (!el) return;
+        const dots = ACCENT_COLORS.map(a => `
+            <button class="topbar-accent-dot ${appSettings.accentColor === a.id ? 'active' : ''}"
+                data-accent="${a.id}" title="${a.label}"
+                style="background-color: ${a.color};"></button>
+        `).join('');
+        const nextTheme = appSettings.theme === 'dark' ? 'light' : 'dark';
+        const toggleIcon = appSettings.theme === 'dark' ? 'sun' : 'moon';
+        el.innerHTML = `
+            <div class="topbar-accents">${dots}</div>
+            <button class="topbar-theme-toggle" id="topbarThemeToggle"
+                title="Switch to ${nextTheme} mode" data-next="${nextTheme}">
+                <i class="icon" data-lucide="${toggleIcon}"></i>
+            </button>
+        `;
+        el.querySelectorAll('.topbar-accent-dot').forEach(btn => {
+            btn.addEventListener('click', () => {
+                appSettings.accentColor = btn.dataset.accent;
+                saveSettings();
+                applyTheme();
+            });
+        });
+        el.querySelector('#topbarThemeToggle').addEventListener('click', (e) => {
+            appSettings.theme = e.currentTarget.dataset.next;
+            saveSettings();
+            applyTheme();
+        });
+        if (window.lucide) refreshIcons();
+    }
+
+    function syncThemeControls() {
+        // Re-render top bar (keeps dots + toggle icon in sync)
+        renderTopbarTheme();
+        // Sync Settings view controls if currently visible
+        document.querySelectorAll('.theme-mode-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.mode === appSettings.theme);
+        });
+        document.querySelectorAll('.accent-btn').forEach(b => {
+            b.classList.toggle('active', b.dataset.accent === appSettings.accentColor);
+        });
     }
     let dailyNoteDate = null;
     let dailyNoteId = null;
@@ -6263,7 +6384,7 @@
             <div class="page-header">
                 <h2 class="page-title">Thoughts</h2>
                 <span style="flex:1"></span>
-                <button class="btn" id="toggleNewThought"><i class="icon" data-lucide="plus"></i> New Thought</button>
+                <button class="btn-action" id="toggleNewThought"><i class="icon" data-lucide="plus"></i> New Thought</button>
             </div>
             <div class="new-signal-form" id="newThoughtForm">
                 <input type="text" id="newThoughtTitle" placeholder="Thought title..." class="input">
@@ -6369,7 +6490,7 @@
             <div class="page-header">
                 <h2 class="page-title">Signals</h2>
                 <span style="flex:1"></span>
-                <button class="btn" id="toggleNewSignal"><i class="icon" data-lucide="plus"></i> New Signal</button>
+                <button class="btn-action" id="toggleNewSignal"><i class="icon" data-lucide="plus"></i> New Signal</button>
             </div>
             <div class="new-signal-form" id="newSignalForm">
                 <input type="text" id="newSignalTitle" placeholder="Signal title..." class="input">
@@ -7348,7 +7469,7 @@
             <div class="page-header">
                 <h2 class="page-title">${viewTitle}</h2>
                 <span style="flex:1"></span>
-                ${!filterTypes ? '<button class="btn" id="toggleNewStrategy"><i class="icon" data-lucide="plus"></i> New Strategy</button>' : `<span style="font-size:0.8rem;color:var(--text-muted)">${allStrategies.length} documents</span>`}
+                ${!filterTypes ? '<button class="btn-action" id="toggleNewStrategy"><i class="icon" data-lucide="plus"></i> New Strategy</button>' : `<span style="font-size:0.8rem;color:var(--text-muted)">${allStrategies.length} documents</span>`}
             </div>
             ${!filterTypes ? `<div class="new-signal-form" id="newStrategyForm">
                 <input type="text" id="newStrategyTitle" placeholder="Strategy title..." class="input">
@@ -7546,7 +7667,7 @@
             <div class="page-header">
                 <h2 class="page-title">Problems</h2>
                 <span style="flex:1"></span>
-                <button class="btn" id="toggleNewProblem"><i class="icon" data-lucide="plus"></i> New Problem</button>
+                <button class="btn-action" id="toggleNewProblem"><i class="icon" data-lucide="plus"></i> New Problem</button>
             </div>
             <div class="new-signal-form" id="newProblemForm">
                 <div style="display:flex;gap:0.5rem">
@@ -16937,9 +17058,9 @@
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;white-space:nowrap;">
-                                ${hasS2Preview ? `<button style="background:none;border:none;color:var(--text-muted);cursor:pointer;padding:0.2rem;" onclick="misToggleThumbnails('${j.id}','${s2NodeId}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye" style="width:14px;height:14px;"></i></button>` : ''}
-                                ${j.status === 'Draft' ? `<button class="action-btn" onclick="misSubmitDraftJob('${j.id}')" title="Submit job" style="color:var(--accent);"><i class="icon" data-lucide="upload" style="width:14px;height:14px;"></i></button>` : ''}
-                                <button style="background:none;border:none;color:var(--red,#ef4444);cursor:pointer;padding:0.2rem;" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
+                                ${hasS2Preview ? `<button class="icon-btn" onclick="misToggleThumbnails('${j.id}','${s2NodeId}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye"></i></button>` : ''}
+                                ${j.status === 'Draft' ? `<button class="icon-btn icon-btn-accent" onclick="misSubmitDraftJob('${j.id}')" title="Submit job"><i class="icon" data-lucide="upload"></i></button>` : ''}
+                                <button class="icon-btn icon-btn-danger" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2"></i></button>
                             </td>
                         </tr>
                         <tr class="mis-thumb-row" id="mis-thumb-row-${j.id}" style="display:none;">
@@ -17639,7 +17760,7 @@
                                 <td>${isActive ? '<span class="type-badge" style="border-color:var(--accent); color:var(--accent);">Active</span>' : ''}</td>
                                 <td style="text-align:right; white-space:nowrap;">
                                     ${!isActive ? `<button class="modal-save-btn" style="padding:0.2rem 0.5rem; font-size:0.75rem;" onclick="activateMisConn('${p.id}')">Activate</button> ` : ''}
-                                    <button style="background:none; border:none; color:var(--text-muted); cursor:pointer; padding:0.2rem;" onclick="editMisConn('${p.id}')"><i class="icon" data-lucide="pencil" style="width:14px; height:14px;"></i></button>
+                                    <button class="icon-btn" onclick="editMisConn('${p.id}')" title="Edit"><i class="icon" data-lucide="pencil"></i></button>
                                     <button style="background:none; border:none; color:var(--red); cursor:pointer; padding:0.2rem;" onclick="deleteMisConn('${p.id}')"><i class="icon" data-lucide="trash-2" style="width:14px; height:14px;"></i></button>
                                 </td>
                             </tr>`;
@@ -18176,7 +18297,7 @@
         const titleEl = document.getElementById('contentModalTitle');
         titleEl.textContent = item.title || 'Untitled';
         if (editableTypes.includes(item.type)) {
-            titleEl.insertAdjacentHTML('beforeend', ' <button class="btn-sm" id="editContentBtn" title="Edit" style="vertical-align:middle;margin-left:0.5rem"><i class="icon" data-lucide="pencil" style="width:14px;height:14px"></i></button>');
+            titleEl.insertAdjacentHTML('beforeend', ' <button class="icon-btn" id="editContentBtn" title="Edit" style="margin-left:0.5rem"><i class="icon" data-lucide="pencil"></i></button>');
         }
 
         const meta = [];
