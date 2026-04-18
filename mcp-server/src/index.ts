@@ -3739,8 +3739,10 @@ async function parseWcrPackXlsx(assetId: string): Promise<ParsedWcrPackXlsx> {
 }
 
 // Server-side aggregation helper: given parsed opportunities, compute the metrics
-// and slices Claude needs for the weekly summary. Keeps Claude's job to thematic
-// analysis (close-comment clustering), not number-crunching on 257 rows.
+// and slices Claude needs for the weekly summary, plus the numeric slices the
+// admin dashboard renders (by_owner, cycle_length_days, bundle_analysis,
+// by_stage_value). Keeps Claude's job to thematic analysis (close-comment
+// clustering), not number-crunching on 257 rows — and keeps the admin view fast.
 function aggregateWcrPackMetrics(ops: WcrPackOpportunity[]) {
   const isClosedWon = (s: string | null) => s === 'Closed Won';
   const isClosedLost = (s: string | null) => s === 'Closed Lost';
@@ -3756,10 +3758,14 @@ function aggregateWcrPackMetrics(ops: WcrPackOpportunity[]) {
   const live = tally(ops.filter(o => isLive(o.stage)));
 
   const byStage: Record<string, number> = {};
+  const byStageValue: Record<string, number> = {};
   const byRegion: Record<string, number> = {};
   const byCloseReasonDetail: Record<string, number> = {};
   for (const o of ops) {
-    if (o.stage) byStage[o.stage] = (byStage[o.stage] || 0) + 1;
+    if (o.stage) {
+      byStage[o.stage] = (byStage[o.stage] || 0) + 1;
+      byStageValue[o.stage] = Math.round(((byStageValue[o.stage] || 0) + (o.amount_software_usd || 0)) * 100) / 100;
+    }
     if (o.region) byRegion[o.region] = (byRegion[o.region] || 0) + 1;
     if (isClosedLost(o.stage) && o.close_reason_detail) {
       byCloseReasonDetail[o.close_reason_detail] = (byCloseReasonDetail[o.close_reason_detail] || 0) + 1;
@@ -3785,6 +3791,99 @@ function aggregateWcrPackMetrics(ops: WcrPackOpportunity[]) {
     };
   };
 
+  // Per-rep rollup for the "Opps by rep" chart
+  const byOwner: Record<string, { total: number; won: number; lost: number; live: number; value_usd: number; win_rate: number | null }> = {};
+  for (const o of ops) {
+    if (!o.opportunity_owner) continue;
+    if (!byOwner[o.opportunity_owner]) {
+      byOwner[o.opportunity_owner] = { total: 0, won: 0, lost: 0, live: 0, value_usd: 0, win_rate: null };
+    }
+    const b = byOwner[o.opportunity_owner];
+    b.total++;
+    if (isClosedWon(o.stage)) b.won++;
+    else if (isClosedLost(o.stage)) b.lost++;
+    else if (isLive(o.stage)) b.live++;
+    b.value_usd = Math.round((b.value_usd + (o.amount_software_usd || 0)) * 100) / 100;
+  }
+  for (const owner of Object.keys(byOwner)) {
+    const b = byOwner[owner];
+    const closed = b.won + b.lost;
+    b.win_rate = closed > 0 ? Math.round((b.won / closed) * 1000) / 1000 : null;
+  }
+
+  // Cycle length: days from created_date to close_date. close_date is the last
+  // day of the close-date group-header month, so absolute days are fuzzy by up
+  // to ~30 days — but directionally fine for medians and relative comparison.
+  const median = (nums: number[]): number | null => {
+    if (!nums.length) return null;
+    const sorted = [...nums].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : Math.round((sorted[mid - 1] + sorted[mid]) / 2);
+  };
+  const daysBetween = (from: string | null, to: string | null): number | null => {
+    if (!from || !to) return null;
+    const a = new Date(from).getTime();
+    const b = new Date(to).getTime();
+    if (isNaN(a) || isNaN(b) || b < a) return null;
+    return Math.round((b - a) / (1000 * 60 * 60 * 24));
+  };
+  const wonCycles: number[] = [];
+  const lostCycles: number[] = [];
+  for (const o of ops) {
+    const d = daysBetween(o.created_date, o.close_date);
+    if (d == null) continue;
+    if (isClosedWon(o.stage)) wonCycles.push(d);
+    else if (isClosedLost(o.stage)) lostCycles.push(d);
+  }
+
+  // Bundle analysis: a deal is "solo" if WCR Pack is the only named product
+  // (or the software column is empty). "Bundled" if WCR Pack ships alongside
+  // other products in the same opp. Surfaces the top co-products — which
+  // other products WCR Pack most often travels with.
+  const isWcrPack = (name: string) => /webcenter\s*pack/i.test(name);
+  // Filter junk entries: single-char punctuation like "-" sometimes leaks in
+  // when the Software column itself is empty but a previous row's split left
+  // a stray dash. Keep only alpha-containing names.
+  const isRealProduct = (name: string) => /[a-z]/i.test(name);
+  const classifyBundle = (o: WcrPackOpportunity): 'solo' | 'bundled' | 'unknown' => {
+    const products = (o.main_products || []).filter(isRealProduct);
+    if (products.length === 0) return 'unknown';
+    const nonWcr = products.filter(p => !isWcrPack(p));
+    return nonWcr.length === 0 ? 'solo' : 'bundled';
+  };
+  const bundleBucket = (filter: (o: WcrPackOpportunity) => boolean) => {
+    const subset = ops.filter(filter);
+    const w = subset.filter(o => isClosedWon(o.stage)).length;
+    const l = subset.filter(o => isClosedLost(o.stage)).length;
+    const closed = w + l;
+    const cycles: number[] = [];
+    for (const o of subset) {
+      const d = daysBetween(o.created_date, o.close_date);
+      if (d != null && (isClosedWon(o.stage) || isClosedLost(o.stage))) cycles.push(d);
+    }
+    return {
+      count: subset.length,
+      value_usd: Math.round(subset.reduce((t, o) => t + (o.amount_software_usd || 0), 0) * 100) / 100,
+      won: w,
+      lost: l,
+      win_rate: closed > 0 ? Math.round((w / closed) * 1000) / 1000 : null,
+      median_cycle_days: median(cycles),
+    };
+  };
+  // Count frequencies of the non-WCR products in bundled deals
+  const coProductCounts: Record<string, number> = {};
+  for (const o of ops) {
+    if (classifyBundle(o) !== 'bundled') continue;
+    for (const p of o.main_products || []) {
+      if (isWcrPack(p) || !isRealProduct(p)) continue;
+      coProductCounts[p] = (coProductCounts[p] || 0) + 1;
+    }
+  }
+  const topCoProducts = Object.entries(coProductCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([name, count]) => ({ name, count }));
+
   return {
     total_records: ops.length,
     total_value_usd: Math.round(ops.reduce((t, o) => t + (o.amount_software_usd || 0), 0) * 100) / 100,
@@ -3794,9 +3893,27 @@ function aggregateWcrPackMetrics(ops: WcrPackOpportunity[]) {
     closed_lost_value_usd: Math.round(lost.value_usd * 100) / 100,
     live_pipeline_count: live.count,
     live_pipeline_value_usd: Math.round(live.value_usd * 100) / 100,
+    win_rate: (won.count + lost.count) > 0
+      ? Math.round((won.count / (won.count + lost.count)) * 1000) / 1000
+      : null,
     by_stage: byStage,
+    by_stage_value: byStageValue,
     by_region: byRegion,
+    by_owner: byOwner,
     by_close_reason_detail: byCloseReasonDetail,
+    cycle_length_days: {
+      won_median: median(wonCycles),
+      lost_median: median(lostCycles),
+      overall_median: median([...wonCycles, ...lostCycles]),
+      won_count_measurable: wonCycles.length,
+      lost_count_measurable: lostCycles.length,
+    },
+    bundle_analysis: {
+      solo: bundleBucket(o => classifyBundle(o) === 'solo'),
+      bundled: bundleBucket(o => classifyBundle(o) === 'bundled'),
+      unknown: bundleBucket(o => classifyBundle(o) === 'unknown'),
+      top_co_products: topCoProducts,
+    },
     mgo_effectiveness: {
       marketing_generated: mgoBucket(o => o.marketing_generated === true),
       sales_generated: mgoBucket(o => o.marketing_generated === false),

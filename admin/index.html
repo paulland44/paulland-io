@@ -11786,80 +11786,89 @@
             return;
         }
 
-        // 2. Fetch the opportunities table for the most-recent snapshot (for drill-down)
+        // 2. Get the latest snapshot + fetch signals (full body for inline evidence) and competitors in parallel
         const latest = reports[0];
         const latestDate = latest.metadata?.report_date;
 
-        let latestOpps = [];
-        if (latestDate) {
-            const { data: oppData } = await db
-                .from('wcr_pack_opportunities')
-                .select('opportunity_id, opportunity_name, account_name, regional_division, region, opportunity_owner, stage, amount_usd, close_date, close_reason, close_reason_detail, close_comment, marketing_generated')
-                .eq('report_date', latestDate);
-            latestOpps = oppData || [];
-        }
-
-        // 3. Pull signals linked to this summary via content_links
-        const { data: signalLinks } = await db
+        const signalLinksP = db
             .from('content_links')
             .select('source_id')
             .eq('target_id', latest.id)
             .eq('link_type', 'evidence');
-        const signalIds = (signalLinks || []).map(l => l.source_id);
-
-        let signals = [];
-        if (signalIds.length) {
-            const { data: sigData } = await db
-                .from('content')
-                .select('id, title, metadata, tags')
-                .in('id', signalIds)
-                .eq('type', 'signal');
-            signals = sigData || [];
-        }
-
-        // 4. Companies (competitors) linked to this summary
-        const { data: companyLinks } = await db
+        const companyLinksP = db
             .from('company_content')
             .select('company_id, companies(id, name, is_competitor)')
             .eq('content_id', latest.id);
-        const competitors = (companyLinks || [])
-            .map(l => l.companies)
-            .filter(c => c && c.is_competitor);
+        const [{ data: signalLinks }, { data: companyLinks }] = await Promise.all([signalLinksP, companyLinksP]);
 
-        // 5. Build headline metric cards from summary.metadata.metrics
+        let signals = [];
+        const signalIds = (signalLinks || []).map(l => l.source_id);
+        if (signalIds.length) {
+            const { data: sigData } = await db
+                .from('content')
+                .select('id, title, body, metadata, tags')
+                .in('id', signalIds)
+                .eq('type', 'signal');
+            signals = (sigData || []).sort((a, b) => {
+                const sev = { high: 0, medium: 1, low: 2 };
+                return (sev[a.metadata?.severity] ?? 3) - (sev[b.metadata?.severity] ?? 3);
+            });
+        }
+
+        const competitors = (companyLinks || []).map(l => l.companies).filter(c => c && c.is_competitor);
+
+        // 3. Read server-computed metrics (new slices: by_owner, cycle_length_days, bundle_analysis, by_stage_value)
         const metrics = latest.metadata?.metrics || {};
+        const mgo = metrics.mgo_effectiveness || {};
+        const cycle = metrics.cycle_length_days || {};
+        const bundle = metrics.bundle_analysis || {};
+
+        const fmtPct = (v) => v == null ? '—' : `${Math.round(v * 100)}%`;
+        const fmtDays = (v) => v == null ? '—' : `${v}d`;
+        const fmtDelta = (a, b, invert) => {
+            if (a == null || b == null) return '';
+            const d = a - b;
+            if (Math.abs(d) < 0.005) return '';
+            const better = invert ? d < 0 : d > 0;
+            const sign = d > 0 ? '+' : '';
+            const color = better ? 'var(--accent)' : 'rgb(220,120,60)';
+            return `<span style="color:${color};font-size:0.75rem;margin-left:0.4rem;">${sign}${d.toFixed(0)}</span>`;
+        };
+
+        // Headline cards
         const cards = [
-            { label: 'Total opps', value: metrics.total_records ?? latestOpps.length },
-            { label: 'Total value', value: wcrFmtUsd(metrics.total_value_usd) },
+            { label: 'Total opps', value: metrics.total_records ?? '—' },
             { label: 'Live pipeline', value: `${metrics.live_pipeline_count ?? '—'} · ${wcrFmtUsd(metrics.live_pipeline_value_usd)}` },
             { label: 'Closed Won', value: `${metrics.closed_won_count ?? '—'} · ${wcrFmtUsd(metrics.closed_won_value_usd)}` },
             { label: 'Closed Lost', value: metrics.closed_lost_count ?? '—' },
-            { label: 'Snapshots', value: reports.length },
+            { label: 'Close ratio', value: fmtPct(metrics.win_rate) },
+            { label: 'Avg cycle (won)', value: fmtDays(cycle.won_median) },
         ];
 
-        // 6. Build stage table from metadata.metrics.by_stage (or fall back to computing from rows)
-        let byStage = metrics.by_stage;
-        if (!byStage || !Object.keys(byStage).length) {
-            byStage = {};
-            latestOpps.forEach(o => { if (o.stage) byStage[o.stage] = (byStage[o.stage] || 0) + 1; });
-        }
+        // Stage trend: one line per stage across last 12 snapshots (ascending date)
         const stageOrder = ['1 Qualified', '2 Identify Needs', '3 Validate/Present Solution', '4 Negotiate/Review', '5 Closing', 'Closed Won', 'Closed Lost'];
-        const stageRows = stageOrder.filter(s => byStage[s] != null).concat(Object.keys(byStage).filter(s => !stageOrder.includes(s)));
-
-        // 7. Build trend data across all report_dates (last 12 snapshots)
         const trendReports = reports.slice(0, 12).reverse();
         const trendLabels = trendReports.map(r => r.metadata?.report_date || r.captured_at?.slice(0, 10));
-        const trendPipeline = trendReports.map(r => r.metadata?.metrics?.live_pipeline_value_usd || 0);
-        const trendLost = trendReports.map(r => r.metadata?.metrics?.closed_lost_count || 0);
+        const stageTrendData = {};
+        stageOrder.forEach(s => { stageTrendData[s] = trendReports.map(r => r.metadata?.metrics?.by_stage?.[s] || 0); });
 
-        // 8. Closed-lost reason mix
-        const byReason = metrics.by_close_reason_detail || {};
-        const reasonRows = Object.entries(byReason)
-            .sort(([, a], [, b]) => b - a);
+        // Closed-lost reasons (raw enum)
+        const reasonRows = Object.entries(metrics.by_close_reason_detail || {}).sort(([, a], [, b]) => b - a);
 
-        // 9. Region mix
-        const byRegion = metrics.by_region || {};
-        const regionRows = Object.entries(byRegion).sort(([, a], [, b]) => b - a).slice(0, 12);
+        // Opps by rep — top 10 by total
+        const byOwner = metrics.by_owner || {};
+        const ownerRows = Object.entries(byOwner)
+            .map(([name, b]) => ({ name, ...b }))
+            .sort((a, b) => b.total - a.total)
+            .slice(0, 10);
+
+        // By region
+        const regionRows = Object.entries(metrics.by_region || {}).sort(([, a], [, b]) => b - a).slice(0, 12);
+
+        // Bundle analysis — solo vs bundled
+        const soloBucket = bundle.solo || {};
+        const bundledBucket = bundle.bundled || {};
+        const coProducts = bundle.top_co_products || [];
 
         main.innerHTML = `
             <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
@@ -11877,7 +11886,8 @@
                 ` : ''}
             </div>
 
-            <div class="sales-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
+            <!-- Row 1: headline strip -->
+            <div class="sales-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
                 ${cards.map(c => `
                     <div style="padding:0.85rem 1rem;border:1px solid var(--border);border-radius:var(--radius-md);background:var(--surface);">
                         <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.04em;color:var(--text-muted);margin-bottom:0.35rem;">${esc(c.label)}</div>
@@ -11886,26 +11896,40 @@
                 `).join('')}
             </div>
 
-            <div class="sales-dashboard-grid">
+            <!-- Row 2: stage trend line + close-ratio gauge -->
+            <div style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1rem;">
                 <div class="sales-chart-card">
-                    <h3><i data-lucide="layers" style="width:16px;height:16px;"></i> Stage funnel</h3>
-                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
-                        <thead><tr style="text-align:left;color:var(--text-muted);">
-                            <th style="padding:0.35rem 0;">Stage</th><th style="text-align:right;">Count</th>
-                        </tr></thead>
-                        <tbody>
-                            ${stageRows.map(s => `<tr style="border-top:1px solid var(--border);">
-                                <td style="padding:0.4rem 0;">${esc(s)}</td>
-                                <td style="text-align:right;font-weight:600;">${byStage[s] || 0}</td>
-                            </tr>`).join('')}
-                        </tbody>
-                    </table>
+                    <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Stage trend over time</h3>
+                    ${reports.length > 1
+                        ? '<div style="height:300px;"><canvas id="wcrStageTrendChart"></canvas></div>'
+                        : `<div style="height:300px;display:flex;align-items:center;justify-content:center;color:var(--text-muted);font-size:0.85rem;text-align:center;padding:0 2rem;">
+                            Only one snapshot so far. This chart populates as weekly reports accumulate — upload next Friday's file and a line per stage will start to form.
+                        </div>`}
                 </div>
-
                 <div class="sales-chart-card">
-                    <h3><i data-lucide="x-circle" style="width:16px;height:16px;"></i> Closed-lost reasons</h3>
+                    <h3><i data-lucide="target" style="width:16px;height:16px;"></i> Close ratio</h3>
+                    <div style="position:relative;height:240px;">
+                        <canvas id="wcrCloseRatioGauge"></canvas>
+                        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;pointer-events:none;">
+                            <div style="font-size:2.5rem;font-weight:600;color:var(--text-heading);line-height:1;">${fmtPct(metrics.win_rate)}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${metrics.closed_won_count ?? 0} won / ${(metrics.closed_won_count ?? 0) + (metrics.closed_lost_count ?? 0)} closed</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Row 3: opps by rep + closed-lost raw + MGO effectiveness -->
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;margin-bottom:1rem;">
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="users" style="width:16px;height:16px;"></i> Opps by rep (top 10)</h3>
+                    ${ownerRows.length ? `
+                    <div style="height:280px;"><canvas id="wcrByOwnerChart"></canvas></div>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No by_owner data in this snapshot.</div>'}
+                </div>
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="x-circle" style="width:16px;height:16px;"></i> Closed-lost reasons (Salesforce)</h3>
                     ${reasonRows.length ? `
-                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+                    <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
                         <thead><tr style="text-align:left;color:var(--text-muted);">
                             <th style="padding:0.35rem 0;">Reason</th><th style="text-align:right;">Count</th>
                         </tr></thead>
@@ -11916,19 +11940,113 @@
                             </tr>`).join('')}
                         </tbody>
                     </table>
-                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No closed-lost data in this snapshot.</div>'}
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No closed-lost data.</div>'}
+                </div>
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="megaphone" style="width:16px;height:16px;"></i> MGO vs sales-generated</h3>
+                    ${mgo.marketing_generated ? `
+                    <table style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+                        <thead><tr style="text-align:left;color:var(--text-muted);">
+                            <th></th><th style="text-align:right;">MGO</th><th style="text-align:right;">Sales</th>
+                        </tr></thead>
+                        <tbody>
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">Total opps</td>
+                                <td style="text-align:right;font-weight:600;">${mgo.marketing_generated.total}</td>
+                                <td style="text-align:right;font-weight:600;">${mgo.sales_generated?.total ?? 0}</td>
+                            </tr>
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">Won</td>
+                                <td style="text-align:right;">${mgo.marketing_generated.closed_won}</td>
+                                <td style="text-align:right;">${mgo.sales_generated?.closed_won ?? 0}</td>
+                            </tr>
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">Lost</td>
+                                <td style="text-align:right;">${mgo.marketing_generated.closed_lost}</td>
+                                <td style="text-align:right;">${mgo.sales_generated?.closed_lost ?? 0}</td>
+                            </tr>
+                            <tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;"><strong>Win rate</strong></td>
+                                <td style="text-align:right;font-weight:600;">${fmtPct(mgo.marketing_generated.win_rate)}</td>
+                                <td style="text-align:right;font-weight:600;">${fmtPct(mgo.sales_generated?.win_rate)}</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">MGO split not in this snapshot.</div>'}
                 </div>
             </div>
 
-            ${reports.length > 1 ? `
-            <div class="sales-dashboard-grid">
-                <div class="sales-chart-card" style="grid-column: 1 / -1;">
-                    <h3><i data-lucide="trending-up" style="width:16px;height:16px;"></i> Pipeline trend</h3>
-                    <div style="height:280px;"><canvas id="wcrTrendChart"></canvas></div>
+            <!-- Row 4: smart closed-lost themes (signals) -->
+            ${signals.length ? `
+            <div class="support-section">
+                <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Closed-lost themes</h3>
+                <div style="display:flex;flex-direction:column;gap:0.5rem;">
+                    ${signals.map(s => {
+                        const sev = s.metadata?.severity || 'medium';
+                        const sevColor = sev === 'high' ? 'rgb(220,120,60)' : sev === 'medium' ? 'var(--accent)' : 'var(--text-muted)';
+                        return `
+                        <a href="#" data-signal-id="${s.id}" class="wcr-signal-link" style="padding:0.7rem 0.9rem;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);text-decoration:none;display:block;">
+                            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;">
+                                <strong style="color:var(--text-heading);">${esc(s.title)}</strong>
+                                <span style="font-size:0.7rem;white-space:nowrap;">
+                                    <span style="color:${sevColor};font-weight:600;">${esc(sev.toUpperCase())}</span>
+                                    ${s.metadata?.occurrence_count ? `<span style="color:var(--text-muted);"> · seen ${s.metadata.occurrence_count}×</span>` : '<span style="color:var(--text-muted);"> · new</span>'}
+                                </span>
+                            </div>
+                            ${s.metadata?.theme_slug ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.2rem;font-family:var(--mono);">${esc(s.metadata.theme_slug)}</div>` : ''}
+                        </a>
+                    `;}).join('')}
                 </div>
             </div>
             ` : ''}
 
+            <!-- Row 5: bundle analysis -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="package" style="width:16px;height:16px;"></i> Solo vs bundled</h3>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-top:0.5rem;">
+                        <div style="padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);">
+                            <div style="font-size:0.7rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:0.35rem;">WCR Pack solo</div>
+                            <div style="font-size:1.3rem;font-weight:600;color:var(--text-heading);">${soloBucket.count ?? 0}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">${wcrFmtUsd(soloBucket.value_usd)}</div>
+                            <div style="margin-top:0.5rem;font-size:0.8rem;">
+                                <div>Win rate: <strong>${fmtPct(soloBucket.win_rate)}</strong></div>
+                                <div>Median cycle: <strong>${fmtDays(soloBucket.median_cycle_days)}</strong></div>
+                            </div>
+                        </div>
+                        <div style="padding:0.75rem;border:1px solid var(--border);border-radius:var(--radius-sm);">
+                            <div style="font-size:0.7rem;text-transform:uppercase;color:var(--text-muted);margin-bottom:0.35rem;">Bundled</div>
+                            <div style="font-size:1.3rem;font-weight:600;color:var(--text-heading);">${bundledBucket.count ?? 0}</div>
+                            <div style="font-size:0.75rem;color:var(--text-muted);margin-top:0.2rem;">${wcrFmtUsd(bundledBucket.value_usd)}</div>
+                            <div style="margin-top:0.5rem;font-size:0.8rem;">
+                                <div>Win rate: <strong>${fmtPct(bundledBucket.win_rate)}</strong>${fmtDelta((bundledBucket.win_rate||0)*100, (soloBucket.win_rate||0)*100, false)}</div>
+                                <div>Median cycle: <strong>${fmtDays(bundledBucket.median_cycle_days)}</strong>${fmtDelta(bundledBucket.median_cycle_days, soloBucket.median_cycle_days, true)}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-muted);line-height:1.4;">
+                        Avg cycle lost: ${fmtDays(cycle.lost_median)} · won-measurable: ${cycle.won_count_measurable ?? 0} · lost-measurable: ${cycle.lost_count_measurable ?? 0}
+                    </div>
+                </div>
+                <div class="sales-chart-card">
+                    <h3><i data-lucide="link" style="width:16px;height:16px;"></i> Top co-products (when bundled)</h3>
+                    ${coProducts.length ? `
+                    <table style="width:100%;font-size:0.85rem;border-collapse:collapse;">
+                        <thead><tr style="text-align:left;color:var(--text-muted);">
+                            <th style="padding:0.35rem 0;">Product</th><th style="text-align:right;">Count</th>
+                        </tr></thead>
+                        <tbody>
+                            ${coProducts.map(p => `<tr style="border-top:1px solid var(--border);">
+                                <td style="padding:0.4rem 0;">${esc(p.name)}</td>
+                                <td style="text-align:right;font-weight:600;">${p.count}</td>
+                            </tr>`).join('')}
+                        </tbody>
+                    </table>
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No bundle data in this snapshot.</div>'}
+                </div>
+            </div>
+
+            <!-- Row 6: region + competitors -->
             <div class="sales-dashboard-grid">
                 <div class="sales-chart-card">
                     <h3><i data-lucide="globe" style="width:16px;height:16px;"></i> By region</h3>
@@ -11946,7 +12064,6 @@
                     </table>
                     ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No region breakdown in metadata.</div>'}
                 </div>
-
                 <div class="sales-chart-card">
                     <h3><i data-lucide="swords" style="width:16px;height:16px;"></i> Competitors mentioned</h3>
                     ${competitors.length ? `
@@ -11958,30 +12075,11 @@
                             </a>
                         `).join('')}
                     </div>
-                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No competitor mentions in this snapshot.</div>'}
+                    ` : '<div style="color:var(--text-muted);font-size:0.85rem;">No competitor mentions.</div>'}
                 </div>
             </div>
 
-            ${signals.length ? `
-            <div class="support-section">
-                <h3><i data-lucide="alert-triangle" style="width:16px;height:16px;"></i> Closed-lost themes / signals</h3>
-                <div style="display:flex;flex-direction:column;gap:0.5rem;">
-                    ${signals.map(s => `
-                        <a href="#" data-signal-id="${s.id}" class="wcr-signal-link" style="padding:0.6rem 0.8rem;border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text-body);text-decoration:none;display:block;">
-                            <div style="display:flex;justify-content:space-between;align-items:baseline;gap:0.75rem;">
-                                <strong style="color:var(--text-heading);">${esc(s.title)}</strong>
-                                <span style="font-size:0.7rem;color:var(--text-muted);white-space:nowrap;">
-                                    ${s.metadata?.occurrence_count ? `seen ${s.metadata.occurrence_count}×` : 'new'}
-                                    ${s.metadata?.severity ? ` · ${esc(s.metadata.severity)}` : ''}
-                                </span>
-                            </div>
-                            ${s.metadata?.theme_slug ? `<div style="font-size:0.7rem;color:var(--text-muted);margin-top:0.2rem;font-family:var(--mono);">${esc(s.metadata.theme_slug)}</div>` : ''}
-                        </a>
-                    `).join('')}
-                </div>
-            </div>
-            ` : ''}
-
+            <!-- Row 7: full report body -->
             <div class="support-section">
                 <h3><i data-lucide="file-text" style="width:16px;height:16px;"></i> Weekly report body</h3>
                 <div class="content-body">${renderBody(latest.body || '')}</div>
@@ -11990,7 +12088,7 @@
 
         refreshIcons();
 
-        // Wire signal drill-down → open content modal
+        // Wire signal drill-down
         main.querySelectorAll('.wcr-signal-link').forEach(el => {
             el.addEventListener('click', async (e) => {
                 e.preventDefault();
@@ -12000,7 +12098,7 @@
             });
         });
 
-        // Wire competitor drill-down → competitor detail view
+        // Wire competitor drill-down
         main.querySelectorAll('.wcr-competitor-link').forEach(el => {
             el.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -12018,69 +12116,114 @@
             const id = e.target.value;
             const pick = reports.find(r => r.id === id);
             if (!pick) return;
-            // Re-run with this snapshot pinned as "latest"
             reports.splice(reports.indexOf(pick), 1);
             reports.unshift(pick);
-            // Simple approach: reload view. The dropdown order resets.
             await loadWcrPipeline();
         });
 
-        // Trend chart
-        if (reports.length > 1 && typeof Chart !== 'undefined') {
-            const ctx = document.getElementById('wcrTrendChart');
-            if (ctx) {
-                const style = getComputedStyle(document.documentElement);
-                const muted = style.getPropertyValue('--text-muted').trim() || '#888';
-                const border = style.getPropertyValue('--border').trim() || '#333';
+        // ─── Charts ─────────────────────────────────────
+        if (typeof Chart === 'undefined') return;
+        const style = getComputedStyle(document.documentElement);
+        const muted = style.getPropertyValue('--text-muted').trim() || '#888';
+        const border = style.getPropertyValue('--border').trim() || '#333';
 
-                wcrPipelineCharts.push(new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: trendLabels,
-                        datasets: [
-                            {
-                                type: 'bar',
-                                label: 'Live pipeline ($)',
-                                data: trendPipeline,
-                                backgroundColor: 'rgba(100,149,237,0.5)',
-                                borderRadius: 4,
-                                yAxisID: 'y',
-                            },
-                            {
-                                type: 'line',
-                                label: 'Closed lost (count)',
-                                data: trendLost,
-                                borderColor: 'rgb(220,120,60)',
-                                backgroundColor: 'rgba(220,120,60,0.2)',
-                                tension: 0.3,
-                                yAxisID: 'y2',
-                            },
-                        ],
+        // Close-ratio gauge (half-doughnut)
+        const gaugeCtx = document.getElementById('wcrCloseRatioGauge');
+        if (gaugeCtx && metrics.win_rate != null) {
+            const won = metrics.closed_won_count || 0;
+            const lost = metrics.closed_lost_count || 0;
+            wcrPipelineCharts.push(new Chart(gaugeCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Won', 'Lost'],
+                    datasets: [{
+                        data: [won, lost],
+                        backgroundColor: ['rgba(139,164,133,0.85)', 'rgba(220,120,60,0.35)'],
+                        borderWidth: 0,
+                    }],
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    circumference: 180,
+                    rotation: -90,
+                    cutout: '75%',
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: { enabled: true },
                     },
+                },
+            }));
+        }
+
+        // Stage trend — one line per stage across snapshots
+        if (reports.length > 1) {
+            const ctx = document.getElementById('wcrStageTrendChart');
+            if (ctx) {
+                const stageColors = {
+                    '1 Qualified': 'rgba(160,160,160,0.9)',
+                    '2 Identify Needs': 'rgba(196,168,80,0.9)',
+                    '3 Validate/Present Solution': 'rgba(100,149,237,0.9)',
+                    '4 Negotiate/Review': 'rgba(180,130,200,0.9)',
+                    '5 Closing': 'rgba(220,120,60,0.9)',
+                    'Closed Won': 'rgba(139,164,133,1)',
+                    'Closed Lost': 'rgba(200,80,80,0.7)',
+                };
+                const datasets = stageOrder
+                    .filter(s => stageTrendData[s].some(v => v > 0))
+                    .map(s => ({
+                        label: s,
+                        data: stageTrendData[s],
+                        borderColor: stageColors[s],
+                        backgroundColor: stageColors[s],
+                        tension: 0.3,
+                        fill: false,
+                        pointRadius: 3,
+                    }));
+                wcrPipelineCharts.push(new Chart(ctx, {
+                    type: 'line',
+                    data: { labels: trendLabels, datasets },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
-                            legend: { labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 11 } } },
+                            legend: { position: 'bottom', labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 10 }, padding: 8 } },
                         },
                         scales: {
                             x: { ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
-                            y: {
-                                position: 'left',
-                                ticks: { color: muted, callback: v => wcrFmtUsd(v) },
-                                grid: { color: border },
-                                beginAtZero: true,
-                            },
-                            y2: {
-                                position: 'right',
-                                ticks: { color: muted },
-                                grid: { display: false },
-                                beginAtZero: true,
-                            },
+                            y: { ticks: { color: muted }, grid: { color: border }, beginAtZero: true },
                         },
                     },
                 }));
             }
+        }
+
+        // Opps by rep — horizontal stacked bar (won / live / lost)
+        const ownerCtx = document.getElementById('wcrByOwnerChart');
+        if (ownerCtx && ownerRows.length) {
+            wcrPipelineCharts.push(new Chart(ownerCtx, {
+                type: 'bar',
+                data: {
+                    labels: ownerRows.map(r => r.name),
+                    datasets: [
+                        { label: 'Won', data: ownerRows.map(r => r.won || 0), backgroundColor: 'rgba(139,164,133,0.85)', stack: 'a' },
+                        { label: 'Live', data: ownerRows.map(r => r.live || 0), backgroundColor: 'rgba(100,149,237,0.6)', stack: 'a' },
+                        { label: 'Lost', data: ownerRows.map(r => r.lost || 0), backgroundColor: 'rgba(220,120,60,0.5)', stack: 'a' },
+                    ],
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { color: muted, usePointStyle: true, pointStyle: 'circle', font: { size: 10 }, padding: 8 } },
+                    },
+                    scales: {
+                        x: { stacked: true, ticks: { color: muted, font: { size: 10 } }, grid: { color: border }, beginAtZero: true },
+                        y: { stacked: true, ticks: { color: muted, font: { size: 10 } }, grid: { display: false } },
+                    },
+                },
+            }));
         }
     }
 
