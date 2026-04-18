@@ -275,6 +275,29 @@
         .topbar-theme-toggle:hover { color: var(--v2-text); background: var(--v2-hover); }
         .topbar-theme-toggle .icon svg { width: 16px; height: 16px; }
 
+        /* ─── Small ghost pill button (inline actions like "Find Related") ─── */
+        .btn-ghost-sm {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            background: none;
+            border: 1px solid var(--v2-border);
+            border-radius: var(--v2-r-pill);
+            color: var(--v2-text-3);
+            font-size: 0.72rem;
+            font-family: var(--v2-sans);
+            cursor: pointer;
+            transition: color 0.15s, border-color 0.15s, background 0.15s;
+        }
+        .btn-ghost-sm:hover:not(:disabled) {
+            color: var(--v2-accent-text);
+            border-color: var(--v2-accent);
+            background: var(--v2-accent-soft);
+        }
+        .btn-ghost-sm:disabled { opacity: 0.5; cursor: default; }
+        .btn-ghost-sm .icon svg { width: 11px; height: 11px; }
+
         /* ─── Ghost icon button (pencil / submit / action icons) ─── */
         .icon-btn {
             display: inline-flex;
@@ -6637,8 +6660,8 @@
                                 <i class="icon" data-lucide="link" style="width:10px;height:10px"></i> Source
                             </span>`
                         ).join('')}
-                        <button class="btn-sm signal-find-related" data-id="${s.id}" onclick="event.stopPropagation()" style="font-size:0.7rem;padding:0.15rem 0.5rem">
-                            <i class="icon" data-lucide="search" style="width:10px;height:10px"></i> Find Related
+                        <button class="btn-ghost-sm signal-find-related" data-id="${s.id}" onclick="event.stopPropagation()">
+                            <i class="icon" data-lucide="search"></i> Find Related
                         </button>
                     </div>
                 </div>
@@ -6700,7 +6723,7 @@
                 } catch (err) {
                     console.error('Find related failed:', err);
                 } finally {
-                    btn.innerHTML = '<i class="icon" data-lucide="search" style="width:10px;height:10px"></i> Find Related';
+                    btn.innerHTML = '<i class="icon" data-lucide="search"></i> Find Related';
                     btn.disabled = false;
                     refreshIcons();
                 }
