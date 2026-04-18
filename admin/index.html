@@ -7939,6 +7939,7 @@
         contentData: [],
         synthesisText: '',
         synthesisSources: null,
+        synthesisSaved: false,  // true once the current synthesis has been persisted
         rawExpanded: false,
         model: null,      // resolved from localStorage on first render
     };
@@ -7974,6 +7975,7 @@
                 source_count: meta.source_count,
                 model: meta.model,
             };
+            reflectionState.synthesisSaved = true;
         }
 
         renderReflections();
@@ -8027,12 +8029,15 @@
                 ${synthesisText ? `
                     <div class="synthesis-card-header">
                         <div>
-                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Latest synthesis${synthesisSources?.model ? ` · <span style="text-transform:none;color:var(--text-body);font-weight:500;">${esc(modelLabelFor(synthesisSources.model))}</span>` : ''}</div>
+                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> ${reflectionState.synthesisSaved ? 'Latest saved synthesis' : 'Draft synthesis (not saved)'}${synthesisSources?.model ? ` · <span style="text-transform:none;color:var(--text-body);font-weight:500;">${esc(modelLabelFor(synthesisSources.model))}</span>` : ''}</div>
                             <div class="synthesis-card-meta">${synthesisSources?.period_start || from} → ${synthesisSources?.period_end || to}${synthesisSources?.source_count ? ` · ${synthesisSources.source_count} reflections` : ''}</div>
                         </div>
                         <div style="display: flex; gap: 0.5rem; align-items: center;">
                             ${modelPicker}
                             <button class="btn-secondary filter-btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
+                            ${reflectionState.synthesisSaved
+                                ? `<button class="btn-secondary filter-btn" id="btnSaveSynth" disabled><i class="icon" data-lucide="check" style="width:14px;height:14px"></i> Saved</button>`
+                                : `<button class="btn-action" id="btnSaveSynth"><i class="icon" data-lucide="save" style="width:14px;height:14px"></i> Save</button>`}
                         </div>
                     </div>
                     <div class="synthesis-card-body ask-answer" id="synthesisBody">${marked.parse(synthesisText)}</div>
@@ -8103,6 +8108,46 @@
         });
         document.getElementById('btnSynthesise')?.addEventListener('click', runReflectionSynthesis);
         document.getElementById('btnResynthesise')?.addEventListener('click', runReflectionSynthesis);
+        document.getElementById('btnSaveSynth')?.addEventListener('click', saveReflectionSynthesis);
+    }
+
+    async function saveReflectionSynthesis() {
+        const btn = document.getElementById('btnSaveSynth');
+        if (!btn || reflectionState.synthesisSaved || !reflectionState.synthesisText) return;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Saving…';
+        const { from, to, categories, synthesisText, synthesisSources } = reflectionState;
+        try {
+            const res = await fetch('/api/entity-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table: 'summaries',
+                    data: {
+                        type: 'reflection-synthesis',
+                        content: synthesisText,
+                        metadata: {
+                            model: synthesisSources?.model || null,
+                            source_count: synthesisSources?.source_count || 0,
+                            log_count: synthesisSources?.log_count || 0,
+                            content_count: synthesisSources?.content_count || 0,
+                            source_ids: synthesisSources?.source_ids || {},
+                            categories: categories.length ? categories : null,
+                        },
+                        period_start: from,
+                        period_end: to,
+                    },
+                }),
+            });
+            if (!res.ok) throw new Error(await res.text());
+            reflectionState.synthesisSaved = true;
+            renderReflections();
+        } catch (err) {
+            btn.disabled = false;
+            btn.innerHTML = `<i class="icon" data-lucide="save" style="width:14px;height:14px"></i> Save (retry)`;
+            refreshIcons();
+            alert('Save failed: ' + err.message);
+        }
     }
 
     async function runReflectionSynthesis() {
@@ -8171,37 +8216,18 @@
 
             if (!text) throw new Error('Empty synthesis');
 
-            // Save to summaries
             const sourceCount = (meta?.log_count || 0) + (meta?.content_count || 0);
-            await fetch('/api/entity-log', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    table: 'summaries',
-                    data: {
-                        type: 'reflection-synthesis',
-                        content: text,
-                        metadata: {
-                            model: meta?.model || model,
-                            source_count: sourceCount,
-                            log_count: meta?.log_count || 0,
-                            content_count: meta?.content_count || 0,
-                            source_ids: meta?.source_ids || {},
-                            categories: categories.length ? categories : null,
-                        },
-                        period_start: from,
-                        period_end: to,
-                    },
-                }),
-            });
-
             reflectionState.synthesisText = text;
             reflectionState.synthesisSources = {
                 period_start: from,
                 period_end: to,
                 source_count: sourceCount,
+                log_count: meta?.log_count || 0,
+                content_count: meta?.content_count || 0,
+                source_ids: meta?.source_ids || {},
                 model: meta?.model || model,
             };
+            reflectionState.synthesisSaved = false;
             renderReflections();
         } catch (err) {
             const body = document.getElementById('synthesisBody');
