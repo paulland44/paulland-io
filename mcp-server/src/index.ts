@@ -3954,7 +3954,7 @@ server.tool(
     const [prompts, priorSnapshots, existingSignals, competitors] = await Promise.all([
       supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template'),
       supabaseGet(`wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,stage,amount_software_usd,close_date,close_reason_detail`),
-      supabaseGet('content?type=eq.signal&metadata->>product_area=eq.WCR Pack&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100'),
+      supabaseGet(`content?type=eq.signal&metadata->>product_area=eq.${encodeURIComponent('WCR Pack')}&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100`),
       supabaseGet('companies?is_competitor=eq.true&select=id,name&order=name'),
     ]);
     const prompt = prompts?.[0];
@@ -4212,8 +4212,11 @@ server.tool(
           existingId = undefined; // stale id; fall through to create
         }
       } else {
+        // Honour user-archived signals: skip them so we don't silently un-archive.
+        // If the AI re-invents an archived slug, treat it as "no match" and create
+        // a new signal (user can re-archive if they want).
         const rows = await supabaseGet(
-          `content?type=eq.signal&metadata->>theme_slug=eq.${encodeURIComponent(sig.theme_slug)}&limit=1&select=id,body,metadata`
+          `content?type=eq.signal&metadata->>theme_slug=eq.${encodeURIComponent(sig.theme_slug)}&status=neq.archived&limit=1&select=id,body,metadata`
         );
         if (rows && rows.length > 0) {
           existingId = rows[0].id;
@@ -4223,6 +4226,7 @@ server.tool(
       }
 
       if (existingId) {
+        // Don't force status='active' — preserves whatever the user set deliberately.
         await supabasePatch(`content?id=eq.${existingId}`, {
           body: `${evidenceEntry}\n---\n${existingBody}`,
           metadata: {
@@ -4231,7 +4235,6 @@ server.tool(
             occurrence_count: (existingMeta.occurrence_count || 1) + 1,
             severity: sig.severity,
           },
-          status: 'active',
         });
         results.signals_updated++;
       } else {
@@ -4265,13 +4268,24 @@ server.tool(
       }
     }
 
-    // 6. Competitors — id-first lookup, else name ilike match.
+    // 6. Competitors — id-first lookup, else name match.
+    // Name lookup tries exact case-insensitive first, then wildcard partial.
+    // The partial fallback is important because the AI often writes a short form
+    // (e.g. "Hybrid") while the canonical company name is longer ("Hybrid Software").
+    // Without the fallback we'd silently create a duplicate company.
     for (const comp of competitors) {
       let companyId = comp.id;
       if (!companyId) {
-        const existingCo = await supabaseGet(
-          `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,is_competitor`
+        // Exact case-insensitive match first
+        let existingCo = await supabaseGet(
+          `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,name,is_competitor`
         );
+        // Fallback: partial wildcard match — resolves "Hybrid" → "Hybrid Software"
+        if (!existingCo || existingCo.length === 0) {
+          existingCo = await supabaseGet(
+            `companies?name=ilike.*${encodeURIComponent(comp.name)}*&limit=1&select=id,name,is_competitor&order=name.asc`
+          );
+        }
         if (existingCo && existingCo.length > 0) {
           companyId = existingCo[0].id;
           if (!existingCo[0].is_competitor) {
