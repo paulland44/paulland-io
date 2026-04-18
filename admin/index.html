@@ -11826,7 +11826,7 @@
             .eq('link_type', 'evidence');
         const companyLinksP = db
             .from('company_content')
-            .select('company_id, companies(id, name, is_competitor)')
+            .select('company_id, companies(id, name, type)')
             .eq('content_id', latest.id);
         const oppsP = latestDate
             ? db.from('wcr_pack_opportunities')
@@ -11852,7 +11852,7 @@
             });
         }
 
-        const competitors = (companyLinks || []).map(l => l.companies).filter(c => c && c.is_competitor);
+        const competitors = (companyLinks || []).map(l => l.companies).filter(c => c && c.type === 'competitor');
 
         // 3. Read server-computed metrics (new slices: by_owner, cycle_length_days, bundle_analysis, by_stage_value)
         const metrics = latest.metadata?.metrics || {};

@@ -326,7 +326,7 @@ server.tool(
         selectFields = 'id,name,role,organization,tags';
         break;
       case 'companies':
-        selectFields = 'id,name,type,industry,is_competitor,tags';
+        selectFields = 'id,name,type,industry,tags';
         break;
       case 'products':
         selectFields = 'id,name,company_id,tags';
@@ -3955,7 +3955,7 @@ server.tool(
       supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template'),
       supabaseGet(`wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,stage,amount_software_usd,close_date,close_reason_detail`),
       supabaseGet(`content?type=eq.signal&metadata->>product_area=eq.${encodeURIComponent('WCR Pack')}&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100`),
-      supabaseGet('companies?is_competitor=eq.true&select=id,name&order=name'),
+      supabaseGet('companies?type=eq.competitor&select=id,name&order=name'),
     ]);
     const prompt = prompts?.[0];
 
@@ -4272,40 +4272,52 @@ server.tool(
     // Name lookup tries exact case-insensitive first, then wildcard partial.
     // The partial fallback is important because the AI often writes a short form
     // (e.g. "Hybrid") while the canonical company name is longer ("Hybrid Software").
-    // Without the fallback we'd silently create a duplicate company.
+    // Note: companies uses a `type` column ('customer' | 'competitor' | 'internal'),
+    // NOT a boolean `is_competitor` column — earlier versions of this code assumed
+    // the latter and silently failed on every operation (PostgREST 400 on unknown
+    // column). Results accumulates any company upsert errors so failures surface.
+    const companyErrors: string[] = [];
     for (const comp of competitors) {
       let companyId = comp.id;
       if (!companyId) {
         // Exact case-insensitive match first
         let existingCo = await supabaseGet(
-          `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,name,is_competitor`
+          `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,name,type`
         );
         // Fallback: partial wildcard match — resolves "Hybrid" → "Hybrid Software"
         if (!existingCo || existingCo.length === 0) {
           existingCo = await supabaseGet(
-            `companies?name=ilike.*${encodeURIComponent(comp.name)}*&limit=1&select=id,name,is_competitor&order=name.asc`
+            `companies?name=ilike.*${encodeURIComponent(comp.name)}*&limit=1&select=id,name,type&order=name.asc`
           );
         }
         if (existingCo && existingCo.length > 0) {
           companyId = existingCo[0].id;
-          if (!existingCo[0].is_competitor) {
-            await supabasePatch(`companies?id=eq.${companyId}`, { is_competitor: true });
+          if (existingCo[0].type !== 'competitor') {
+            await supabasePatch(`companies?id=eq.${companyId}`, { type: 'competitor' });
           }
         } else {
           const created = await supabasePost('companies', {
             name: comp.name,
-            is_competitor: true,
+            type: 'competitor',
             notes: comp.notes || `Surfaced from WCR Pack closed-lost analysis (${report_date})`,
           }, true);
+          if (!created.ok) {
+            companyErrors.push(`Create "${comp.name}": ${created.error?.slice(0, 200)}`);
+            continue; // skip this competitor, don't increment counter
+          }
           companyId = created.data?.[0]?.id || '';
         }
       }
       if (companyId && summaryId) {
-        await supabasePost('company_content', {
+        const linkRes = await supabasePost('company_content', {
           company_id: companyId,
           content_id: summaryId,
         });
-        results.competitors_upserted++;
+        if (linkRes.ok) {
+          results.competitors_upserted++;
+        } else {
+          companyErrors.push(`Link "${comp.name}": ${linkRes.error?.slice(0, 200)}`);
+        }
       }
     }
 
@@ -4330,6 +4342,7 @@ server.tool(
           report_date,
           content_id: summaryId,
           ...results,
+          ...(companyErrors.length ? { company_errors: companyErrors } : {}),
         }, null, 2),
       }],
     };
