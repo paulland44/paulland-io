@@ -83,6 +83,21 @@
             --mono:          var(--v2-mono);
         }
 
+        /* ─── Global focus rings (v2) ─────────────────────────────
+           Keyboard users get an accent-coloured focus ring; pointer
+           users continue to see the existing active/hover styles. */
+        *:focus { outline: none; }
+        *:focus-visible {
+            outline: none;
+            box-shadow: var(--v2-focus);
+            border-radius: var(--v2-r-sm);
+        }
+        input:focus-visible,
+        textarea:focus-visible,
+        select:focus-visible {
+            box-shadow: 0 0 0 3px var(--v2-accent-soft);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
@@ -560,11 +575,11 @@
         .tag {
             display: inline-block;
             padding: 0.15rem 0.55rem;
-            background: var(--accent-dim);
-            color: var(--accent);
-            border-radius: var(--radius-pill);
+            background: var(--v2-accent-soft);
+            color: var(--v2-accent-text);
+            border-radius: var(--v2-r-pill);
             font-size: 0.75rem;
-            font-family: var(--mono);
+            font-family: var(--v2-mono);
             margin: 0.1rem;
         }
 
@@ -827,21 +842,26 @@
         .tag-remove:hover { opacity: 1; }
 
         .tag-input {
-            background: none;
-            border: 1px solid var(--border);
-            border-radius: var(--radius-pill);
-            color: var(--star);
-            font-family: var(--mono);
+            background: transparent;
+            border: 1px solid var(--v2-border);
+            border-radius: var(--v2-r-pill);
+            color: var(--v2-text);
+            font-family: var(--v2-mono);
             font-size: 0.75rem;
-            padding: 0.1rem 0.4rem;
+            padding: 0.1rem 0.55rem;
             width: 100px;
             outline: none;
-            transition: border-color 0.2s;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
 
-        .tag-input:focus { border-color: var(--accent); }
+        .tag-input:hover { border-color: var(--v2-border-hover); }
+        .tag-input:focus { border-color: var(--v2-accent); }
+        .tag-input:focus-visible {
+            border-color: var(--v2-accent);
+            box-shadow: 0 0 0 3px var(--v2-accent-soft);
+        }
 
-        .tag-input::placeholder { color: var(--text-muted); }
+        .tag-input::placeholder { color: var(--v2-text-3); }
 
         .tag-status {
             font-size: 0.7rem;
@@ -849,18 +869,18 @@
             transition: opacity 0.3s;
         }
 
-        .tag-status.saving { color: var(--text-muted); }
-        .tag-status.error { color: var(--red); }
-        .tag-status.saved { color: var(--accent); opacity: 0; }
+        .tag-status.saving { color: var(--v2-text-3); }
+        .tag-status.error { color: var(--v2-danger); }
+        .tag-status.saved { color: var(--v2-accent-text); opacity: 0; }
 
         .tag-suggestions {
             position: absolute;
             bottom: calc(100% + 2px);
             left: 0;
-            background: var(--void-lighter);
-            border: 1px solid var(--border-hover);
-            border-radius: var(--radius-sm);
-            box-shadow: var(--shadow-md);
+            background: var(--v2-card);
+            border: 1px solid var(--v2-border-hover);
+            border-radius: var(--v2-r-sm);
+            box-shadow: var(--v2-shadow-md);
             max-height: 150px;
             overflow-y: auto;
             display: none;
@@ -873,15 +893,15 @@
         .tag-suggestion {
             padding: 0.25rem 0.5rem;
             font-size: 0.75rem;
-            color: var(--text-body);
+            color: var(--v2-text-2);
             cursor: pointer;
             transition: background 0.15s, color 0.15s;
         }
 
         .tag-suggestion:hover,
         .tag-suggestion.active {
-            background: var(--accent-dim);
-            color: var(--accent);
+            background: var(--v2-accent-soft);
+            color: var(--v2-accent-text);
         }
 
         .tag-input-wrap {
