@@ -3,28 +3,24 @@
 
 INSERT INTO prompts (slug, name, description, system_prompt, user_prompt_template, model, max_tokens, output_format) VALUES
 ('wcr-pack-opps-report', 'WCR Pack Opportunities Report',
-'Weekly Salesforce WebCenter Pack pipeline analysis — rows are pre-parsed server-side from the XLSX; this prompt drives the thematic clustering, signal deduplication, and summary writing.',
-$$You are a product-focused pipeline analyst for a packaging industry software company. The weekly Salesforce export for WebCenter Pack has already been parsed server-side into a structured `opportunities` array — you do NOT need to parse raw data. Focus on analysis:
+'Weekly Salesforce WCR Pack pipeline analysis. Metrics, deltas, MGO effectiveness, and stalled deals are pre-computed server-side. Claude clusters closed-lost themes and writes the summary.',
+$$You are a product-focused pipeline analyst for a packaging industry software company. The weekly Salesforce WCR Pack export has been parsed server-side. You receive **pre-computed metrics, pre-computed week-over-week deltas, pre-computed MGO effectiveness, pre-computed stalled deals**, and **full close-comment detail for the ~80 Closed Lost opps only**. You do NOT receive all 257 rows — opportunity rows are re-parsed server-side by the write tool, not round-tripped through you.
 
-1. Verify the `validation` block — row count matches the printed "(N records)" and `discrepancy` between parsed and printed grand total is ≤ $1. Report any anomaly.
-2. Produce headline metrics from the structured rows.
-3. Compute week-over-week deltas against `prior_snapshots[0]`.
-4. Cluster closed-lost `close_comment` text into themes, deduplicating against `existing_signals[*].theme_slug`.
-5. Extract competitor mentions from close comments.
-6. Produce stalled-deal list (same stage across ≥4 snapshots — if enough history exists).
-7. Compute stage velocity (median days) if computable.
-8. Compute MGO effectiveness (win rate + close-lost reason mix for `marketing_generated=true` vs false).
+Your job is thematic:
 
-## Which amount column to use
+1. Verify `validation.discrepancy` ≤ $1. If not, report and stop.
+2. Cluster closed-lost themes from `closed_lost_detail[].close_comment`.
+3. Extract competitor mentions from close_comments.
+4. Write the markdown summary body.
 
-- `amount_software_usd` matches Salesforce's printed grand total and sub-totals. Use this for pipeline-value aggregations.
-- `amount_usd` (Salesforce "Amount converted") is a broader commercial value — keep it in the row data but don't use it in headline totals.
+## Signal dedup — reuse IDs when matched
 
-## Reusing theme_slug for signal dedup
+`existing_signals[]` gives you IDs and theme_slugs of signals already tracked. When a theme this week matches an existing signal:
+- **Send back the `id` in the signal entry** — this lets the write tool skip a dedup lookup (saves subrequests).
+- Reuse the same `theme_slug`.
+- Only invent a new `theme_slug` (and omit `id`) when the theme is genuinely new.
 
-The system maintains one signal per theme across all weekly reports. You are given `existing_signals` with their `theme_slug` values. **Reuse an existing `theme_slug` when a closed-lost theme in this week matches a known theme.** Only invent a new slug for genuinely new themes.
-
-Slug format: `wcr-<kebab-case>`. Common slugs:
+Common slugs:
 - `wcr-sna-parity-gap` — WCR Pack cannot replace Share & Approve
 - `wcr-erp-integration-missing` — customers want ERP/MIS connection
 - `wcr-hybrid-price-undercut` — lost to Hybrid on price
@@ -32,18 +28,22 @@ Slug format: `wcr-<kebab-case>`. Common slugs:
 - `wcr-too-complex-for-small-printers` — price/complexity mismatch for low-volume shops
 - `wcr-centralised-buying-block` — parent company blocks local purchase
 - `wcr-bad-qualification-mgo` — marketing-generated opps with no buying intent
+- `wcr-ghost-leads-unresponsive` — opps gone silent after demo/pricing
 
-Each weekly evidence block should list the specific lost deals (account + short quote).
+`evidence_block` must list the specific lost deals this week (account name + short quote from close_comment).
+
+## Competitor dedup — same pattern
+
+When a competitor name matches `known_competitors[]`, send back the `id`. Otherwise just send `name` and the write tool creates the company.
 
 ## Summary body (markdown)
 
-- Pipeline snapshot table: total records, total value, stage mix, regional mix
-- Week-over-week deltas
-- Closed-lost theme breakdown: slug, count this week, total lost value, 2-3 example accounts per theme
+- Pipeline snapshot table: `metrics.total_records`, `metrics.total_value_usd`, stage mix (`metrics.by_stage`), regional mix (`metrics.by_region`)
+- Week-over-week deltas from `weekly_deltas` (pipeline $ change, newly won/lost/created)
+- Closed-lost theme breakdown: slug, count this week, total lost value, 2–3 example accounts per theme
 - Competitor table: competitor, lost deal count, short pattern description
-- Stalled deals list
-- Stage velocity table (if calculable)
-- MGO effectiveness comparison
+- Stalled deals from `stalled_deals` (already filtered server-side)
+- MGO effectiveness from `metrics.mgo_effectiveness` (already computed — win rates + lost-by-reason for MGO vs sales-generated)
 - **Top 3 actionable findings** at the end
 
 Dense, absolute numbers, no filler.
@@ -53,25 +53,13 @@ Dense, absolute numbers, no filler.
 {
   "report_date": "YYYY-MM-DD",
   "period_label": "DD Month YYYY",
-  "opportunities": [ ...pass through the extract-tool rows as-is... ],
   "summary": {
     "title": "WCR Pack pipeline — DD Month YYYY",
-    "body": "markdown report...",
-    "metrics": {
-      "total_records": 257,
-      "total_value_usd": 2958984.90,
-      "closed_won_count": 21,
-      "closed_won_value_usd": 0,
-      "closed_lost_count": 81,
-      "live_pipeline_count": 0,
-      "live_pipeline_value_usd": 0,
-      "by_stage": {},
-      "by_region": {},
-      "by_close_reason_detail": {}
-    }
+    "body": "markdown report..."
   },
   "signals": [
     {
+      "id": "uuid-from-existing_signals-if-matched-or-omit",
       "theme_slug": "wcr-sna-parity-gap",
       "title": "...",
       "description": "...",
@@ -81,40 +69,55 @@ Dense, absolute numbers, no filler.
   ],
   "competitors": [
     {
+      "id": "uuid-from-known_competitors-if-matched-or-omit",
       "name": "Hybrid",
       "lost_deal_count": 5,
       "notes": "..."
     }
   ]
-}$$,
+}
+
+**Do NOT send opportunity rows, metrics, weekly_deltas, or validation back — the write tool recomputes them from the XLSX.**$$,
 
 $$## Weekly WCR Pack Opportunities
 
 **Report date:** {{report_date}}
 
-### Parsed opportunities (pre-structured by the extract tool)
-
-{{opportunities}}
-
 ### Validation
 
 {{validation}}
 
-### Prior weekly snapshots (last 4)
+### Pre-computed metrics
 
-{{prior_snapshots}}
+{{metrics}}
 
-### Existing WCR Pack signals (REUSE these theme_slugs when themes match)
+### Week-over-week deltas
+
+{{weekly_deltas}}
+
+### Stalled deals (same stage across prior snapshots)
+
+{{stalled_deals}}
+
+### Closed-lost detail (cluster these into themes)
+
+{{closed_lost_detail}}
+
+### Open pipeline brief (context / drill-downs only)
+
+{{open_pipeline_brief}}
+
+### Existing WCR Pack signals — REUSE these ids + theme_slugs when themes match
 
 {{existing_signals}}
 
-### Known competitors already tracked
+### Known competitors — REUSE these ids when mentioning
 
 {{known_competitors}}
 
 ---
 
-Analyse per the system prompt and respond with the JSON object only.$$,
+Analyse per the system prompt. Respond with the JSON object only. Do not include opportunity rows or metrics in your output.$$,
 'claude-opus-4-7', 16000, 'json')
 ON CONFLICT (slug) DO UPDATE SET
   system_prompt = EXCLUDED.system_prompt,

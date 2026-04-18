@@ -3587,23 +3587,226 @@ function toIsoDate(v: any): string | null {
   if (v == null || v === '' || v === '-') return null;
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   if (typeof v === 'number') {
-    // Excel serial date: days since 1899-12-30 (XLSX.js convention)
     const d = new Date(Math.round((v - 25569) * 86400 * 1000));
     if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   }
   const s = String(v).trim();
-  // Already ISO-ish
   const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-  // DD/MM/YYYY
   const eu = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (eu) return `${eu[3]}-${eu[2].padStart(2, '0')}-${eu[1].padStart(2, '0')}`;
   return null;
 }
 
+interface WcrPackOpportunity {
+  opportunity_id: string | null;
+  opportunity_name: string | null;
+  account_name: string | null;
+  regional_division: string | null;
+  region: string | null;
+  opportunity_owner: string | null;
+  software: string | null;
+  main_products: string[];
+  amount_usd: number | null;
+  amount_software_usd: number | null;
+  stage: string | null;
+  close_date: string | null;
+  close_reason: string | null;
+  close_reason_detail: string | null;
+  close_comment: string | null;
+  next_action: string | null;
+  created_date: string | null;
+  marketing_generated: boolean | null;
+}
+
+interface ParsedWcrPackXlsx {
+  opportunities: WcrPackOpportunity[];
+  grandTotalParsed: number;
+  grandTotalPrinted: number | null;
+  runAt: string | null;
+  parseError: string;
+}
+
+// Shared parser: fetch an asset from R2, parse the Salesforce WCR Pack XLSX,
+// and return structured rows plus the grand-total validation numbers.
+// Used by both wcr_pack_opps_extract (for AI context) and wcr_pack_opps_write
+// (to re-derive rows server-side rather than round-tripping them through the AI).
+async function parseWcrPackXlsx(assetId: string): Promise<ParsedWcrPackXlsx> {
+  const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+  const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+  const headers: Record<string, string> = {};
+  if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+  const opportunities: WcrPackOpportunity[] = [];
+  let grandTotalPrinted: number | null = null;
+  let grandTotalParsed = 0;
+  let runAt: string | null = null;
+  let parseError = '';
+
+  try {
+    const resp = await fetch(`${apiUrl}/assets/${assetId}/content`, { headers });
+    if (!resp.ok) return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError: `Failed to fetch file: ${resp.status}` };
+    const fileData = await resp.json();
+    if (fileData.encoding !== 'base64') return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError: 'Expected base64-encoded XLSX' };
+
+    const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
+    const workbook = XLSX.read(binary, { type: 'array', cellDates: true });
+    const ws = workbook.Sheets[workbook.SheetNames[0]];
+    if (!ws) return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError: 'No sheets in workbook' };
+
+    const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
+
+    let headerIdx = -1;
+    for (let i = 0; i < rows.length; i++) {
+      const v0 = rows[i]?.[0];
+      if (v0 && String(v0).trim().startsWith('Account Regional')) {
+        headerIdx = i;
+        break;
+      }
+      if (v0 && String(v0).startsWith('Run at:')) {
+        const m = String(v0).match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if (m) runAt = toIsoDate(m[1]);
+      }
+    }
+    if (headerIdx < 0) return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError: 'Could not locate header row ("Account Regional Division")' };
+
+    const parseGroupCloseDate = (label: string): string | null => {
+      const m = label.match(/Close Date:\s*([A-Za-z]+)\s+(?:FY\s*)?(\d{4})/);
+      if (!m) return null;
+      const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
+        'january','february','march','april','june','july','august','september','october','november','december'];
+      const monIdx = monthNames.indexOf(m[1].toLowerCase()) % 12;
+      const year = parseInt(m[2]);
+      if (monIdx < 0 || year < 2000) return null;
+      const last = new Date(Date.UTC(year, monIdx + 1, 0));
+      return last.toISOString().slice(0, 10);
+    };
+    const cleanDash = (v: any): string | null => {
+      if (v == null) return null;
+      const s = String(v).trim();
+      return (!s || s === '-') ? null : s;
+    };
+
+    let currentGroupCloseDate: string | null = null;
+
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const c0 = r[0] == null ? '' : String(r[0]).trim();
+
+      if (c0.startsWith('Close Date:')) {
+        currentGroupCloseDate = parseGroupCloseDate(c0);
+        continue;
+      }
+      if (c0.startsWith('Grand Totals')) {
+        const raw = r[7] ?? rows[i + 1]?.[7];
+        grandTotalPrinted = parseEuroUsd(raw);
+        continue;
+      }
+      if (!c0) continue;
+      if (r[4] == null || String(r[4]).trim() === '') continue;
+
+      const software = r[5] == null ? '' : String(r[5]);
+      const amountUsd = parseEuroUsd(r[6]);
+      const amountSoftwareUsd = parseEuroUsd(r[7]);
+      if (amountSoftwareUsd != null) grandTotalParsed += amountSoftwareUsd;
+
+      opportunities.push({
+        opportunity_id: cleanDash(r[4]),
+        opportunity_name: cleanDash(r[4]),
+        account_name: cleanDash(r[3]),
+        regional_division: cleanDash(r[0]),
+        region: cleanDash(r[1]),
+        opportunity_owner: cleanDash(r[2]),
+        software: cleanDash(r[5]),
+        main_products: software ? software.split(/[;,]/).map(s => s.trim()).filter(Boolean) : [],
+        amount_usd: amountUsd,
+        amount_software_usd: amountSoftwareUsd,
+        stage: cleanDash(r[10]),
+        close_date: currentGroupCloseDate,
+        close_reason: cleanDash(r[11]),
+        close_reason_detail: cleanDash(r[12]),
+        close_comment: cleanDash(r[13]),
+        next_action: cleanDash(r[8]),
+        created_date: toIsoDate(r[9]),
+        marketing_generated: r[14] == null ? null : String(r[14]).trim() === '1',
+      });
+    }
+  } catch (err: any) {
+    parseError = `XLSX parse error: ${err.message}`;
+  }
+
+  return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError };
+}
+
+// Server-side aggregation helper: given parsed opportunities, compute the metrics
+// and slices Claude needs for the weekly summary. Keeps Claude's job to thematic
+// analysis (close-comment clustering), not number-crunching on 257 rows.
+function aggregateWcrPackMetrics(ops: WcrPackOpportunity[]) {
+  const isClosedWon = (s: string | null) => s === 'Closed Won';
+  const isClosedLost = (s: string | null) => s === 'Closed Lost';
+  const isLive = (s: string | null) => !!s && !isClosedWon(s) && !isClosedLost(s);
+
+  const tally = (arr: WcrPackOpportunity[]) => ({
+    count: arr.length,
+    value_usd: arr.reduce((t, o) => t + (o.amount_software_usd || 0), 0),
+  });
+
+  const won = tally(ops.filter(o => isClosedWon(o.stage)));
+  const lost = tally(ops.filter(o => isClosedLost(o.stage)));
+  const live = tally(ops.filter(o => isLive(o.stage)));
+
+  const byStage: Record<string, number> = {};
+  const byRegion: Record<string, number> = {};
+  const byCloseReasonDetail: Record<string, number> = {};
+  for (const o of ops) {
+    if (o.stage) byStage[o.stage] = (byStage[o.stage] || 0) + 1;
+    if (o.region) byRegion[o.region] = (byRegion[o.region] || 0) + 1;
+    if (isClosedLost(o.stage) && o.close_reason_detail) {
+      byCloseReasonDetail[o.close_reason_detail] = (byCloseReasonDetail[o.close_reason_detail] || 0) + 1;
+    }
+  }
+
+  // MGO effectiveness split — two parallel buckets with win/lost/reason breakdown
+  const mgoBucket = (filter: (o: WcrPackOpportunity) => boolean) => {
+    const subset = ops.filter(filter);
+    const w = subset.filter(o => isClosedWon(o.stage)).length;
+    const l = subset.filter(o => isClosedLost(o.stage)).length;
+    const closed = w + l;
+    const lostByReason: Record<string, number> = {};
+    subset.filter(o => isClosedLost(o.stage) && o.close_reason_detail).forEach(o => {
+      lostByReason[o.close_reason_detail!] = (lostByReason[o.close_reason_detail!] || 0) + 1;
+    });
+    return {
+      total: subset.length,
+      closed_won: w,
+      closed_lost: l,
+      win_rate: closed > 0 ? Math.round((w / closed) * 1000) / 1000 : null,
+      lost_by_reason_detail: lostByReason,
+    };
+  };
+
+  return {
+    total_records: ops.length,
+    total_value_usd: Math.round(ops.reduce((t, o) => t + (o.amount_software_usd || 0), 0) * 100) / 100,
+    closed_won_count: won.count,
+    closed_won_value_usd: Math.round(won.value_usd * 100) / 100,
+    closed_lost_count: lost.count,
+    closed_lost_value_usd: Math.round(lost.value_usd * 100) / 100,
+    live_pipeline_count: live.count,
+    live_pipeline_value_usd: Math.round(live.value_usd * 100) / 100,
+    by_stage: byStage,
+    by_region: byRegion,
+    by_close_reason_detail: byCloseReasonDetail,
+    mgo_effectiveness: {
+      marketing_generated: mgoBucket(o => o.marketing_generated === true),
+      sales_generated: mgoBucket(o => o.marketing_generated === false),
+    },
+  };
+}
+
 server.tool(
   'wcr_pack_opps_extract',
-  'Parse the weekly WebCenter Pack opportunities XLSX (Salesforce export) from the asset library and return structured rows plus prior snapshots, existing signals, known competitors, and the analysis prompt. Claude then clusters themes and calls wcr_pack_opps_write with the analysis.',
+  'Parse the weekly WCR Pack opportunities XLSX (Salesforce export) and return server-computed metrics plus closed-lost detail, open-pipeline summary, prior snapshots, existing signals, known competitors, and the analysis prompt. Aggregations are pre-computed server-side — Claude focuses on thematic clustering, not row counting. Claude then calls wcr_pack_opps_write which re-parses the same asset; the opportunity rows are NOT round-tripped through the AI.',
   {
     asset_id: z.string().optional().describe('UUID of the uploaded WCR Pack opps XLSX asset. If omitted, uses the most recent asset tagged "wcr-pack-opps".'),
     report_date: z.string().optional().describe('Report date in YYYY-MM-DD format. Defaults to today.'),
@@ -3624,169 +3827,97 @@ server.tool(
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'No WCR Pack opps asset found. Upload the weekly Salesforce XLSX and tag it "wcr-pack-opps".' }) }] };
     }
 
-    // 2. Fetch prompt template
-    const prompts = await supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template');
+    // 2. Parse XLSX via shared helper
+    const { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError } = await parseWcrPackXlsx(asset.id);
+
+    // 3. Pre-compute metrics server-side so the AI doesn't have to count rows
+    const metrics = aggregateWcrPackMetrics(opportunities);
+
+    // 4. Fetch prompt + prior snapshots + existing signals + competitors in parallel
+    const [prompts, priorSnapshots, existingSignals, competitors] = await Promise.all([
+      supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template'),
+      supabaseGet(`wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,stage,amount_software_usd,close_date,close_reason_detail`),
+      supabaseGet('content?type=eq.signal&metadata->>product_area=eq.WCR Pack&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100'),
+      supabaseGet('companies?is_competitor=eq.true&select=id,name&order=name'),
+    ]);
     const prompt = prompts?.[0];
 
-    // 3. Fetch and parse XLSX
-    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
-    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
-    const fetchHeaders: Record<string, string> = {};
-    if (internalApiKey) fetchHeaders['X-Internal-API-Key'] = internalApiKey;
-
-    let opportunities: any[] = [];
-    let grandTotalPrinted: number | null = null;
-    let grandTotalParsed = 0;
-    let runAt: string | null = null;
-    let parseError = '';
-
-    try {
-      const resp = await fetch(`${apiUrl}/assets/${asset.id}/content`, { headers: fetchHeaders });
-      if (!resp.ok) {
-        parseError = `Failed to fetch file: ${resp.status}`;
-      } else {
-        const fileData = await resp.json();
-        if (fileData.encoding !== 'base64') {
-          parseError = 'Expected base64-encoded XLSX';
-        } else {
-          const binary = Uint8Array.from(atob(fileData.content), c => c.charCodeAt(0));
-          const workbook = XLSX.read(binary, { type: 'array', cellDates: true });
-          const ws = workbook.Sheets[workbook.SheetNames[0]];
-          if (!ws) {
-            parseError = 'No sheets in workbook';
-          } else {
-            const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, blankrows: true });
-
-            // Find header row (contains "Account Regional Division")
-            let headerIdx = -1;
-            for (let i = 0; i < rows.length; i++) {
-              const v0 = rows[i]?.[0];
-              if (v0 && String(v0).trim().startsWith('Account Regional')) {
-                headerIdx = i;
-                break;
-              }
-              // Also capture the "Run at:" metadata for context
-              if (v0 && String(v0).startsWith('Run at:')) {
-                const m = String(v0).match(/(\d{1,2}\/\d{1,2}\/\d{4})/);
-                if (m) runAt = toIsoDate(m[1]);
-              }
-            }
-            if (headerIdx < 0) {
-              parseError = 'Could not locate header row ("Account Regional Division")';
-            } else {
-              // Track current close-date group header ("Close Date: Jun FY 2025")
-              // and apply it as close_date to every data row until the next group header.
-              // "January 1900" is Salesforce's placeholder for open opps — null close_date.
-              let currentGroupCloseDate: string | null = null;
-
-              const parseGroupCloseDate = (label: string): string | null => {
-                // "Close Date: Jun FY 2025 (N records)" → last day of Jun 2025
-                // "Close Date: January 1900 (N records)" → null (Salesforce placeholder for "no close date")
-                const m = label.match(/Close Date:\s*([A-Za-z]+)\s+(?:FY\s*)?(\d{4})/);
-                if (!m) return null;
-                const monthNames = ['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec',
-                  'january','february','march','april','june','july','august','september','october','november','december'];
-                const monIdx = monthNames.indexOf(m[1].toLowerCase()) % 12;
-                const year = parseInt(m[2]);
-                if (monIdx < 0 || year < 2000) return null; // year<2000 filters "January 1900"
-                // Last day of month
-                const last = new Date(Date.UTC(year, monIdx + 1, 0));
-                return last.toISOString().slice(0, 10);
-              };
-
-              const cleanDash = (v: any) => {
-                if (v == null) return null;
-                const s = String(v).trim();
-                return (!s || s === '-') ? null : s;
-              };
-
-              for (let i = headerIdx + 1; i < rows.length; i++) {
-                const r = rows[i] || [];
-                const c0 = r[0] == null ? '' : String(r[0]).trim();
-
-                // Group header row ("Close Date: Jun FY 2025 (3 records)")
-                if (c0.startsWith('Close Date:')) {
-                  currentGroupCloseDate = parseGroupCloseDate(c0);
-                  continue;
-                }
-
-                // Grand total footer
-                if (c0.startsWith('Grand Totals')) {
-                  const raw = r[7] ?? rows[i + 1]?.[7];
-                  grandTotalPrinted = parseEuroUsd(raw);
-                  continue;
-                }
-
-                // Sub-total row (blank col 0): skip
-                if (!c0) continue;
-
-                // Skip footer text rows (Confidential / Copyright) — real data rows
-                // always have an Opportunity Name in col 4.
-                if (r[4] == null || String(r[4]).trim() === '') continue;
-
-                // Data row. Columns (0-indexed, matching XLSX header row 19):
-                // 0 Account Regional Division | 1 Account Region | 2 Opportunity Owner
-                // 3 Account Name | 4 Opportunity Name | 5 Software
-                // 6 Amount (converted) | 7 Amount of Software (converted) | 8 Next Action
-                // 9 Created Date | 10 Stage mapping | 11 Close Reason
-                // 12 Close Reason Detail | 13 Close Comment | 14 Marketing Generated
-
-                const software = r[5] == null ? '' : String(r[5]);
-                const amountUsd = parseEuroUsd(r[6]);
-                const amountSoftwareUsd = parseEuroUsd(r[7]);
-                // Validate against printed grand total — Salesforce totals use Amount of Software
-                if (amountSoftwareUsd != null) grandTotalParsed += amountSoftwareUsd;
-
-                opportunities.push({
-                  opportunity_id: cleanDash(r[4]),
-                  opportunity_name: cleanDash(r[4]),
-                  account_name: cleanDash(r[3]),
-                  regional_division: cleanDash(r[0]),
-                  region: cleanDash(r[1]),
-                  opportunity_owner: cleanDash(r[2]),
-                  software: cleanDash(r[5]),
-                  main_products: software
-                    ? software.split(/[;,]/).map(s => s.trim()).filter(Boolean)
-                    : [],
-                  amount_usd: amountUsd,
-                  amount_software_usd: amountSoftwareUsd,
-                  stage: cleanDash(r[10]),
-                  close_date: currentGroupCloseDate,
-                  close_reason: cleanDash(r[11]),
-                  close_reason_detail: cleanDash(r[12]),
-                  close_comment: cleanDash(r[13]),
-                  next_action: cleanDash(r[8]),
-                  created_date: toIsoDate(r[9]),
-                  marketing_generated: r[14] == null ? null : String(r[14]).trim() === '1',
-                });
-              }
-            }
-          }
-        }
-      }
-    } catch (err: any) {
-      parseError = `XLSX parse error: ${err.message}`;
-    }
-
-    // 4. Fetch prior snapshots (last 4 report_dates) for trend/stalled-deal analysis
-    const priorSnapshots = await supabaseGet(
-      `wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,opportunity_name,account_name,stage,amount_usd,close_date,close_reason_detail`
-    );
+    // Group prior snapshots by report_date → keep last 4
     const byDate: Record<string, any[]> = {};
     for (const row of priorSnapshots || []) {
       if (!byDate[row.report_date]) byDate[row.report_date] = [];
       byDate[row.report_date].push(row);
     }
     const lastDates = Object.keys(byDate).sort().reverse().slice(0, 4);
-    const priorByDate = lastDates.map(d => ({ report_date: d, rows: byDate[d] }));
 
-    // 5. Fetch existing WCR Pack signals (for theme_slug-based dedup)
-    const existingSignals = await supabaseGet(
-      `content?type=eq.signal&metadata->>product_area=eq.WCR Pack&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100`
-    );
+    // 5. Compute week-over-week deltas vs most-recent prior snapshot
+    let weeklyDeltas: any = null;
+    if (lastDates.length > 0) {
+      const prev = byDate[lastDates[0]];
+      const prevById = new Map<string, any>(prev.map(p => [p.opportunity_id, p]));
+      const currentIds = new Set(opportunities.map(o => o.opportunity_id).filter(Boolean) as string[]);
+      const prevIds = new Set(prev.map(p => p.opportunity_id));
 
-    // 6. Fetch known competitors
-    const competitors = await supabaseGet('companies?is_competitor=eq.true&select=id,name&order=name');
+      weeklyDeltas = {
+        prior_report_date: lastDates[0],
+        newly_created_count: [...currentIds].filter(id => !prevIds.has(id)).length,
+        newly_won: opportunities
+          .filter(o => o.stage === 'Closed Won' && o.opportunity_id && prevById.get(o.opportunity_id)?.stage !== 'Closed Won')
+          .map(o => ({ opportunity_id: o.opportunity_id, account_name: o.account_name, value_usd: o.amount_software_usd })),
+        newly_lost: opportunities
+          .filter(o => o.stage === 'Closed Lost' && o.opportunity_id && prevById.get(o.opportunity_id)?.stage !== 'Closed Lost')
+          .map(o => ({ opportunity_id: o.opportunity_id, account_name: o.account_name, close_reason_detail: o.close_reason_detail })),
+        pipeline_value_delta_usd: Math.round((metrics.live_pipeline_value_usd - prev.filter(p => !['Closed Won', 'Closed Lost'].includes(p.stage)).reduce((t, p) => t + (p.amount_software_usd || 0), 0)) * 100) / 100,
+      };
+    }
+
+    // 6. Stalled deals — opps in the same stage across all available prior snapshots (last 4)
+    const stalledDeals: any[] = [];
+    if (lastDates.length >= 2) {
+      for (const o of opportunities) {
+        if (!o.opportunity_id || o.stage === 'Closed Won' || o.stage === 'Closed Lost') continue;
+        const stagesPerSnapshot = lastDates.map(d => byDate[d].find(p => p.opportunity_id === o.opportunity_id)?.stage).filter(Boolean);
+        if (stagesPerSnapshot.length >= Math.min(2, lastDates.length) && stagesPerSnapshot.every(s => s === o.stage)) {
+          stalledDeals.push({
+            opportunity_id: o.opportunity_id,
+            account_name: o.account_name,
+            stage: o.stage,
+            value_usd: o.amount_software_usd,
+            snapshots_in_stage: stagesPerSnapshot.length + 1,
+          });
+        }
+      }
+    }
+
+    // 7. Trim payload: only send CLOSED-LOST rows in full detail (theme clustering needs close_comments);
+    // send open pipeline + won as brief for context/drill-down. This is the big token saving.
+    const closedLostDetail = opportunities
+      .filter(o => o.stage === 'Closed Lost')
+      .map(o => ({
+        opportunity_id: o.opportunity_id,
+        account_name: o.account_name,
+        regional_division: o.regional_division,
+        region: o.region,
+        opportunity_owner: o.opportunity_owner,
+        value_usd: o.amount_software_usd,
+        close_date: o.close_date,
+        close_reason: o.close_reason,
+        close_reason_detail: o.close_reason_detail,
+        close_comment: o.close_comment,
+        marketing_generated: o.marketing_generated,
+      }));
+
+    const openPipelineBrief = opportunities
+      .filter(o => o.stage !== 'Closed Lost' && o.stage !== 'Closed Won')
+      .map(o => ({
+        opportunity_id: o.opportunity_id,
+        account_name: o.account_name,
+        region: o.region,
+        stage: o.stage,
+        value_usd: o.amount_software_usd,
+        close_date: o.close_date,
+        marketing_generated: o.marketing_generated,
+      }));
 
     return {
       content: [{
@@ -3796,7 +3927,6 @@ server.tool(
           asset_id: asset.id,
           file_name: asset.filename,
           run_at: runAt,
-          opportunities,
           validation: {
             row_count: opportunities.length,
             grand_total_parsed: Math.round(grandTotalParsed * 100) / 100,
@@ -3805,7 +3935,12 @@ server.tool(
               ? Math.round(Math.abs(grandTotalParsed - grandTotalPrinted) * 100) / 100
               : null,
           },
-          prior_snapshots: priorByDate,
+          metrics,
+          weekly_deltas: weeklyDeltas,
+          stalled_deals: stalledDeals,
+          closed_lost_detail: closedLostDetail,
+          open_pipeline_brief: openPipelineBrief,
+          prior_snapshot_dates: lastDates,
           existing_signals: (existingSignals || []).map((s: any) => ({
             id: s.id,
             title: s.title,
@@ -3826,61 +3961,31 @@ server.tool(
 
 server.tool(
   'wcr_pack_opps_write',
-  'Write the parsed WCR Pack opportunities snapshot. Inserts rows into wcr_pack_opportunities (one per opp for this report_date), creates/updates the weekly summary content item, deduplicates signals by theme_slug (appends evidence if existing, creates if new), links signals to the summary, and upserts competitor mentions. Idempotent: re-running with the same report_date replaces that snapshot.',
+  'Persist the weekly WCR Pack snapshot. Re-parses the XLSX from asset_id server-side (rows are NOT passed through the AI), bulk-inserts all opportunity rows in one call, upserts the weekly summary, deduplicates signals by id (preferred) or theme_slug, links signals to summary, and upserts competitors by id (preferred) or name. Idempotent by report_date.',
   {
     report_date: z.string().describe('Report date in YYYY-MM-DD format'),
-    asset_id: z.string().optional().describe('UUID of the source XLSX asset'),
-    period_label: z.string().describe('Human-readable label, e.g. "Week 16, 2026" or "17 April 2026"'),
-    opportunities: z.array(z.object({
-      opportunity_id: z.string().describe('Stable Salesforce opp identifier (e.g. "ARTWORKR S.R.L_O20")'),
-      opportunity_name: z.string().nullable().optional(),
-      account_name: z.string().nullable().optional(),
-      regional_division: z.string().nullable().optional(),
-      region: z.string().nullable().optional(),
-      opportunity_owner: z.string().nullable().optional(),
-      software: z.string().nullable().optional(),
-      main_products: z.array(z.string()).optional().default([]),
-      amount_usd: z.number().nullable().optional(),
-      amount_software_usd: z.number().nullable().optional(),
-      stage: z.string().nullable().optional(),
-      close_date: z.string().nullable().optional().describe('YYYY-MM-DD'),
-      close_reason: z.string().nullable().optional(),
-      close_reason_detail: z.string().nullable().optional(),
-      close_comment: z.string().nullable().optional(),
-      next_action: z.string().nullable().optional(),
-      created_date: z.string().nullable().optional().describe('YYYY-MM-DD'),
-      marketing_generated: z.boolean().nullable().optional(),
-    })).describe('All opportunity rows parsed from the XLSX'),
+    asset_id: z.string().describe('UUID of the source XLSX asset (required — the write tool re-parses it server-side)'),
+    period_label: z.string().describe('Human-readable label, e.g. "17 April 2026"'),
     summary: z.object({
       title: z.string().describe('Weekly summary title, e.g. "WCR Pack pipeline — 17 April 2026"'),
-      body: z.string().describe('Markdown body — pipeline totals, stage mix, regional mix, themes, velocity'),
-      metrics: z.object({
-        total_records: z.number(),
-        total_value_usd: z.number(),
-        closed_won_count: z.number(),
-        closed_won_value_usd: z.number(),
-        closed_lost_count: z.number(),
-        live_pipeline_count: z.number(),
-        live_pipeline_value_usd: z.number(),
-        by_stage: z.record(z.string(), z.number()).optional().default({}),
-        by_region: z.record(z.string(), z.number()).optional().default({}),
-        by_close_reason_detail: z.record(z.string(), z.number()).optional().default({}),
-      }).describe('Headline metrics for the admin dashboard to render without re-parsing'),
-    }),
+      body: z.string().describe('Markdown body — pipeline snapshot, themes, competitors, stalled list, velocity, MGO, top actionable findings'),
+    }).describe('Summary content. Metrics are computed server-side from the XLSX and attached automatically — do not send them.'),
     signals: z.array(z.object({
-      theme_slug: z.string().describe('Stable kebab-case slug, WCR-prefixed (e.g. "wcr-sna-parity-gap", "wcr-hybrid-price-undercut"). Used for deduplication.'),
+      id: z.string().optional().describe('Existing signal UUID (from extract\'s existing_signals). If provided, the tool skips the theme_slug lookup and PATCHes this signal directly — saves a subrequest.'),
+      theme_slug: z.string().describe('Stable kebab-case slug, WCR-prefixed (e.g. "wcr-sna-parity-gap"). Used for dedup when id not provided.'),
       title: z.string(),
       description: z.string().describe('One-line description of the theme'),
-      evidence_block: z.string().describe('Markdown evidence block to append to the signal body — deals/quotes observed in this report'),
+      evidence_block: z.string().describe('Markdown evidence block appended to the signal body — deals/quotes observed in this report'),
       severity: z.enum(['high', 'medium', 'low']).optional().default('medium'),
     })).optional().default([]),
     competitors: z.array(z.object({
+      id: z.string().optional().describe('Existing company UUID (from extract\'s known_competitors). If provided, skips the name lookup — saves a subrequest.'),
       name: z.string().describe('Competitor name (e.g. "Hybrid", "Kodak Insight")'),
       lost_deal_count: z.number().optional().default(0),
       notes: z.string().optional(),
     })).optional().default([]),
   },
-  async ({ report_date, asset_id, period_label, opportunities, summary, signals, competitors }) => {
+  async ({ report_date, asset_id, period_label, summary, signals, competitors }) => {
     const results = {
       opportunities_inserted: 0,
       opportunities_replaced: 0,
@@ -3890,49 +3995,61 @@ server.tool(
       links_created: 0,
     };
 
-    // 1. Idempotent: delete existing snapshot for this report_date before re-insert
+    // 1. Re-parse the XLSX — rows are NOT round-tripped through the AI
+    const parsed = await parseWcrPackXlsx(asset_id);
+    if (parsed.parseError) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: parsed.parseError }) }] };
+    }
+    const opportunities = parsed.opportunities;
+    const metrics = aggregateWcrPackMetrics(opportunities);
+
+    // 2. Idempotent: delete existing snapshot for this report_date before re-insert
     const existingOppRows = await supabaseGet(`wcr_pack_opportunities?report_date=eq.${report_date}&select=id`);
     if (existingOppRows && existingOppRows.length > 0) {
       await supabaseDelete(`wcr_pack_opportunities?report_date=eq.${report_date}`);
       results.opportunities_replaced = existingOppRows.length;
     }
 
-    // 2. Insert opportunity rows in batches of 50
-    const batchSize = 50;
-    for (let i = 0; i < opportunities.length; i += batchSize) {
-      const batch = opportunities.slice(i, i + batchSize).map(o => ({
+    // 3. Bulk insert — ALL rows in one POST (was 6 batches of 50)
+    if (opportunities.length > 0) {
+      const payload = opportunities.map(o => ({
         report_date,
         opportunity_id: o.opportunity_id,
-        opportunity_name: o.opportunity_name ?? null,
-        account_name: o.account_name ?? null,
-        regional_division: o.regional_division ?? null,
-        region: o.region ?? null,
-        opportunity_owner: o.opportunity_owner ?? null,
-        software: o.software ?? null,
-        main_products: o.main_products ?? [],
-        amount_usd: o.amount_usd ?? null,
-        amount_software_usd: o.amount_software_usd ?? null,
-        stage: o.stage ?? null,
-        close_date: o.close_date || null,
-        close_reason: o.close_reason ?? null,
-        close_reason_detail: o.close_reason_detail ?? null,
-        close_comment: o.close_comment ?? null,
-        next_action: o.next_action ?? null,
-        created_date: o.created_date || null,
-        marketing_generated: o.marketing_generated ?? null,
-        source_file: asset_id ?? null,
+        opportunity_name: o.opportunity_name,
+        account_name: o.account_name,
+        regional_division: o.regional_division,
+        region: o.region,
+        opportunity_owner: o.opportunity_owner,
+        software: o.software,
+        main_products: o.main_products,
+        amount_usd: o.amount_usd,
+        amount_software_usd: o.amount_software_usd,
+        stage: o.stage,
+        close_date: o.close_date,
+        close_reason: o.close_reason,
+        close_reason_detail: o.close_reason_detail,
+        close_comment: o.close_comment,
+        next_action: o.next_action,
+        created_date: o.created_date,
+        marketing_generated: o.marketing_generated,
+        source_file: asset_id,
       }));
-      const res = await supabasePost('wcr_pack_opportunities', batch);
-      if (res.ok) results.opportunities_inserted += batch.length;
+      const res = await supabasePost('wcr_pack_opportunities', payload);
+      if (res.ok) results.opportunities_inserted = payload.length;
     }
 
-    // 3. Create or update the weekly summary content item
+    // 4. Create or update the weekly summary content item
     const summaryMetadata = {
       report_type: 'wcr-pack-opps',
       report_date,
       period_label,
-      asset_id: asset_id ?? null,
-      metrics: summary.metrics,
+      asset_id,
+      metrics,
+      validation: {
+        row_count: opportunities.length,
+        grand_total_parsed: Math.round(parsed.grandTotalParsed * 100) / 100,
+        grand_total_printed: parsed.grandTotalPrinted,
+      },
     };
 
     const existingSummary = await supabaseGet(
@@ -3961,41 +4078,45 @@ server.tool(
       summaryId = created.data?.[0]?.id || '';
     }
 
-    // 4. Handle signals with theme_slug dedup
+    // 5. Signals — use id if AI provided one (from existing_signals), else theme_slug lookup.
+    // Skip per-signal embedding; the batch_embed cron will pick them up.
     for (const sig of signals) {
-      const existingRows = await supabaseGet(
-        `content?type=eq.signal&metadata->>theme_slug=eq.${encodeURIComponent(sig.theme_slug)}&limit=1&select=id,body,metadata`
-      );
-
       const evidenceEntry = `\n\n### ${report_date} — ${period_label}\n\n${sig.evidence_block}\n`;
+      let existingId = sig.id;
+      let existingBody = '';
+      let existingMeta: any = {};
 
-      if (existingRows && existingRows.length > 0) {
-        const existing = existingRows[0];
-        const prevMeta = existing.metadata || {};
-        const newBody = `${evidenceEntry}\n---\n${existing.body || ''}`; // newest first
-        await supabasePatch(`content?id=eq.${existing.id}`, {
-          body: newBody,
+      if (existingId) {
+        const rows = await supabaseGet(`content?id=eq.${existingId}&select=id,body,metadata`);
+        if (rows && rows.length > 0) {
+          existingBody = rows[0].body || '';
+          existingMeta = rows[0].metadata || {};
+        } else {
+          existingId = undefined; // stale id; fall through to create
+        }
+      } else {
+        const rows = await supabaseGet(
+          `content?type=eq.signal&metadata->>theme_slug=eq.${encodeURIComponent(sig.theme_slug)}&limit=1&select=id,body,metadata`
+        );
+        if (rows && rows.length > 0) {
+          existingId = rows[0].id;
+          existingBody = rows[0].body || '';
+          existingMeta = rows[0].metadata || {};
+        }
+      }
+
+      if (existingId) {
+        await supabasePatch(`content?id=eq.${existingId}`, {
+          body: `${evidenceEntry}\n---\n${existingBody}`,
           metadata: {
-            ...prevMeta,
+            ...existingMeta,
             last_seen_report: report_date,
-            occurrence_count: (prevMeta.occurrence_count || 1) + 1,
+            occurrence_count: (existingMeta.occurrence_count || 1) + 1,
             severity: sig.severity,
           },
           status: 'active',
         });
         results.signals_updated++;
-        embedItem('content', existing.id).catch(() => {});
-
-        // Link signal -> summary
-        if (summaryId) {
-          await supabasePost('content_links', {
-            source_id: existing.id,
-            target_id: summaryId,
-            link_type: 'evidence',
-            context: `Evidence surfaced in WCR Pack report ${report_date}`,
-          });
-          results.links_created++;
-        }
       } else {
         const created = await supabasePost('content', {
           type: 'signal',
@@ -4012,41 +4133,41 @@ server.tool(
             severity: sig.severity,
           },
         }, true);
-        const newId = created.data?.[0]?.id;
-        if (newId) {
-          results.signals_created++;
-          embedItem('content', newId).catch(() => {});
-          if (summaryId) {
-            await supabasePost('content_links', {
-              source_id: newId,
-              target_id: summaryId,
-              link_type: 'evidence',
-              context: `First surfaced in WCR Pack report ${report_date}`,
-            });
-            results.links_created++;
-          }
-        }
+        existingId = created.data?.[0]?.id;
+        if (existingId) results.signals_created++;
+      }
+
+      if (existingId && summaryId) {
+        await supabasePost('content_links', {
+          source_id: existingId,
+          target_id: summaryId,
+          link_type: 'evidence',
+          context: `Evidence surfaced in WCR Pack report ${report_date}`,
+        });
+        results.links_created++;
       }
     }
 
-    // 5. Upsert competitors
+    // 6. Competitors — id-first lookup, else name ilike match.
     for (const comp of competitors) {
-      const existingCo = await supabaseGet(
-        `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,is_competitor`
-      );
-      let companyId: string;
-      if (existingCo && existingCo.length > 0) {
-        companyId = existingCo[0].id;
-        if (!existingCo[0].is_competitor) {
-          await supabasePatch(`companies?id=eq.${companyId}`, { is_competitor: true });
+      let companyId = comp.id;
+      if (!companyId) {
+        const existingCo = await supabaseGet(
+          `companies?name=ilike.${encodeURIComponent(comp.name)}&limit=1&select=id,is_competitor`
+        );
+        if (existingCo && existingCo.length > 0) {
+          companyId = existingCo[0].id;
+          if (!existingCo[0].is_competitor) {
+            await supabasePatch(`companies?id=eq.${companyId}`, { is_competitor: true });
+          }
+        } else {
+          const created = await supabasePost('companies', {
+            name: comp.name,
+            is_competitor: true,
+            notes: comp.notes || `Surfaced from WCR Pack closed-lost analysis (${report_date})`,
+          }, true);
+          companyId = created.data?.[0]?.id || '';
         }
-      } else {
-        const created = await supabasePost('companies', {
-          name: comp.name,
-          is_competitor: true,
-          notes: comp.notes || `Surfaced from WCR Pack closed-lost analysis (${report_date})`,
-        }, true);
-        companyId = created.data?.[0]?.id || '';
       }
       if (companyId && summaryId) {
         await supabasePost('company_content', {
@@ -4057,7 +4178,7 @@ server.tool(
       }
     }
 
-    // 6. Audit
+    // 7. Audit
     await supabasePost('ai_reviews', {
       review_type: 'wcr_pack_opps',
       source_date: report_date,
@@ -4067,7 +4188,7 @@ server.tool(
       completed_at: new Date().toISOString(),
     });
 
-    // 7. Embed the summary
+    // 8. Embed the summary only (signals picked up by batch_embed cron)
     if (summaryId) embedItem('content', summaryId).catch(() => {});
 
     return {
