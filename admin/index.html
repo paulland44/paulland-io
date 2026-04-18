@@ -11828,16 +11828,24 @@
             .from('company_content')
             .select('company_id, companies(id, name, is_competitor)')
             .eq('content_id', latest.id);
-        const [{ data: signalLinks }, { data: companyLinks }] = await Promise.all([signalLinksP, companyLinksP]);
+        const oppsP = latestDate
+            ? db.from('wcr_pack_opportunities')
+                .select('opportunity_id, opportunity_name, account_name, regional_division, region, opportunity_owner, stage, amount_software_usd, close_date, close_reason_detail, close_comment, marketing_generated')
+                .eq('report_date', latestDate)
+                .limit(500)
+            : Promise.resolve({ data: [] });
+        const [{ data: signalLinks }, { data: companyLinks }, { data: oppsData }] = await Promise.all([signalLinksP, companyLinksP, oppsP]);
+        const latestOpps = oppsData || [];
 
         let signals = [];
         const signalIds = (signalLinks || []).map(l => l.source_id);
         if (signalIds.length) {
             const { data: sigData } = await db
                 .from('content')
-                .select('id, title, body, metadata, tags')
+                .select('id, title, body, metadata, status, tags')
                 .in('id', signalIds)
-                .eq('type', 'signal');
+                .eq('type', 'signal')
+                .neq('status', 'archived'); // don't resurface deliberately archived themes
             signals = (sigData || []).sort((a, b) => {
                 const sev = { high: 0, medium: 1, low: 2 };
                 return (sev[a.metadata?.severity] ?? 3) - (sev[b.metadata?.severity] ?? 3);
@@ -12119,7 +12127,34 @@
                 </div>
             </div>
 
-            <!-- Row 7: full report body — collapsed by default because the panels above already cover most of it -->
+            <!-- Row 7: Accounts list with stage + search filters -->
+            <div class="support-section" style="margin-top:1rem;">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:1rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+                    <h3 style="margin:0;"><i data-lucide="list" style="width:16px;height:16px;"></i> Accounts</h3>
+                    <div style="display:flex;align-items:center;gap:0.5rem;">
+                        <input type="search" id="wcrAccountsSearch" placeholder="Search account, owner, region…" style="padding:0.4rem 0.7rem;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text-body);font-size:0.82rem;min-width:220px;" />
+                        <span id="wcrAccountsCount" style="font-size:0.75rem;color:var(--text-muted);"></span>
+                    </div>
+                </div>
+                <div id="wcrAccountsChips" style="display:flex;flex-wrap:wrap;gap:0.3rem;margin-bottom:0.75rem;"></div>
+                <div style="overflow:auto;max-height:520px;border:1px solid var(--border);border-radius:var(--radius-sm);">
+                    <table id="wcrAccountsTable" style="width:100%;font-size:0.82rem;border-collapse:collapse;">
+                        <thead>
+                            <tr style="position:sticky;top:0;background:var(--surface);text-align:left;color:var(--text-muted);z-index:1;">
+                                <th style="padding:0.5rem 0.7rem;cursor:pointer;" data-sort="account_name">Account</th>
+                                <th style="padding:0.5rem 0.7rem;">Owner</th>
+                                <th style="padding:0.5rem 0.7rem;">Region</th>
+                                <th style="padding:0.5rem 0.7rem;">Stage</th>
+                                <th style="padding:0.5rem 0.7rem;text-align:right;cursor:pointer;" data-sort="amount_software_usd">Value ▾</th>
+                                <th style="padding:0.5rem 0.7rem;cursor:pointer;" data-sort="close_date">Close date</th>
+                            </tr>
+                        </thead>
+                        <tbody id="wcrAccountsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Row 8: full report body — collapsed by default because the panels above already cover most of it -->
             <details style="margin-top:1rem;border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem 0.9rem;">
                 <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-muted);padding:0.25rem 0;">
                     <i data-lucide="file-text" style="width:14px;height:14px;vertical-align:-2px;margin-right:0.4rem;"></i>
@@ -12130,6 +12165,118 @@
         `;
 
         refreshIcons();
+
+        // ─── Accounts table: stage chips + search + sortable ─────
+        (() => {
+            const chipsEl = container.querySelector('#wcrAccountsChips');
+            const searchEl = container.querySelector('#wcrAccountsSearch');
+            const bodyEl = container.querySelector('#wcrAccountsBody');
+            const countEl = container.querySelector('#wcrAccountsCount');
+            const headerRow = container.querySelector('#wcrAccountsTable thead tr');
+            if (!chipsEl || !bodyEl) return;
+
+            const STAGE_PRESETS = [
+                { key: 'all', label: 'All', match: () => true },
+                { key: 'live', label: 'Live pipeline', match: (o) => o.stage && !['Closed Won', 'Closed Lost'].includes(o.stage) },
+                { key: '1 Qualified', label: '1 Qualified' },
+                { key: '2 Identify Needs', label: '2 Identify Needs' },
+                { key: '3 Validate/Present Solution', label: '3 Validate/Present' },
+                { key: '4 Negotiate/Review', label: '4 Negotiate/Review' },
+                { key: '5 Closing', label: '5 Closing' },
+                { key: 'Closed Won', label: 'Closed Won' },
+                { key: 'Closed Lost', label: 'Closed Lost' },
+            ];
+            let activeStage = 'all';
+            let search = '';
+            let sortKey = 'amount_software_usd';
+            let sortDir = -1; // -1 desc, 1 asc
+
+            const renderChips = () => {
+                chipsEl.innerHTML = STAGE_PRESETS.map(p => {
+                    const count = p.key === 'all'
+                        ? latestOpps.length
+                        : p.match
+                            ? latestOpps.filter(p.match).length
+                            : latestOpps.filter(o => o.stage === p.key).length;
+                    const active = activeStage === p.key;
+                    return `<button class="wcr-stage-chip" data-chip="${esc(p.key)}" style="
+                        padding:0.3rem 0.65rem;
+                        border:1px solid ${active ? 'var(--accent)' : 'var(--border)'};
+                        border-radius:var(--radius-pill);
+                        background:${active ? 'var(--accent)' : 'transparent'};
+                        color:${active ? 'var(--void)' : 'var(--text-body)'};
+                        font-size:0.75rem;
+                        cursor:pointer;
+                        font-weight:${active ? '600' : '400'};
+                    ">${esc(p.label)} <span style="opacity:0.65;margin-left:0.2rem;">${count}</span></button>`;
+                }).join('');
+            };
+
+            const filter = () => {
+                const preset = STAGE_PRESETS.find(p => p.key === activeStage);
+                const stageFilter = preset?.match || ((o) => o.stage === activeStage);
+                const q = search.trim().toLowerCase();
+                return latestOpps.filter(o => {
+                    if (!stageFilter(o)) return false;
+                    if (!q) return true;
+                    return (o.account_name || '').toLowerCase().includes(q)
+                        || (o.opportunity_owner || '').toLowerCase().includes(q)
+                        || (o.region || '').toLowerCase().includes(q)
+                        || (o.regional_division || '').toLowerCase().includes(q);
+                });
+            };
+
+            const render = () => {
+                const rows = filter().sort((a, b) => {
+                    const av = a[sortKey], bv = b[sortKey];
+                    if (av == null && bv == null) return 0;
+                    if (av == null) return 1;
+                    if (bv == null) return -1;
+                    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sortDir;
+                    return String(av).localeCompare(String(bv)) * sortDir;
+                });
+                bodyEl.innerHTML = rows.map(o => {
+                    const stageColor = o.stage === 'Closed Won' ? 'var(--accent)'
+                        : o.stage === 'Closed Lost' ? 'rgb(220,120,60)'
+                        : 'var(--text-muted)';
+                    return `<tr style="border-top:1px solid var(--border);">
+                        <td style="padding:0.4rem 0.7rem;color:var(--text-heading);font-weight:500;">${esc(o.account_name || '—')}</td>
+                        <td style="padding:0.4rem 0.7rem;color:var(--text-muted);">${esc(o.opportunity_owner || '—')}</td>
+                        <td style="padding:0.4rem 0.7rem;color:var(--text-muted);">${esc(o.region || '—')}</td>
+                        <td style="padding:0.4rem 0.7rem;color:${stageColor};white-space:nowrap;">${esc(o.stage || '—')}</td>
+                        <td style="padding:0.4rem 0.7rem;text-align:right;font-variant-numeric:tabular-nums;">${o.amount_software_usd != null ? wcrFmtUsd(o.amount_software_usd) : '—'}</td>
+                        <td style="padding:0.4rem 0.7rem;color:var(--text-muted);">${esc(o.close_date || '—')}</td>
+                    </tr>`;
+                }).join('') || `<tr><td colspan="6" style="padding:1rem;color:var(--text-muted);text-align:center;font-size:0.82rem;">No matching accounts.</td></tr>`;
+                if (countEl) countEl.textContent = `Showing ${rows.length} of ${latestOpps.length}`;
+                renderChips(); // update active/count
+                // Update sort indicator in header
+                headerRow?.querySelectorAll('th[data-sort]').forEach(th => {
+                    const isActive = th.dataset.sort === sortKey;
+                    const base = th.textContent.replace(/\s*[▾▴]\s*$/, '');
+                    th.textContent = isActive ? `${base} ${sortDir === -1 ? '▾' : '▴'}` : base;
+                });
+            };
+
+            renderChips();
+            render();
+
+            chipsEl.addEventListener('click', (e) => {
+                const btn = e.target.closest('.wcr-stage-chip');
+                if (!btn) return;
+                activeStage = btn.dataset.chip;
+                render();
+            });
+            searchEl?.addEventListener('input', (e) => { search = e.target.value; render(); });
+            headerRow?.querySelectorAll('th[data-sort]').forEach(th => {
+                th.addEventListener('click', () => {
+                    const key = th.dataset.sort;
+                    if (sortKey === key) sortDir = -sortDir;
+                    else { sortKey = key; sortDir = key === 'amount_software_usd' ? -1 : 1; }
+                    render();
+                });
+            });
+        })();
 
         // Wire signal drill-down
         container.querySelectorAll('.wcr-signal-link').forEach(el => {
