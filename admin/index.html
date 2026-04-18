@@ -634,6 +634,30 @@
         .synthesis-result { margin-top: 1.25rem; }
         .synthesis-result .ask-answer { max-height: 50vh; overflow-y: auto; }
 
+        .synthesis-card {
+            background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
+            padding: 1.25rem 1.5rem; margin-top: 0.5rem;
+        }
+        .synthesis-card-header {
+            display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+            margin-bottom: 1rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+        }
+        .synthesis-card-empty {
+            display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        }
+        .synthesis-card-label {
+            display: inline-flex; align-items: center; gap: 0.4rem;
+            font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em;
+            margin-bottom: 0.25rem;
+        }
+        .synthesis-card-meta { font-size: 0.85rem; color: var(--text-muted); }
+        .synthesis-card-body { font-size: 0.9rem; line-height: 1.65; max-height: 60vh; overflow-y: auto; }
+        .synthesis-card-body h2 { font-size: 1rem; margin: 1.25rem 0 0.5rem; color: var(--star); }
+        .synthesis-card-body h2:first-child { margin-top: 0; }
+        .synthesis-card-body ul { margin: 0.5rem 0 0.75rem 1.25rem; }
+        .synthesis-card-body li { margin-bottom: 0.35rem; }
+        .synthesis-card-body p { margin-bottom: 0.75rem; }
+
         /* Status badges */
         .status-active { background: rgba(61, 139, 110, 0.15); color: var(--accent); }
         .status-on_hold { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
@@ -7861,46 +7885,272 @@
     }
 
     // ─── Reflections ──────────────────────────────────────────
+
+    let reflectionState = {
+        from: null,      // ISO date string (YYYY-MM-DD)
+        to: null,
+        categories: [],  // empty = all
+        logData: [],
+        contentData: [],
+        synthesisText: '',
+        synthesisSources: null,
+        rawExpanded: false,
+    };
+
     async function loadReflections() {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading</div>';
 
-        // Fetch both content reflections AND reflections_log (from AI reviews)
-        const [contentResult, logResult] = await Promise.all([
+        // Default window: last 30 days
+        if (!reflectionState.from || !reflectionState.to) {
+            const today = new Date();
+            const past = new Date(today);
+            past.setDate(past.getDate() - 30);
+            reflectionState.to = today.toISOString().slice(0, 10);
+            reflectionState.from = past.toISOString().slice(0, 10);
+        }
+
+        await fetchReflectionsInRange();
+
+        // Load the most recent saved synthesis (if any) for this view
+        const { data: savedSyntheses } = await db
+            .from('summaries')
+            .select('id, content, metadata, period_start, period_end, created_at')
+            .eq('type', 'reflection-synthesis')
+            .order('created_at', { ascending: false })
+            .limit(1);
+        if (savedSyntheses?.length) {
+            reflectionState.synthesisText = savedSyntheses[0].content || '';
+            reflectionState.synthesisSources = {
+                period_start: savedSyntheses[0].period_start,
+                period_end: savedSyntheses[0].period_end,
+                ...(savedSyntheses[0].metadata || {}),
+            };
+        }
+
+        renderReflections();
+    }
+
+    async function fetchReflectionsInRange() {
+        const { from, to, categories } = reflectionState;
+        let logQuery = db.from('reflections_log')
+            .select('id, note_date, observation, coach_perspective, category')
+            .gte('note_date', from)
+            .lte('note_date', to)
+            .order('note_date', { ascending: false });
+        if (categories.length) logQuery = logQuery.in('category', categories);
+
+        const [logResult, contentResult] = await Promise.all([
+            logQuery,
             db.from('content')
                 .select('id, title, type, tags, status, captured_at, body, metadata')
                 .eq('type', 'reflection')
-                .order('captured_at', { ascending: false })
-                .limit(50),
-            db.from('reflections_log')
-                .select('id, note_date, observation, coach_perspective, category')
-                .order('note_date', { ascending: false })
-                .limit(50),
+                .gte('captured_at', from + 'T00:00:00')
+                .lte('captured_at', to + 'T23:59:59')
+                .order('captured_at', { ascending: false }),
         ]);
+        reflectionState.logData = logResult.data || [];
+        reflectionState.contentData = contentResult.data || [];
+    }
 
-        const contentData = contentResult.data || [];
-        const logData = logResult.data || [];
+    function renderReflections() {
+        const main = document.getElementById('mainContent');
+        const { from, to, categories, logData, contentData, synthesisText, synthesisSources, rawExpanded } = reflectionState;
+        const total = logData.length + contentData.length;
 
-        if (!contentData.length && !logData.length) {
-            main.innerHTML = '<div class="empty">No reflections yet.</div>';
+        const catChip = (cat, label) => `<button class="filter-btn${categories.includes(cat) ? ' active' : ''}" data-cat="${cat}">${label}</button>`;
+
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Reflections</h2>
+                <span style="flex:1"></span>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">${total} in range</span>
+            </div>
+
+            <div class="synthesis-card" id="synthesisCard">
+                ${synthesisText ? `
+                    <div class="synthesis-card-header">
+                        <div>
+                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Latest synthesis</div>
+                            <div class="synthesis-card-meta">${synthesisSources?.period_start || from} → ${synthesisSources?.period_end || to}${synthesisSources?.source_count ? ` · ${synthesisSources.source_count} reflections` : ''}</div>
+                        </div>
+                        <button class="btn" id="btnResynthesise"><i class="icon" data-lucide="refresh-cw" style="width:14px;height:14px"></i> Re-synthesise</button>
+                    </div>
+                    <div class="synthesis-card-body ask-answer" id="synthesisBody">${marked.parse(synthesisText)}</div>
+                ` : `
+                    <div class="synthesis-card-empty">
+                        <div>
+                            <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> No synthesis yet</div>
+                            <div class="synthesis-card-meta">Generate one to see themes, shifts, and open questions across this period.</div>
+                        </div>
+                        <button class="btn btn-primary" id="btnSynthesise" ${total === 0 ? 'disabled' : ''}><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesise</button>
+                    </div>
+                `}
+            </div>
+
+            <div class="filters" style="margin-top: 1rem; align-items: center; gap: 0.5rem; flex-wrap: wrap;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">From</label>
+                <input type="date" class="filter-select" id="refFrom" value="${from}" style="padding: 0.4rem 0.6rem;">
+                <label style="font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">To</label>
+                <input type="date" class="filter-select" id="refTo" value="${to}" style="padding: 0.4rem 0.6rem;">
+                <span style="width: 0.5rem;"></span>
+                ${catChip('leadership', 'Leadership')}
+                ${catChip('coaching', 'Coaching')}
+                ${catChip('technical', 'Technical')}
+                ${catChip('personal', 'Personal')}
+                <span style="flex:1"></span>
+                <button class="filter-btn" id="btnToggleRaw">${rawExpanded ? 'Hide' : 'View'} raw reflections</button>
+            </div>
+
+            <div id="rawReflectionsWrap" style="display: ${rawExpanded ? 'block' : 'none'}; margin-top: 1rem;"></div>
+        `;
+
+        refreshIcons();
+        wireReflectionControls();
+        if (rawExpanded) renderReflectionsRaw();
+    }
+
+    function wireReflectionControls() {
+        document.getElementById('refFrom')?.addEventListener('change', async (e) => {
+            reflectionState.from = e.target.value;
+            await fetchReflectionsInRange();
+            renderReflections();
+        });
+        document.getElementById('refTo')?.addEventListener('change', async (e) => {
+            reflectionState.to = e.target.value;
+            await fetchReflectionsInRange();
+            renderReflections();
+        });
+        document.querySelectorAll('.filter-btn[data-cat]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const cat = btn.dataset.cat;
+                const i = reflectionState.categories.indexOf(cat);
+                if (i >= 0) reflectionState.categories.splice(i, 1);
+                else reflectionState.categories.push(cat);
+                await fetchReflectionsInRange();
+                renderReflections();
+            });
+        });
+        document.getElementById('btnToggleRaw')?.addEventListener('click', () => {
+            reflectionState.rawExpanded = !reflectionState.rawExpanded;
+            renderReflections();
+        });
+        document.getElementById('btnSynthesise')?.addEventListener('click', runReflectionSynthesis);
+        document.getElementById('btnResynthesise')?.addEventListener('click', runReflectionSynthesis);
+    }
+
+    async function runReflectionSynthesis() {
+        const card = document.getElementById('synthesisCard');
+        const { from, to, categories } = reflectionState;
+
+        card.innerHTML = `
+            <div class="synthesis-card-header">
+                <div>
+                    <div class="synthesis-card-label"><i class="icon" data-lucide="sparkles" style="width:14px;height:14px"></i> Synthesising…</div>
+                    <div class="synthesis-card-meta">${from} → ${to}</div>
+                </div>
+                <button class="btn" id="btnCancelSynth" disabled>Cancel</button>
+            </div>
+            <div class="synthesis-card-body ask-answer" id="synthesisBody"><span class="spinner"></span> Reading reflections…</div>
+        `;
+        refreshIcons();
+
+        let text = '';
+        let meta = null;
+        try {
+            const res = await fetch('/api/reflection-synthesis', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ from_date: from, to_date: to, categories: categories.length ? categories : undefined }),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: res.statusText }));
+                throw new Error(err.error || 'Synthesis failed');
+            }
+
+            const body = document.getElementById('synthesisBody');
+            body.innerHTML = '';
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6);
+                    if (data === '[DONE]') break;
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.type === 'meta') meta = parsed;
+                        else if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+                            text += parsed.delta.text;
+                            body.innerHTML = marked.parse(text);
+                        } else if (parsed.type === 'error') {
+                            throw new Error(parsed.error);
+                        }
+                    } catch { /* non-JSON data lines */ }
+                }
+            }
+
+            if (!text) throw new Error('Empty synthesis');
+
+            // Save to summaries
+            const sourceCount = (meta?.log_count || 0) + (meta?.content_count || 0);
+            const saveRes = await fetch('/api/entity-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    table: 'summaries',
+                    data: {
+                        type: 'reflection-synthesis',
+                        content: text,
+                        metadata: {
+                            source_count: sourceCount,
+                            log_count: meta?.log_count || 0,
+                            content_count: meta?.content_count || 0,
+                            source_ids: meta?.source_ids || {},
+                            categories: categories.length ? categories : null,
+                        },
+                        period_start: from,
+                        period_end: to,
+                    },
+                }),
+            });
+
+            reflectionState.synthesisText = text;
+            reflectionState.synthesisSources = {
+                period_start: from,
+                period_end: to,
+                source_count: sourceCount,
+            };
+            renderReflections();
+        } catch (err) {
+            const body = document.getElementById('synthesisBody');
+            if (body) body.innerHTML = `<div style="color: var(--red); font-size: 0.85rem;">Error: ${esc(err.message)}</div>`;
+        }
+    }
+
+    function renderReflectionsRaw() {
+        const wrap = document.getElementById('rawReflectionsWrap');
+        if (!wrap) return;
+        const { logData, contentData } = reflectionState;
+
+        if (!logData.length && !contentData.length) {
+            wrap.innerHTML = '<div class="empty">No reflections in this range.</div>';
             return;
         }
 
-        let html = `
-            <div class="page-header">
-                <h2 class="page-title">Reflections</h2>
-            </div>
-        `;
-
-        // AI Review reflections (from reflections_log)
+        let html = '';
         if (logData.length) {
             html += `
-                <h3 style="font-size: 1rem; font-weight: 400; color: var(--text-muted); margin: 1rem 0 0.5rem; letter-spacing: 0.06em;">From Daily Reviews</h3>
+                <h3 style="font-size: 0.85rem; font-weight: 400; color: var(--text-muted); margin: 1rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.06em;">From daily reviews (${logData.length})</h3>
                 <div class="table-wrap">
                     <table>
-                        <thead>
-                            <tr><th>Observation</th><th>Coach Perspective</th><th>Category</th><th>Date</th></tr>
-                        </thead>
+                        <thead><tr><th>Observation</th><th>Coach perspective</th><th>Category</th><th>Date</th></tr></thead>
                         <tbody>
                             ${logData.map(r => `
                                 <tr>
@@ -7915,23 +8165,18 @@
                 </div>
             `;
         }
-
-        // Content reflections (from Telegram bot)
         if (contentData.length) {
             html += `
-                <h3 style="font-size: 1rem; font-weight: 400; color: var(--text-muted); margin: 1.5rem 0 0.5rem; letter-spacing: 0.06em;">From Capture Bot</h3>
+                <h3 style="font-size: 0.85rem; font-weight: 400; color: var(--text-muted); margin: 1.5rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.06em;">From capture bot (${contentData.length})</h3>
                 <div class="table-wrap">
                     <table>
-                        <thead>
-                            <tr><th>Title</th><th>Mode</th><th>Tags</th><th>Date</th></tr>
-                        </thead>
+                        <thead><tr><th>Title</th><th>Mode</th><th>Tags</th><th>Date</th></tr></thead>
                         <tbody id="reflectionsBody"></tbody>
                     </table>
                 </div>
             `;
         }
-
-        main.innerHTML = html;
+        wrap.innerHTML = html;
 
         if (contentData.length) {
             const tbody = document.getElementById('reflectionsBody');
@@ -7943,7 +8188,6 @@
                     <td class="date-cell">${formatDate(r.captured_at)}</td>
                 </tr>
             `).join('');
-
             tbody.querySelectorAll('tr.expandable').forEach(row => {
                 row.addEventListener('click', () => {
                     const item = contentData.find(r => r.id === row.dataset.id);

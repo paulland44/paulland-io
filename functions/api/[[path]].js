@@ -125,6 +125,8 @@ export async function onRequest(ctx) {
         return handleExtractSignals(request, env);
       case 'signal-synthesis':
         return handleSignalSynthesis(request, env);
+      case 'reflection-synthesis':
+        return handleReflectionSynthesis(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -3464,6 +3466,138 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabels[
   })();
 
   // Don't await — let it stream
+  streamPromise.catch(() => {});
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+// ─── Reflection Synthesis ─────────────────────────────────────
+
+async function handleReflectionSynthesis(request, env) {
+  const anthropicKey = env.ANTHROPIC_API_KEY;
+  if (!anthropicKey) {
+    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
+  }
+
+  const { from_date, to_date, categories, context } = await request.json();
+  if (!from_date || !to_date) {
+    return json({ error: 'from_date and to_date required' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const headers = { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` };
+
+  // Load reflections_log entries in range
+  let logUrl = `${supabaseUrl}/rest/v1/reflections_log?select=id,note_date,observation,coach_perspective,category&note_date=gte.${from_date}&note_date=lte.${to_date}&order=note_date.asc`;
+  if (categories?.length) {
+    logUrl += `&category=in.(${categories.map(c => `"${c}"`).join(',')})`;
+  }
+  const logRes = await fetch(logUrl, { headers });
+  const logData = logRes.ok ? await logRes.json() : [];
+
+  // Load content reflections (type=reflection) in range
+  const contentUrl = `${supabaseUrl}/rest/v1/content?type=eq.reflection&select=id,title,body,tags,captured_at,metadata&captured_at=gte.${from_date}T00:00:00&captured_at=lte.${to_date}T23:59:59&order=captured_at.asc`;
+  const contentRes = await fetch(contentUrl, { headers });
+  const contentData = contentRes.ok ? await contentRes.json() : [];
+
+  if (!logData.length && !contentData.length) {
+    return json({ error: 'No reflections found in this date range' }, 404);
+  }
+
+  const logBlock = logData.map(r =>
+    `[${r.note_date}] (${r.category || 'leadership'}) ${r.observation}${r.coach_perspective ? `\n  → Coach: ${r.coach_perspective}` : ''}`
+  ).join('\n\n');
+
+  const contentBlock = contentData.map(r =>
+    `[${(r.captured_at || '').slice(0, 10)}] ${r.title}\n${r.body || ''}`
+  ).join('\n\n---\n\n');
+
+  const systemPrompt = `You are a thoughtful coach and sparring partner to Paul Land, a Domain Lead and Product Manager at Esko. Your job is to synthesise a period of his personal reflections into a short, honest mirror — helping him see patterns he's too close to notice.
+
+Write four sections in markdown, in this exact order:
+
+## Themes
+For each recurring theme, a bolded name followed by how many times it appeared and a one-sentence description of what he's really wrestling with. 3–6 themes max. Be specific — not "leadership" but "knowing when to trust the team vs step in".
+
+## What's changed
+One short paragraph. How has his thinking shifted across this period? Where has he landed on things he was unsure about? Where is he still oscillating?
+
+## Open questions
+A bulleted list of the questions he's still working through. These are the things that haven't resolved — worth naming so he can come back to them.
+
+## Suggested links
+Bulleted list of suggestions for where these reflections might belong in his knowledge base. Example: "Link the 3 reflections about CSR workload to problem P3" or "This cluster of thinking about energy belongs on your personal development file". Be concrete.
+
+Tone: direct, warm, not sycophantic. Don't flatter. Don't add filler. Quote him sparingly — only when a phrase is genuinely revealing.${context ? '\n\nAdditional guidance from Paul for this synthesis: ' + context : ''}`;
+
+  const userMessage = `## Reflections from ${from_date} to ${to_date}
+
+${logData.length ? `### From daily reviews (${logData.length})\n\n${logBlock}\n\n` : ''}${contentData.length ? `### Captured reflections (${contentData.length})\n\n${contentBlock}\n\n` : ''}Please synthesise per the system prompt.`;
+
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const streamPromise = (async () => {
+    try {
+      const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 4000,
+          stream: true,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userMessage }],
+        }),
+      });
+
+      if (!claudeRes.ok) {
+        const errText = await claudeRes.text();
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: errText })}\n\n`));
+        await writer.close();
+        return;
+      }
+
+      // Send source counts first so the client can show them in the header
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', log_count: logData.length, content_count: contentData.length, source_ids: { log: logData.map(r => r.id), content: contentData.map(r => r.id) } })}\n\n`));
+
+      const reader = claudeRes.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            await writer.write(encoder.encode(line + '\n\n'));
+          }
+        }
+      }
+
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
+    } catch (err) {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
+    } finally {
+      await writer.close();
+    }
+  })();
+
   streamPromise.catch(() => {});
 
   return new Response(readable, {
