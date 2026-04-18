@@ -3933,7 +3933,6 @@
             { view: 'sales-transactions', label: 'Transactions' },
             { view: 'sales-storage', label: 'Storage' },
             { view: 'sales-phoenix', label: 'Phoenix' },
-            { view: 'sales-wcr-pipeline', label: 'WCR Pipeline' },
         ]},
         support: { tabs: [
             { view: 'support-dashboard', label: 'Dashboard' },
@@ -4171,7 +4170,12 @@
             case 'sales-transactions': await loadSalesProductDetail('PC3751'); break;
             case 'sales-storage': await loadSalesProductDetail('PC3752'); break;
             case 'sales-phoenix': await loadSalesProductDetail('PC3360'); break;
-            case 'sales-wcr-pipeline': await loadWcrPipeline(); break;
+            case 'sales-wcr-pipeline':
+                // Moved under WebCenter Pack as a sub-tab. Keep the route for backwards
+                // compatibility with any existing bookmarks — redirect to WCP/pipeline.
+                salesProductSubTab = 'pipeline';
+                await loadSalesProductDetail('PC3753');
+                break;
             case 'support-dashboard': await loadSupportDashboard(); break;
             case 'settings-appearance': await loadSettingsView(); break;
             case 'settings-connections': await loadSettingsConnections(); break;
@@ -10838,6 +10842,9 @@
                     <button class="sales-period-select sales-sub-tab ${tab === 'overview' ? 'active' : ''}" data-subtab="overview" style="cursor:pointer;${tab === 'overview' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Overview</button>
                     <button class="sales-period-select sales-sub-tab ${tab === 'revenue' ? 'active' : ''}" data-subtab="revenue" style="cursor:pointer;${tab === 'revenue' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Revenue</button>
                     <button class="sales-period-select sales-sub-tab ${tab === 'bookings' ? 'active' : ''}" data-subtab="bookings" style="cursor:pointer;${tab === 'bookings' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Bookings</button>
+                    ${productCode === 'PC3753' ? `
+                    <button class="sales-period-select sales-sub-tab ${tab === 'pipeline' ? 'active' : ''}" data-subtab="pipeline" style="cursor:pointer;${tab === 'pipeline' ? 'background:var(--accent);color:var(--void);font-weight:600;' : ''}">Pipeline</button>
+                    ` : ''}
                 </div>
             </div>
 
@@ -11251,6 +11258,11 @@
                 ` : ''}
                 ` : '<div class="empty" style="padding:2rem;text-align:center;">No bookings data available for this product.</div>'}
             </div>
+
+            <!-- ═══ PIPELINE TAB (WCP only) ═══ -->
+            ${productCode === 'PC3753' ? `
+            <div id="salesTabPipeline" style="${tab !== 'pipeline' ? 'display:none;' : ''}"></div>
+            ` : ''}
         `;
 
         refreshIcons();
@@ -11262,6 +11274,14 @@
                 loadSalesProductDetail(productCode);
             });
         });
+
+        // ─── Pipeline sub-tab (WCP only) — render WCR Pipeline inline ────────
+        if (productCode === 'PC3753' && tab === 'pipeline') {
+            const pipelineContainer = document.getElementById('salesTabPipeline');
+            if (pipelineContainer) {
+                renderWcrPipelineInto(pipelineContainer, { showHeader: false });
+            }
+        }
 
         // ─── Order Detail table (sort + search) ──────────
         if (tab === 'overview' && window._orderData) {
@@ -11738,16 +11758,24 @@
         return `$${Math.round(v)}`;
     }
 
+    // Top-level route handler. Renders pipeline view into #mainContent with its own page header.
     async function loadWcrPipeline() {
-        destroyWcrPipelineCharts();
-        destroySalesCharts?.();
-        destroyDailyEditors?.();
-
         const main = document.getElementById('mainContent');
         if (!main) return;
+        destroyDailyEditors?.();
+        destroySalesCharts?.();
+        await renderWcrPipelineInto(main, { showHeader: true });
+    }
 
-        main.innerHTML = `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
-            <div style="padding:2rem;color:var(--text-muted);">Loading…</div>`;
+    // Core renderer — used both as a top-level route and as a sub-tab inside WebCenter Pack.
+    // When showHeader is false, the caller supplies its own page header (the WCP view does).
+    async function renderWcrPipelineInto(container, { showHeader = true } = {}) {
+        destroyWcrPipelineCharts();
+
+        container.innerHTML = showHeader
+            ? `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
+               <div style="padding:2rem;color:var(--text-muted);">Loading…</div>`
+            : '<div style="padding:2rem;color:var(--text-muted);">Loading…</div>';
 
         // 1. Fetch all weekly summaries for this report type, sorted by report_date desc
         const { data: summaries, error: sumErr } = await db
@@ -11757,17 +11785,18 @@
             .contains('tags', ['wcr-pack-opps'])
             .order('captured_at', { ascending: false });
 
+        const headerHtml = showHeader ? `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>` : '';
+
         if (sumErr) {
-            main.innerHTML = `<div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
-                <div style="padding:2rem;color:var(--text-muted);">Error loading: ${esc(sumErr.message)}</div>`;
+            container.innerHTML = `${headerHtml}<div style="padding:2rem;color:var(--text-muted);">Error loading: ${esc(sumErr.message)}</div>`;
             return;
         }
 
         const reports = (summaries || []).filter(r => r.metadata?.report_type === 'wcr-pack-opps');
 
         if (!reports.length) {
-            main.innerHTML = `
-                <div class="page-header"><h2 class="page-title">WCR Pack Pipeline</h2></div>
+            container.innerHTML = `
+                ${headerHtml}
                 <div style="padding:2rem;">
                     <div style="color:var(--text-muted);margin-bottom:1rem;">
                         No WCR Pack opportunity reports yet.
@@ -11870,7 +11899,8 @@
         const bundledBucket = bundle.bundled || {};
         const coProducts = bundle.top_co_products || [];
 
-        main.innerHTML = `
+        container.innerHTML = `
+            ${showHeader ? `
             <div class="page-header" style="display:flex;justify-content:space-between;align-items:center;">
                 <div>
                     <h2 class="page-title">WCR Pack Pipeline</h2>
@@ -11885,6 +11915,16 @@
                 </select>
                 ` : ''}
             </div>
+            ` : `
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;font-size:0.8rem;color:var(--text-muted);">
+                <div>Latest snapshot: <strong>${esc(latest.metadata?.period_label || latestDate || '—')}</strong> · ${reports.length} snapshot${reports.length !== 1 ? 's' : ''}</div>
+                ${reports.length > 1 ? `
+                <select class="sales-period-select" id="wcrPeriodSelect">
+                    ${reports.map((r, i) => `<option value="${r.id}" ${i === 0 ? 'selected' : ''}>${esc(r.metadata?.period_label || r.metadata?.report_date || r.captured_at?.slice(0, 10))}</option>`).join('')}
+                </select>
+                ` : ''}
+            </div>
+            `}
 
             <!-- Row 1: headline strip -->
             <div class="sales-metrics" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
@@ -12079,17 +12119,20 @@
                 </div>
             </div>
 
-            <!-- Row 7: full report body -->
-            <div class="support-section">
-                <h3><i data-lucide="file-text" style="width:16px;height:16px;"></i> Weekly report body</h3>
-                <div class="content-body">${renderBody(latest.body || '')}</div>
-            </div>
+            <!-- Row 7: full report body — collapsed by default because the panels above already cover most of it -->
+            <details style="margin-top:1rem;border:1px solid var(--border);border-radius:var(--radius-md);padding:0.5rem 0.9rem;">
+                <summary style="cursor:pointer;font-size:0.85rem;color:var(--text-muted);padding:0.25rem 0;">
+                    <i data-lucide="file-text" style="width:14px;height:14px;vertical-align:-2px;margin-right:0.4rem;"></i>
+                    Full AI analysis (click to expand) — narrative from the weekly summary
+                </summary>
+                <div class="content-body" style="margin-top:0.75rem;font-size:0.9rem;">${renderBody(latest.body || '')}</div>
+            </details>
         `;
 
         refreshIcons();
 
         // Wire signal drill-down
-        main.querySelectorAll('.wcr-signal-link').forEach(el => {
+        container.querySelectorAll('.wcr-signal-link').forEach(el => {
             el.addEventListener('click', async (e) => {
                 e.preventDefault();
                 const id = el.dataset.signalId;
@@ -12099,7 +12142,7 @@
         });
 
         // Wire competitor drill-down
-        main.querySelectorAll('.wcr-competitor-link').forEach(el => {
+        container.querySelectorAll('.wcr-competitor-link').forEach(el => {
             el.addEventListener('click', (e) => {
                 e.preventDefault();
                 const id = el.dataset.competitorId;
@@ -12118,7 +12161,7 @@
             if (!pick) return;
             reports.splice(reports.indexOf(pick), 1);
             reports.unshift(pick);
-            await loadWcrPipeline();
+            await renderWcrPipelineInto(container, { showHeader });
         });
 
         // ─── Charts ─────────────────────────────────────
