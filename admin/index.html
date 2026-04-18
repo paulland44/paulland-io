@@ -2794,6 +2794,8 @@
         .summary-type-weekly { background: rgba(80, 128, 196, 0.15); color: var(--blue); }
         .summary-type-monthly { background: var(--accent-dim); color: var(--accent); }
         .summary-type-support { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .summary-type-reflection-synthesis { background: rgba(150, 110, 196, 0.15); color: #b196d4; }
+        .summary-type-signal-synthesis { background: rgba(196, 110, 130, 0.15); color: #d49ba3; }
 
         /* ─── Support Review Detail ─── */
         /* ─── Sales Dashboard ─── */
@@ -10289,6 +10291,12 @@
 
     // ─── Summaries ────────────────────────────────────────────
     let summaryFilter = 'all';
+
+    function summaryTypeLabel(type) {
+        if (type === 'reflection-synthesis') return 'reflection';
+        if (type === 'signal-synthesis') return 'signal';
+        return type;
+    }
     let summariesData = [];
 
     async function loadSummaries() {
@@ -10322,6 +10330,8 @@
                 <button class="filter-btn${summaryFilter === 'weekly' ? ' active' : ''}" data-filter="weekly">Weekly</button>
                 <button class="filter-btn${summaryFilter === 'monthly' ? ' active' : ''}" data-filter="monthly">Monthly</button>
                 <button class="filter-btn${summaryFilter === 'support' ? ' active' : ''}" data-filter="support">Support</button>
+                <button class="filter-btn${summaryFilter === 'reflection-synthesis' ? ' active' : ''}" data-filter="reflection-synthesis">Reflection</button>
+                <button class="filter-btn${summaryFilter === 'signal-synthesis' ? ' active' : ''}" data-filter="signal-synthesis">Signal</button>
             </div>
             <div id="summaryGenerateForm" style="display:none;"></div>
             ${filtered.length ? `
@@ -10333,7 +10343,7 @@
                     <tbody id="summariesBody">
                         ${filtered.map(s => `
                             <tr class="expandable" data-id="${s.id}">
-                                <td><span class="type-badge summary-type-${s.type}">${esc(s.type)}</span></td>
+                                <td><span class="type-badge summary-type-${s.type}">${esc(summaryTypeLabel(s.type))}</span></td>
                                 <td>${formatSummaryPeriod(s)}</td>
                                 <td class="title-cell"><div class="title-text">${esc(summaryPreview(s.content))}</div></td>
                                 <td class="date-cell">${s.period_end || s.period_start}</td>
@@ -10491,7 +10501,7 @@
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <button class="btn-back" id="btnSummaryBack">← Back</button>
                     <h2 class="page-title">${formatSummaryPeriod(item)}</h2>
-                    <span class="type-badge summary-type-${item.type}">${esc(item.type)}</span>
+                    <span class="type-badge summary-type-${item.type}">${esc(summaryTypeLabel(item.type))}</span>
                 </div>
                 <div style="display: flex; gap: 0.5rem;">
                     <button class="btn-action btn-secondary" id="btnSummaryEdit">Edit</button>
