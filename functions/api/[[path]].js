@@ -117,6 +117,8 @@ export async function onRequest(ctx) {
         return handleSearch(request, env);
       case 'ask':
         return handleAsk(request, env);
+      case 'ask-stream':
+        return handleAskStream(request, env);
       case 'feed-items/capture':
         return handleFeedItemCapture(request, env);
       case 'competitor-research':
@@ -1590,50 +1592,26 @@ async function handleGenerateSummary(request, env, ctx) {
 
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
-  const anthropicKey = env.ANTHROPIC_API_KEY;
 
   if (!supabaseUrl || !serviceKey) {
     return json({ error: 'Server misconfigured (Supabase)' }, 500);
-  }
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
   }
 
   const systemPrompt = type === 'weekly'
     ? buildWeeklySummaryPrompt()
     : buildMonthlySummaryPrompt();
 
-  // Call Claude API
-  let summaryContent;
+  // Call LLM (with fallback)
+  let summaryContent, modelUsed;
   try {
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: context_data }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
-    }
-
-    const claudeData = await claudeRes.json();
-    summaryContent = claudeData.content?.[0]?.text || '';
-
+    const result = await callLLM({ env, systemPrompt, userMessage: context_data, maxTokens: 8000, tier: 'balanced' });
+    summaryContent = result.text;
+    modelUsed = result.model;
     if (!summaryContent) {
-      return json({ error: 'Empty response from Claude' }, 500);
+      return json({ error: 'Empty response from LLM' }, 500);
     }
   } catch (err) {
-    return json({ error: 'AI processing failed', detail: err.message }, 500);
+    return json({ error: 'AI processing failed', detail: err.message, attempts: err.attempts }, err.status || 502);
   }
 
   // Upsert to summaries table
@@ -1644,7 +1622,7 @@ async function handleGenerateSummary(request, env, ctx) {
     content: summaryContent,
     metadata: {
       generated_at: new Date().toISOString(),
-      model: 'claude-sonnet-4-20250514',
+      model: modelUsed,
       context_length: context_data.length,
     },
   };
@@ -1801,13 +1779,9 @@ async function handleDailyReview(request, env, ctx) {
 
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
-  const anthropicKey = env.ANTHROPIC_API_KEY;
 
   if (!supabaseUrl || !serviceKey) {
     return json({ error: 'Server misconfigured (Supabase)' }, 500);
-  }
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
   }
 
   // 1. Fetch the daily note
@@ -1879,35 +1853,22 @@ async function handleDailyReview(request, env, ctx) {
   const systemPrompt = buildReviewSystemPrompt(peopleNames, productNames, projectNames);
   const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages);
 
-  // 4. Call Claude API — send text + any image blocks
+  // 4. Call LLM — send text + any image blocks (with fallback)
   const userContent = imageBlocks.length
     ? [{ type: 'text', text: userPrompt }, ...imageBlocks]
     : userPrompt;
 
-  let aiResult;
+  let aiResult, modelUsed;
   try {
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 8000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-      }),
+    const result = await callLLM({
+      env,
+      systemPrompt,
+      messages: [{ role: 'user', content: userContent }],
+      maxTokens: 8000,
+      tier: 'balanced',
     });
-
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
-    }
-
-    const claudeData = await claudeRes.json();
-    const responseText = claudeData.content?.[0]?.text || '';
+    modelUsed = result.model;
+    const responseText = result.text;
 
     // Extract JSON from response (may be wrapped in ```json blocks)
     const jsonMatch = responseText.match(/```json\s*([\s\S]*?)```/) ||
@@ -1918,7 +1879,7 @@ async function handleDailyReview(request, env, ctx) {
 
     aiResult = JSON.parse(jsonMatch[1] || jsonMatch[0]);
   } catch (err) {
-    return json({ error: 'AI processing failed', detail: err.message }, 500);
+    return json({ error: 'AI processing failed', detail: err.message, attempts: err.attempts }, err.status || 502);
   }
 
   // 5. Write results to Supabase
@@ -3110,11 +3071,6 @@ function filterSearchResults(results, { date_from, date_to, tags }) {
  * POST /api/ask — RAG: vector search + Claude answer generation.
  */
 async function handleAsk(request, env) {
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
-  }
-
   const { question, tables, date_from, date_to, tags } = await request.json();
   if (!question || typeof question !== 'string') {
     return json({ error: 'Missing question string' }, 400);
@@ -3200,33 +3156,15 @@ ${contextBlocks}
 
 ${question}`;
 
-  // 4. Call Claude API
-  let answer;
+  // 4. Call LLM (with fallback)
+  let answer, modelUsed, fallback;
   try {
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 4000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
-    }
-
-    const claudeData = await claudeRes.json();
-    answer = claudeData.content?.[0]?.text || '';
+    const result = await callLLM({ env, systemPrompt, userMessage, maxTokens: 4000, tier: 'balanced' });
+    answer = result.text;
+    modelUsed = result.model;
+    fallback = result.fallback;
   } catch (err) {
-    return json({ error: 'AI processing failed', detail: err.message }, 500);
+    return json({ error: 'AI processing failed', detail: err.message, attempts: err.attempts }, err.status || 502);
   }
 
   // 5. Return answer with sources
@@ -3239,18 +3177,157 @@ ${question}`;
     snippet: r.content_text.substring(0, 200),
   }));
 
-  return json({ ok: true, answer, sources });
+  return json({ ok: true, answer, sources, model: modelUsed, fallback });
+}
+
+/**
+ * POST /api/ask-stream — Streaming conversational RAG.
+ * Body: { messages: [{role,content}...], tables?, date_from?, date_to?, tags? }
+ * Last user message is the question; prior messages are conversation history.
+ * RAG runs on the last question each turn. Responds with SSE:
+ *   data: {"type":"meta","model":"...","sources":[...]}      (always emitted first)
+ *   data: {"type":"delta","text":"..."}                       (streaming tokens)
+ *   data: {"type":"meta","model":"...","fallback":true,...}   (only if fallback fired)
+ *   data: [DONE]
+ */
+async function handleAskStream(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const { messages, tables, date_from, date_to, tags } = body || {};
+
+  if (!Array.isArray(messages) || !messages.length) {
+    return json({ error: 'messages array required' }, 400);
+  }
+  const lastUser = [...messages].reverse().find(m => m.role === 'user');
+  if (!lastUser?.content || typeof lastUser.content !== 'string') {
+    return json({ error: 'Last user message required' }, 400);
+  }
+  const question = lastUser.content;
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const hasFilters = date_from || date_to || (tags && tags.length);
+
+  // 1. Embed the question
+  let queryEmbedding;
+  try {
+    const embeddings = await generateEmbeddings(env, [question]);
+    queryEmbedding = embeddings[0];
+  } catch (err) {
+    return json({ error: `Embedding failed: ${err.message}` }, 500);
+  }
+
+  // 2. Vector search
+  const fetchCount = hasFilters ? 24 : 8;
+  const rpcBody = {
+    query_embedding: JSON.stringify(queryEmbedding),
+    match_count: fetchCount,
+    similarity_threshold: 0.3,
+  };
+  if (tables && Array.isArray(tables)) rpcBody.filter_tables = tables;
+
+  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(rpcBody),
+  });
+  if (!rpcRes.ok) {
+    const err = await rpcRes.text();
+    return json({ error: 'Search failed', detail: err }, 500);
+  }
+  let searchResults = await rpcRes.json();
+  if (hasFilters) {
+    searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
+  }
+
+  const sources = searchResults.map(r => ({
+    source_table: r.source_table,
+    source_id: r.source_id,
+    title: r.metadata?.title || r.source_table,
+    date: r.metadata?.date || '',
+    similarity: Math.round(r.similarity * 100) / 100,
+    snippet: r.content_text.substring(0, 200),
+  }));
+
+  // 3. Build context + prompts
+  const contextBlocks = searchResults.length
+    ? searchResults.map((r, i) => {
+        const meta = r.metadata || {};
+        const source = `[Source ${i + 1}: ${meta.title || r.source_table} ${meta.date ? '(' + meta.date + ')' : ''}]`;
+        return `${source}\n${r.content_text}`;
+      }).join('\n\n---\n\n')
+    : '(No relevant context found in the knowledge base.)';
+
+  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+
+Answer questions based ONLY on the provided context from his knowledge base. Follow these rules:
+- Always cite your sources by referencing the source number, type, and date (e.g. "[Source 1]")
+- If the context doesn't contain enough information, say so honestly
+- Be concise and direct
+- Use markdown formatting for readability
+- When summarising across multiple sources, note the date range covered
+- Consider prior turns in this conversation for continuity, but re-ground each answer in the fresh context provided`;
+
+  // History excluding the last user message; final user message re-wraps question with context.
+  const priorHistory = messages.slice(0, -1).map(m => ({ role: m.role, content: String(m.content || '') }));
+  const finalUserMessage = `## Context from Knowledge Base\n\n${contextBlocks}\n\n---\n\n## Question\n\n${question}`;
+  const llmMessages = [...priorHistory, { role: 'user', content: finalUserMessage }];
+
+  const preferredModel = DEFAULT_PREFERRED_MODEL;
+
+  // 4. Stream the answer as SSE
+  const { readable, writable } = new TransformStream();
+  const writer = writable.getWriter();
+  const encoder = new TextEncoder();
+
+  const streamPromise = (async () => {
+    try {
+      // Emit initial meta with sources + preferred model
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model: preferredModel, sources })}\n\n`));
+
+      if (!searchResults.length) {
+        // Short-circuit: no context → give a direct answer without calling LLM
+        const fallbackAnswer = "I couldn't find any relevant information in your knowledge base for this question.";
+        await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text: fallbackAnswer })}\n\n`));
+      } else {
+        await callLLM({
+          env,
+          systemPrompt,
+          messages: llmMessages,
+          maxTokens: 4000,
+          preferredModel,
+          tier: 'balanced',
+          streaming: true,
+          writer,
+          encoder,
+        });
+      }
+      await writer.write(encoder.encode('data: [DONE]\n\n'));
+    } catch (err) {
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
+    } finally {
+      await writer.close();
+    }
+  })();
+  streamPromise.catch(() => {});
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
 }
 
 // ─── Extract Signals from Content ─────────────────────────────
 
 async function handleExtractSignals(request, env) {
   try {
-  const anthropicKey = env.ANTHROPIC_API_KEY;
-  if (!anthropicKey) {
-    return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
-  }
-
   const { content_id } = await request.json();
   if (!content_id) {
     return json({ error: 'Missing content_id' }, 400);
@@ -3296,28 +3373,8 @@ ${item.tags?.length ? `Tags: ${item.tags.join(', ')}` : ''}
 ${(item.body || '(No body content)').slice(0, 15000)}`;
 
   try {
-    const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
-
-    if (!claudeRes.ok) {
-      const errText = await claudeRes.text();
-      return json({ error: 'Claude API error', status: claudeRes.status, detail: errText }, 502);
-    }
-
-    const claudeData = await claudeRes.json();
-    const text = claudeData.content?.[0]?.text || '[]';
+    const result = await callLLM({ env, systemPrompt, userMessage, maxTokens: 2000, tier: 'quick' });
+    const text = result.text || '[]';
 
     // Parse JSON from response (handle potential markdown wrapping)
     let signals;
@@ -3328,9 +3385,9 @@ ${(item.body || '(No body content)').slice(0, 15000)}`;
       return json({ error: 'Failed to parse AI response', raw: text }, 500);
     }
 
-    return json({ ok: true, signals });
+    return json({ ok: true, signals, model: result.model });
   } catch (err) {
-    return json({ error: 'AI processing failed', detail: err.message }, 500);
+    return json({ error: 'AI processing failed', detail: err.message, attempts: err.attempts }, err.status || 500);
   }
   } catch (outerErr) {
     return json({ error: 'Handler crashed', detail: outerErr.message, stack: outerErr.stack }, 500);
@@ -3356,41 +3413,101 @@ function fillTemplate(template, vars) {
     vars[k] !== undefined && vars[k] !== null ? String(vars[k]) : '');
 }
 
-// ─── LLM streaming dispatcher ────────────────────────────────
-// Routes to Anthropic (claude-*) or Cloudflare Workers AI (@cf/*)
-// and normalises both to `data: {type:'delta', text:'…'}` frames.
-// `data: {type:'error', error:'…'}` for failures, `[DONE]` at end.
+// ─── LLM dispatcher with multi-provider fallback ─────────────
+// Routes to Anthropic (claude-*) or Cloudflare Workers AI (@cf/*).
+// Streaming normalises both to `data: {type:'delta', text:'…'}` frames
+// plus a `{type:'meta', model, fallback:true, reason}` frame when the
+// primary model fails and a fallback takes over. Non-streaming returns
+// `{text, model, attempts}`. Retries on 429/5xx/credit-exhausted errors.
 
-async function streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder }) {
-  const sendErr = (msg) => writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`));
+const DEFAULT_PREFERRED_MODEL = 'claude-sonnet-4-6';
+const FALLBACK_CHAIN_BALANCED = [
+  'claude-haiku-4-5-20251001',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+];
+const FALLBACK_CHAIN_REASONING = [
+  'claude-opus-4-7',
+  'claude-haiku-4-5-20251001',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+];
+const FALLBACK_CHAIN_QUICK = [
+  'claude-haiku-4-5-20251001',
+  '@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+];
+
+function buildFallbackChain(preferredModel, tier) {
+  const extras = tier === 'reasoning' ? FALLBACK_CHAIN_REASONING
+               : tier === 'quick' ? FALLBACK_CHAIN_QUICK
+               : FALLBACK_CHAIN_BALANCED;
+  const seen = new Set();
+  return [preferredModel, ...extras].filter(m => {
+    if (!m || seen.has(m)) return false;
+    seen.add(m);
+    return true;
+  });
+}
+
+function isRetryableError(status, errText) {
+  if (status === 429) return true;
+  if (status >= 500 && status < 600) return true;
+  if (status === 401 || status === 403) return true; // invalid/missing key → try fallback
+  if (errText && /credit|quota|rate.?limit|overloaded|invalid.?api.?key|authentication/i.test(errText)) return true;
+  return false;
+}
+
+function buildAnthropicBody({ model, systemPrompt, userMessage, messages, maxTokens, stream }) {
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    system: systemPrompt,
+  };
+  if (stream) body.stream = true;
+  if (Array.isArray(messages) && messages.length) {
+    body.messages = messages;
+  } else {
+    body.messages = [{ role: 'user', content: userMessage }];
+  }
+  return body;
+}
+
+function buildWorkersAiArgs({ systemPrompt, userMessage, messages, maxTokens, stream }) {
+  const msgs = Array.isArray(messages) && messages.length
+    ? [{ role: 'system', content: systemPrompt }, ...messages]
+    : [{ role: 'system', content: systemPrompt }, { role: 'user', content: userMessage }];
+  return { messages: msgs, stream: !!stream, max_tokens: maxTokens };
+}
+
+/**
+ * Attempt to stream from ONE model. If the upstream open fails (bad status,
+ * auth, network), returns {ok:false, status, errText} WITHOUT writing any
+ * delta to the writer — caller can try the next model. If the open succeeds,
+ * forwards deltas and returns {ok:true} after [DONE].
+ */
+async function streamOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder }) {
   const sendDelta = (text) => writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text })}\n\n`));
 
-  if (typeof model !== 'string' || !model) {
-    await sendErr('Model not specified');
-    return;
-  }
-
-  // ── Anthropic ──
   if (model.startsWith('claude-')) {
     const anthropicKey = env.ANTHROPIC_API_KEY;
-    if (!anthropicKey) { await sendErr('ANTHROPIC_API_KEY not configured'); return; }
+    if (!anthropicKey) return { ok: false, status: 401, errText: 'ANTHROPIC_API_KEY not configured' };
 
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: maxTokens,
-        stream: true,
-        system: systemPrompt,
-        messages: [{ role: 'user', content: userMessage }],
-      }),
-    });
-    if (!res.ok) { await sendErr(await res.text()); return; }
+    let res;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(buildAnthropicBody({ model, systemPrompt, userMessage, messages, maxTokens, stream: true })),
+      });
+    } catch (err) {
+      return { ok: false, status: 0, errText: `Network error: ${err.message}` };
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, status: res.status, errText };
+    }
 
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
@@ -3410,27 +3527,22 @@ async function streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTok
         if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
           await sendDelta(parsed.delta.text);
         } else if (parsed.type === 'error') {
-          await sendErr(parsed.error?.message || JSON.stringify(parsed.error));
+          // Mid-stream error — surface to client, cannot fall back now
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: parsed.error?.message || JSON.stringify(parsed.error) })}\n\n`));
         }
       }
     }
-    return;
+    return { ok: true };
   }
 
-  // ── Cloudflare Workers AI ──
   if (model.startsWith('@cf/')) {
-    if (!env.AI) { await sendErr('Workers AI binding not available'); return; }
+    if (!env.AI) return { ok: false, status: 500, errText: 'Workers AI binding not available' };
     let stream;
     try {
-      stream = await env.AI.run(model, {
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        stream: true,
-        max_tokens: maxTokens,
-      });
-    } catch (err) { await sendErr(`Workers AI error: ${err.message}`); return; }
+      stream = await env.AI.run(model, buildWorkersAiArgs({ systemPrompt, userMessage, messages, maxTokens, stream: true }));
+    } catch (err) {
+      return { ok: false, status: 0, errText: `Workers AI error: ${err.message}` };
+    }
 
     const reader = stream.getReader();
     const decoder = new TextDecoder();
@@ -3454,10 +3566,141 @@ async function streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTok
         if (text) await sendDelta(text);
       }
     }
-    return;
+    return { ok: true };
   }
 
-  await sendErr(`Unknown model prefix: ${model}`);
+  return { ok: false, status: 400, errText: `Unknown model prefix: ${model}` };
+}
+
+/**
+ * Non-streaming call to one model. Returns {ok, text?, status?, errText?}.
+ */
+async function invokeOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens }) {
+  if (model.startsWith('claude-')) {
+    const anthropicKey = env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) return { ok: false, status: 401, errText: 'ANTHROPIC_API_KEY not configured' };
+
+    let res;
+    try {
+      res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'x-api-key': anthropicKey,
+          'anthropic-version': '2023-06-01',
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(buildAnthropicBody({ model, systemPrompt, userMessage, messages, maxTokens, stream: false })),
+      });
+    } catch (err) {
+      return { ok: false, status: 0, errText: `Network error: ${err.message}` };
+    }
+    if (!res.ok) {
+      const errText = await res.text();
+      return { ok: false, status: res.status, errText };
+    }
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    return { ok: true, text };
+  }
+
+  if (model.startsWith('@cf/')) {
+    if (!env.AI) return { ok: false, status: 500, errText: 'Workers AI binding not available' };
+    try {
+      const out = await env.AI.run(model, buildWorkersAiArgs({ systemPrompt, userMessage, messages, maxTokens, stream: false }));
+      const text = out?.response ?? out?.result?.response ?? '';
+      return { ok: true, text };
+    } catch (err) {
+      return { ok: false, status: 0, errText: `Workers AI error: ${err.message}` };
+    }
+  }
+
+  return { ok: false, status: 400, errText: `Unknown model prefix: ${model}` };
+}
+
+/**
+ * Unified LLM call with automatic fallback.
+ *
+ * Streaming mode: caller must pass writer+encoder. Does NOT emit [DONE] — the
+ * caller does that. Emits `{type:'meta', model, fallback:true, reason}` BEFORE
+ * the first delta only if a fallback was triggered (first-attempt success is
+ * silent so the caller's own meta frame remains authoritative).
+ *
+ * Non-streaming mode returns `{text, model, attempts}`.
+ */
+async function callLLM({
+  env,
+  systemPrompt,
+  userMessage,
+  messages,
+  maxTokens = 4000,
+  preferredModel = DEFAULT_PREFERRED_MODEL,
+  fallbackChain,
+  tier = 'balanced',
+  streaming = false,
+  writer,
+  encoder,
+}) {
+  const chain = fallbackChain && fallbackChain.length
+    ? fallbackChain
+    : buildFallbackChain(preferredModel, tier);
+
+  const attempts = [];
+  let lastErr = null;
+
+  for (let i = 0; i < chain.length; i++) {
+    const model = chain[i];
+    const isFallback = i > 0;
+
+    if (streaming) {
+      if (isFallback) {
+        await writer.write(encoder.encode(`data: ${JSON.stringify({
+          type: 'meta',
+          model,
+          fallback: true,
+          reason: `Fell back from ${chain[0]} — ${lastErr?.errText?.slice(0, 200) || 'provider error'}`,
+        })}\n\n`));
+      }
+      const result = await streamOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder });
+      attempts.push({ model, ok: result.ok, status: result.status });
+      if (result.ok) return { model, attempts };
+      lastErr = result;
+      if (!isRetryableError(result.status, result.errText) && i < chain.length - 1) {
+        // Non-retryable error — still try fallback, user wants graceful degradation
+      }
+    } else {
+      const result = await invokeOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens });
+      attempts.push({ model, ok: result.ok, status: result.status });
+      if (result.ok) return { text: result.text, model, attempts, fallback: isFallback };
+      lastErr = result;
+    }
+  }
+
+  // All models exhausted
+  if (streaming) {
+    await writer.write(encoder.encode(`data: ${JSON.stringify({
+      type: 'error',
+      error: `All models failed. Last error: ${lastErr?.errText?.slice(0, 300) || 'unknown'}`,
+    })}\n\n`));
+    return { model: null, attempts };
+  }
+  const err = new Error(`All models failed. Last error: ${lastErr?.errText || 'unknown'}`);
+  err.attempts = attempts;
+  err.status = lastErr?.status || 502;
+  throw err;
+}
+
+/**
+ * Thin compat shim — delegates to callLLM in streaming mode.
+ * Existing streaming callers gain multi-model fallback transparently.
+ */
+async function streamLLMToWriter({ env, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder }) {
+  return callLLM({
+    env, systemPrompt, userMessage, messages, maxTokens,
+    preferredModel: model,
+    tier: 'balanced',
+    streaming: true,
+    writer, encoder,
+  });
 }
 
 // ─── Signal Synthesis (streaming) ─────────────────────────────

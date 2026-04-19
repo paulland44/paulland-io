@@ -3824,6 +3824,289 @@
         .ask-filters { display: none; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.5rem; padding: 0.75rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); }
         .ask-filters.open { display: flex; }
         .ask-filters label { font-size: 0.8rem; color: var(--text-body); display: flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+
+        /* ─── Ask Home (conversational) ─── */
+        .askhome {
+            max-width: 900px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 120px);
+        }
+        .askhome-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 1rem;
+        }
+        .askhome-thread {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            padding: 0.5rem 0 1rem;
+            overflow-y: auto;
+        }
+        .askhome-empty {
+            padding: 3rem 1rem;
+            text-align: center;
+            color: var(--text-muted);
+        }
+        .askhome-empty-title {
+            font-size: 1.1rem;
+            color: var(--star);
+            font-weight: 500;
+            margin-bottom: 0.5rem;
+        }
+        .askhome-empty-hint {
+            font-size: 0.85rem;
+            line-height: 1.6;
+            max-width: 520px;
+            margin: 0 auto;
+        }
+
+        /* Message bubbles */
+        .msg {
+            display: flex;
+            flex-direction: column;
+            max-width: 100%;
+        }
+        .msg-user {
+            align-self: flex-end;
+            max-width: 80%;
+        }
+        .msg-user .msg-body {
+            padding: 0.65rem 0.95rem;
+            background: var(--tint-subtle);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            color: var(--text-body);
+            line-height: 1.55;
+            font-size: 0.92rem;
+        }
+        .msg-assistant {
+            align-self: stretch;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--void-light);
+            box-shadow: var(--shadow-sm);
+            padding: 1rem 1.25rem;
+        }
+        .msg-assistant .msg-body {
+            margin-top: 0;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            line-height: 1.6;
+        }
+        .msg-assistant .msg-body.ask-answer { /* reuse markdown prose styles from .ask-answer */
+            margin-top: 0;
+            padding: 0;
+            border: 0;
+            background: transparent;
+        }
+        .msg-placeholder {
+            color: var(--text-muted);
+            font-style: italic;
+        }
+        .msg-error {
+            color: var(--red);
+            font-size: 0.9rem;
+            padding: 0.5rem 0;
+        }
+        .msg-sources {
+            margin-top: 0.75rem;
+            font-size: 0.82rem;
+        }
+        .msg-sources > summary {
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem 0;
+            list-style: none;
+        }
+        .msg-sources > summary::-webkit-details-marker { display: none; }
+        .msg-sources > summary::before {
+            content: '▸';
+            display: inline-block;
+            margin-right: 0.35rem;
+            transition: transform 0.15s;
+        }
+        .msg-sources[open] > summary::before {
+            transform: rotate(90deg);
+        }
+        .msg-sources .ask-sources {
+            margin-top: 0.5rem;
+        }
+        .msg-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+            margin-top: 0.85rem;
+            padding-top: 0.65rem;
+            border-top: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+        .msg-model-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.72rem;
+            font-family: var(--mono);
+            color: var(--text-muted);
+            background: var(--tint-subtle);
+            padding: 0.2rem 0.55rem;
+            border-radius: var(--radius-pill);
+            letter-spacing: 0.02em;
+        }
+        .msg-model-badge .model-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--star-dim);
+            display: inline-block;
+        }
+        .msg-model-badge--fallback {
+            background: rgba(196, 168, 80, 0.12);
+            color: var(--yellow);
+        }
+        .msg-model-badge--fallback .model-dot {
+            background: var(--yellow);
+        }
+        .msg-actions {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+        }
+
+        /* Input bar */
+        .askhome-input-bar {
+            position: sticky;
+            bottom: 0;
+            margin-top: 1rem;
+            padding: 0.85rem;
+            background: var(--void);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-md);
+            display: flex;
+            flex-direction: column;
+            gap: 0.6rem;
+        }
+        .askhome-input {
+            width: 100%;
+            padding: 0.65rem 0.85rem;
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-md);
+            background: var(--void-light);
+            color: var(--star);
+            font-family: var(--sans);
+            font-size: 0.95rem;
+            line-height: 1.5;
+            resize: vertical;
+            min-height: 44px;
+        }
+        .askhome-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .askhome-input-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .askhome-model-picker {
+            opacity: 0.5;
+            max-width: 180px;
+            transition: opacity 0.15s;
+        }
+        .askhome-model-picker:hover,
+        .askhome-model-picker:focus {
+            opacity: 1;
+        }
+        .askhome-input-actions .btn-action {
+            margin-left: auto;
+        }
+
+        /* Filters (collapsible) */
+        .askhome-filters {
+            flex: 1;
+            min-width: 120px;
+        }
+        .askhome-filter-summary {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.3rem 0.5rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            list-style: none;
+            display: inline-block;
+        }
+        .askhome-filter-summary::-webkit-details-marker { display: none; }
+        .askhome-filter-summary::before {
+            content: '▸';
+            margin-right: 0.3rem;
+        }
+        .askhome-filters[open] .askhome-filter-summary::before {
+            content: '▾';
+        }
+        .askhome-filters[open] .askhome-filter-summary {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .askhome-filters-body {
+            margin-top: 0.6rem;
+            padding: 0.85rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--void-light);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+        .askhome-filter-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 0.3rem;
+        }
+        .askhome-filter-checks {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem 1rem;
+        }
+        .askhome-filter-checks label {
+            font-size: 0.8rem;
+            color: var(--text-body);
+            display: flex;
+            align-items: center;
+            gap: 0.3rem;
+            cursor: pointer;
+        }
+        .askhome-filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 1rem;
+            border-top: 1px solid var(--border);
+            padding-top: 0.6rem;
+        }
+        .askhome-date-range {
+            display: flex;
+            gap: 0.35rem;
+            align-items: center;
+        }
+        .askhome-date-sep {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+        }
+
+        @media (max-width: 720px) {
+            .msg-user { max-width: 92%; }
+            .msg-footer { flex-direction: column; align-items: flex-start; }
+        }
         .embed-progress { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); background: var(--void-light); }
         .embed-progress .count { font-family: var(--mono); color: var(--accent); }
 
@@ -4026,7 +4309,7 @@
 
     // ─── Init ─────────────────────────────────────────────────
     let db;
-    let currentView = 'overview';
+    let currentView = 'ask-home';
     let currentSubView = null; // e.g. { type: 'competitor-detail', id: 'uuid' }
     let allTags = [];
 
@@ -4163,8 +4446,15 @@
 
         loadCounts();
         // Restore last section/view or default to dashboard
-        const savedSection = sessionStorage.getItem('paulland_section');
-        const savedView = sessionStorage.getItem('paulland_view');
+        let savedSection = sessionStorage.getItem('paulland_section');
+        let savedView = sessionStorage.getItem('paulland_view');
+        // Legacy route: Tools → Ask AI has been moved to Dashboard → Ask.
+        if (savedView === 'ask') {
+            savedSection = 'dashboard';
+            savedView = 'ask-home';
+            sessionStorage.setItem('paulland_section', savedSection);
+            sessionStorage.setItem('paulland_view', savedView);
+        }
         if (!savedSection && savedView === 'daily-note') {
             // Restore Today view
             document.getElementById('subTabs').innerHTML = '';
@@ -4182,7 +4472,8 @@
 
     const SECTIONS = {
         dashboard: { tabs: [
-            { view: 'overview', label: 'Overview' },
+            { view: 'ask-home', label: 'Ask' },
+            { view: 'overview', label: 'Briefing' },
         ]},
         content: { tabs: [
             { view: 'articles', label: 'Articles', countKey: 'articles' },
@@ -4222,7 +4513,6 @@
             { view: 'tags', label: 'Tags' },
         ]},
         tools: { tabs: [
-            { view: 'ask', label: 'Ask AI' },
             { view: 'mcp-overview', label: 'MCP' },
             { view: 'prompts', label: 'Prompts' },
         ]},
@@ -4459,7 +4749,8 @@
                     await loadCompetition();
                 }
                 break;
-            case 'ask': await loadAsk(); break;
+            case 'ask':         // legacy route — forward to ask-home
+            case 'ask-home':    await loadAskHome(); break;
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
             case 'mis-overview': await loadMisMonitor(); break; // redirected to Jobs
@@ -16055,6 +16346,425 @@
                 document.getElementById('askBtn').click();
             }
         });
+    }
+
+    // ─── Ask Home (conversational RAG) ─────────────────────────
+
+    const ASK_HOME_SOURCE_LABELS = {
+        content: `${icon('file-text')} Content`,
+        daily_notes: `${icon('calendar-days')} Daily Note`,
+        summaries: `${icon('scroll-text')} Summary`,
+        people: `${icon('user')} Person`,
+        companies: `${icon('building-2')} Company`,
+        products: `${icon('box')} Product`,
+        projects: `${icon('kanban')} Project`,
+        people_log: `${icon('users')} People Note`,
+        product_evidence: `${icon('microscope')} Product Evidence`,
+        product_decisions: `${icon('scale')} Decision`,
+        reflections_log: `${icon('brain')} Reflection`,
+    };
+
+    const ASK_HOME_DEFAULT_MODEL = 'claude-sonnet-4-6';
+
+    function getStoredAskHomeModel() {
+        try { return localStorage.getItem('ask_home_model') || ASK_HOME_DEFAULT_MODEL; }
+        catch { return ASK_HOME_DEFAULT_MODEL; }
+    }
+    function setStoredAskHomeModel(id) {
+        try { localStorage.setItem('ask_home_model', id); } catch {}
+    }
+
+    const askHomeState = {
+        messages: [],
+        filters: { tables: null, date_from: null, date_to: null, tags: null },
+        preferredModel: ASK_HOME_DEFAULT_MODEL,
+        streaming: false,
+    };
+
+    async function loadAskHome() {
+        const main = document.getElementById('mainContent');
+        askHomeState.preferredModel = getStoredAskHomeModel();
+
+        main.innerHTML = `
+            <div class="askhome">
+                <div class="askhome-header">
+                    <h2 class="page-title">Ask</h2>
+                    <button id="askHomeNewBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><i class="icon" data-lucide="plus"></i></button>
+                </div>
+                <div class="askhome-thread" id="askHomeThread"></div>
+                <div class="askhome-input-bar">
+                    <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask anything about your knowledge base…"></textarea>
+                    <div class="askhome-input-actions">
+                        <details class="askhome-filters" id="askHomeFiltersDetails">
+                            <summary class="askhome-filter-summary">Filters</summary>
+                            <div class="askhome-filters-body">
+                                <div class="askhome-filter-group">
+                                    <div class="askhome-filter-label">Source types</div>
+                                    <div class="askhome-filter-checks">
+                                        ${Object.entries(ASK_HOME_SOURCE_LABELS).map(([key, label]) => `
+                                            <label><input type="checkbox" value="${key}" checked> ${label}</label>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                <div class="askhome-filter-row">
+                                    <div>
+                                        <div class="askhome-filter-label">Date range</div>
+                                        <div class="askhome-date-range">
+                                            <input type="date" id="askHomeDateFrom" class="filter-select">
+                                            <span class="askhome-date-sep">to</span>
+                                            <input type="date" id="askHomeDateTo" class="filter-select">
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div class="askhome-filter-label">Tags</div>
+                                        <input type="text" id="askHomeTagFilter" class="filter-select" placeholder="comma-separated">
+                                    </div>
+                                </div>
+                            </div>
+                        </details>
+                        <select id="askHomeModel" class="askhome-model-picker filter-select" title="Preferred model (Claude recommended)">
+                            ${SYNTHESIS_MODELS.map(m => `<option value="${esc(m.id)}" ${m.id === askHomeState.preferredModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}
+                        </select>
+                        <button id="askHomeSend" class="btn-action" title="Send (Enter)">Send</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        renderAskHomeThread();
+        refreshIcons();
+
+        const input = document.getElementById('askHomeInput');
+        const sendBtn = document.getElementById('askHomeSend');
+        const newBtn = document.getElementById('askHomeNewBtn');
+        const modelSel = document.getElementById('askHomeModel');
+
+        input.focus();
+
+        sendBtn.addEventListener('click', askHomeSend);
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                askHomeSend();
+            }
+        });
+        newBtn.addEventListener('click', () => {
+            if (askHomeState.streaming) return;
+            askHomeState.messages = [];
+            renderAskHomeThread();
+            input.focus();
+        });
+        modelSel.addEventListener('change', () => {
+            askHomeState.preferredModel = modelSel.value;
+            setStoredAskHomeModel(modelSel.value);
+        });
+    }
+
+    function askHomeGetFilters() {
+        const boxes = document.querySelectorAll('#askHomeFiltersDetails input[type="checkbox"]');
+        const checked = Array.from(boxes).filter(b => b.checked).map(b => b.value);
+        const tables = (checked.length && checked.length < boxes.length) ? checked : null;
+        const date_from = document.getElementById('askHomeDateFrom')?.value || null;
+        const date_to = document.getElementById('askHomeDateTo')?.value || null;
+        const tagRaw = document.getElementById('askHomeTagFilter')?.value?.trim();
+        const tags = tagRaw ? tagRaw.split(',').map(t => t.trim()).filter(Boolean) : null;
+        return { tables, date_from, date_to, tags };
+    }
+
+    function askHomeModelBadge(msg) {
+        if (!msg.model) return '';
+        const label = modelLabelFor(msg.model);
+        const isFallback = msg.fallback === true || msg.model.startsWith('@cf/');
+        const tooltip = isFallback
+            ? `Fell back from ${askHomeState.preferredModel} — ${msg.fallbackReason || 'provider error'}`
+            : `Answered by ${label}`;
+        const cls = isFallback ? 'msg-model-badge msg-model-badge--fallback' : 'msg-model-badge';
+        return `<span class="${cls}" title="${esc(tooltip)}"><span class="model-dot"></span>${esc(label)}</span>`;
+    }
+
+    function askHomeRenderSources(sources) {
+        if (!sources || !sources.length) return '';
+        const items = sources.map(s => {
+            const iconLabel = ASK_HOME_SOURCE_LABELS[s.source_table] || s.source_table;
+            const labelText = iconLabel.includes('</i>') ? iconLabel.split('</i>').slice(-1)[0].trim() : s.source_table;
+            return `
+                <div class="ask-source-item" data-table="${esc(s.source_table)}" data-id="${esc(s.source_id)}">
+                    <span class="ask-source-title">${esc(labelText)} — ${esc(s.title)}</span>
+                    <span class="ask-source-date">${esc(s.date || '')}</span>
+                    <span class="ask-source-score">${s.similarity}</span>
+                </div>
+            `;
+        }).join('');
+        return `
+            <details class="msg-sources">
+                <summary>${sources.length} source${sources.length === 1 ? '' : 's'}</summary>
+                <div class="ask-sources">${items}</div>
+            </details>
+        `;
+    }
+
+    function renderAskHomeMessage(msg) {
+        if (msg.role === 'user') {
+            return `<div class="msg msg-user"><div class="msg-body">${esc(msg.content).replace(/\n/g, '<br>')}</div></div>`;
+        }
+        const body = msg.error
+            ? `<div class="msg-error">${esc(msg.error)}</div>`
+            : `<div class="msg-body ask-answer">${msg.content ? marked.parse(msg.content) : '<span class="msg-placeholder">…</span>'}</div>`;
+        const sources = askHomeRenderSources(msg.sources);
+        const badge = askHomeModelBadge(msg);
+        const actions = msg.content && !msg.error && !msg.streaming ? `
+            <div class="msg-actions">
+                <button class="btn-ghost-sm" data-action="save" data-kind="thought" data-id="${msg.id}">Save as thought</button>
+                <button class="btn-ghost-sm" data-action="save" data-kind="reflection" data-id="${msg.id}">Save as reflection</button>
+                <button class="btn-ghost-sm" data-action="save" data-kind="summary" data-id="${msg.id}">Save as summary</button>
+            </div>` : '';
+        return `
+            <div class="msg msg-assistant" data-id="${msg.id}">
+                ${body}
+                ${sources}
+                <div class="msg-footer">
+                    ${badge}
+                    ${actions}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderAskHomeThread() {
+        const thread = document.getElementById('askHomeThread');
+        if (!thread) return;
+        if (!askHomeState.messages.length) {
+            thread.innerHTML = `
+                <div class="askhome-empty">
+                    <div class="askhome-empty-title">Ask your knowledge base</div>
+                    <div class="askhome-empty-hint">Questions are answered with citations from your articles, daily notes, summaries, people, and more. Every answer is grounded in what you've captured.</div>
+                </div>
+            `;
+            return;
+        }
+        thread.innerHTML = askHomeState.messages.map(renderAskHomeMessage).join('');
+        // Wire save actions
+        thread.querySelectorAll('button[data-action="save"]').forEach(btn => {
+            btn.addEventListener('click', () => askHomeSaveMessage(btn.dataset.id, btn.dataset.kind, btn));
+        });
+        refreshIcons();
+        thread.scrollTop = thread.scrollHeight;
+    }
+
+    function updateAssistantBubble(msg) {
+        const el = document.querySelector(`.msg-assistant[data-id="${msg.id}"]`);
+        if (!el) { renderAskHomeThread(); return; }
+        const bodyEl = el.querySelector('.msg-body');
+        if (bodyEl && msg.content) bodyEl.innerHTML = marked.parse(msg.content);
+        // Re-render sources + footer if model/sources arrived
+        const footerEl = el.querySelector('.msg-footer');
+        if (footerEl && msg.model) {
+            const actionsHTML = msg.content && !msg.streaming ? `
+                <div class="msg-actions">
+                    <button class="btn-ghost-sm" data-action="save" data-kind="thought" data-id="${msg.id}">Save as thought</button>
+                    <button class="btn-ghost-sm" data-action="save" data-kind="reflection" data-id="${msg.id}">Save as reflection</button>
+                    <button class="btn-ghost-sm" data-action="save" data-kind="summary" data-id="${msg.id}">Save as summary</button>
+                </div>` : '';
+            footerEl.innerHTML = askHomeModelBadge(msg) + actionsHTML;
+            footerEl.querySelectorAll('button[data-action="save"]').forEach(btn => {
+                btn.addEventListener('click', () => askHomeSaveMessage(btn.dataset.id, btn.dataset.kind, btn));
+            });
+        }
+        // Insert sources disclosure once, on first meta
+        if (msg.sources?.length && !el.querySelector('.msg-sources')) {
+            const sourcesHTML = askHomeRenderSources(msg.sources);
+            if (sourcesHTML) {
+                const footer = el.querySelector('.msg-footer');
+                footer.insertAdjacentHTML('beforebegin', sourcesHTML);
+            }
+        }
+        const thread = document.getElementById('askHomeThread');
+        if (thread) thread.scrollTop = thread.scrollHeight;
+    }
+
+    async function askHomeSend() {
+        if (askHomeState.streaming) return;
+        const input = document.getElementById('askHomeInput');
+        const question = input.value.trim();
+        if (!question) return;
+
+        askHomeState.filters = askHomeGetFilters();
+
+        const userMsg = { id: `u_${Date.now()}`, role: 'user', content: question };
+        const assistantMsg = {
+            id: `a_${Date.now()}`,
+            role: 'assistant',
+            content: '',
+            sources: [],
+            model: null,
+            fallback: false,
+            fallbackReason: null,
+            question,
+            streaming: true,
+        };
+        askHomeState.messages.push(userMsg, assistantMsg);
+        askHomeState.streaming = true;
+        input.value = '';
+        renderAskHomeThread();
+
+        const sendBtn = document.getElementById('askHomeSend');
+        if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Thinking…'; }
+
+        try {
+            const body = {
+                messages: askHomeState.messages
+                    .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content))
+                    .map(m => ({ role: m.role, content: m.content })),
+            };
+            const f = askHomeState.filters;
+            if (f.tables) body.tables = f.tables;
+            if (f.date_from) body.date_from = f.date_from;
+            if (f.date_to) body.date_to = f.date_to;
+            if (f.tags) body.tags = f.tags;
+
+            const res = await fetch('/api/ask-stream', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (!res.ok) {
+                let errMsg = `HTTP ${res.status}`;
+                try { const j = await res.json(); errMsg = j.error || errMsg; } catch {}
+                throw new Error(errMsg);
+            }
+
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                buffer = lines.pop();
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    const data = line.slice(6);
+                    if (data === '[DONE]') continue;
+                    let parsed;
+                    try { parsed = JSON.parse(data); } catch { continue; }
+                    if (parsed.type === 'meta') {
+                        assistantMsg.model = parsed.model;
+                        if (parsed.fallback) {
+                            assistantMsg.fallback = true;
+                            assistantMsg.fallbackReason = parsed.reason || null;
+                        }
+                        if (parsed.sources) assistantMsg.sources = parsed.sources;
+                        updateAssistantBubble(assistantMsg);
+                    } else if (parsed.type === 'delta' && parsed.text) {
+                        assistantMsg.content += parsed.text;
+                        updateAssistantBubble(assistantMsg);
+                    } else if (parsed.type === 'error') {
+                        const msg = typeof parsed.error === 'string' ? parsed.error : (parsed.error?.message || JSON.stringify(parsed.error));
+                        assistantMsg.error = msg;
+                        updateAssistantBubble(assistantMsg);
+                    }
+                }
+            }
+        } catch (err) {
+            assistantMsg.error = err.message;
+            updateAssistantBubble(assistantMsg);
+        } finally {
+            assistantMsg.streaming = false;
+            askHomeState.streaming = false;
+            if (sendBtn) { sendBtn.disabled = false; sendBtn.textContent = 'Send'; }
+            // Re-render the assistant bubble's footer so save actions appear
+            const el = document.querySelector(`.msg-assistant[data-id="${assistantMsg.id}"]`);
+            if (el) {
+                const footer = el.querySelector('.msg-footer');
+                if (footer) {
+                    const actionsHTML = assistantMsg.content && !assistantMsg.error ? `
+                        <div class="msg-actions">
+                            <button class="btn-ghost-sm" data-action="save" data-kind="thought" data-id="${assistantMsg.id}">Save as thought</button>
+                            <button class="btn-ghost-sm" data-action="save" data-kind="reflection" data-id="${assistantMsg.id}">Save as reflection</button>
+                            <button class="btn-ghost-sm" data-action="save" data-kind="summary" data-id="${assistantMsg.id}">Save as summary</button>
+                        </div>` : '';
+                    footer.innerHTML = askHomeModelBadge(assistantMsg) + actionsHTML;
+                    footer.querySelectorAll('button[data-action="save"]').forEach(btn => {
+                        btn.addEventListener('click', () => askHomeSaveMessage(btn.dataset.id, btn.dataset.kind, btn));
+                    });
+                }
+            }
+            document.getElementById('askHomeInput')?.focus();
+        }
+    }
+
+    async function askHomeSaveMessage(msgId, kind, btn) {
+        const msg = askHomeState.messages.find(m => m.id === msgId);
+        if (!msg) return;
+        const originalText = btn.textContent;
+        btn.textContent = 'Saving…';
+        btn.disabled = true;
+        const today = new Date().toISOString().slice(0, 10);
+        const titleLine = (msg.content.split('\n').find(l => l.trim()) || msg.question || 'Ask AI answer')
+            .replace(/^#+\s*/, '')
+            .slice(0, 120);
+
+        let body;
+        if (kind === 'thought') {
+            body = {
+                table: 'content',
+                data: {
+                    type: 'thought',
+                    title: titleLine,
+                    body: msg.content,
+                    tags: ['ask-ai'],
+                    metadata: {
+                        model: msg.model,
+                        question: msg.question,
+                        source_ids: (msg.sources || []).map(s => s.source_id),
+                    },
+                },
+            };
+        } else if (kind === 'reflection') {
+            body = {
+                table: 'content',
+                data: {
+                    type: 'reflection',
+                    title: `Ask reflection — ${today}`,
+                    body: msg.content,
+                    tags: ['ask-ai'],
+                    metadata: { model: msg.model, question: msg.question },
+                },
+            };
+        } else {
+            body = {
+                table: 'summaries',
+                data: {
+                    type: 'ask-answer',
+                    content: msg.content,
+                    metadata: {
+                        model: msg.model,
+                        question: msg.question,
+                        sources: msg.sources,
+                    },
+                    period_start: today,
+                    period_end: today,
+                },
+            };
+        }
+
+        try {
+            const res = await fetch('/api/entity-log', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+            });
+            if (res.ok) {
+                btn.textContent = 'Saved ✓';
+            } else {
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
+        } catch {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }
     }
 
     // ─── MIS Placeholder Views ──────────────────────────────────
