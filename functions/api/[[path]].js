@@ -3422,40 +3422,51 @@ async function handleAskStream(request, env) {
   const serviceKey = env.SUPABASE_SERVICE_KEY;
   const hasFilters = date_from || date_to || (tags && tags.length);
 
-  // 1. Embed the question
-  let queryEmbedding;
+  // 1. Embed the question — non-fatal. If embeddings are unavailable (e.g.
+  // Workers AI token expired), fall through to zero RAG context. We can
+  // still answer time-aware questions from structured context + history.
+  let queryEmbedding = null;
+  let ragError = null;
   try {
     const embeddings = await generateEmbeddings(env, [question]);
     queryEmbedding = embeddings[0];
   } catch (err) {
-    return json({ error: `Embedding failed: ${err.message}` }, 500);
+    ragError = err.message;
+    console.warn('Ask: embedding failed, continuing without RAG:', err.message);
   }
 
-  // 2. Vector search
-  const fetchCount = hasFilters ? 24 : 8;
-  const rpcBody = {
-    query_embedding: JSON.stringify(queryEmbedding),
-    match_count: fetchCount,
-    similarity_threshold: 0.3,
-  };
-  if (tables && Array.isArray(tables)) rpcBody.filter_tables = tables;
-
-  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
-    method: 'POST',
-    headers: {
-      'apikey': serviceKey,
-      'Authorization': `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(rpcBody),
-  });
-  if (!rpcRes.ok) {
-    const err = await rpcRes.text();
-    return json({ error: 'Search failed', detail: err }, 500);
-  }
-  let searchResults = await rpcRes.json();
-  if (hasFilters) {
-    searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
+  // 2. Vector search — only if we have an embedding.
+  let searchResults = [];
+  if (queryEmbedding) {
+    try {
+      const fetchCount = hasFilters ? 24 : 8;
+      const rpcBody = {
+        query_embedding: JSON.stringify(queryEmbedding),
+        match_count: fetchCount,
+        similarity_threshold: 0.3,
+      };
+      if (tables && Array.isArray(tables)) rpcBody.filter_tables = tables;
+      const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
+        method: 'POST',
+        headers: {
+          'apikey': serviceKey,
+          'Authorization': `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(rpcBody),
+      });
+      if (rpcRes.ok) {
+        searchResults = await rpcRes.json();
+        if (hasFilters) {
+          searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
+        }
+      } else {
+        ragError = ragError || `Search RPC returned ${rpcRes.status}`;
+      }
+    } catch (err) {
+      ragError = ragError || err.message;
+      console.warn('Ask: vector search failed, continuing without RAG:', err.message);
+    }
   }
 
   const sources = searchResults.map(r => ({
@@ -3533,11 +3544,13 @@ Answer questions based ONLY on the provided context. Follow these rules:
   const streamPromise = (async () => {
     try {
       // Emit initial meta with merged (structured + RAG) sources + preferred model
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model: preferredModel, sources: mergedSources, intent })}\n\n`));
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model: preferredModel, sources: mergedSources, intent, rag_error: ragError || null })}\n\n`));
 
       const hasAnyContext = searchResults.length > 0 || structuredBlocks.length > 0;
       if (!hasAnyContext) {
-        const fallbackAnswer = "I couldn't find any relevant information in your knowledge base for this question.";
+        const fallbackAnswer = ragError
+          ? `I couldn't search your knowledge base (embeddings are currently unavailable). Structured calendar and daily-journal lookups still work — try asking about meetings or tasks for a specific day. (Underlying error: ${ragError})`
+          : "I couldn't find any relevant information in your knowledge base for this question.";
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text: fallbackAnswer })}\n\n`));
       } else {
         await callLLM({
