@@ -17385,26 +17385,59 @@
             return;
         }
 
+        // Look up existing meeting notes per date so we can pre-fill cards and
+        // show a "has-notes" indicator in the header.
+        const dateList = [...new Set(events.map(e => e.event_date).filter(Boolean))];
+        let notesByDate = {};
+        if (dateList.length) {
+            const { data: notes } = await db.from('daily_notes').select('note_date,meetings').in('note_date', dateList);
+            (notes || []).forEach(n => { notesByDate[n.note_date] = n.meetings || ''; });
+        }
+
+        // Extract the notes already captured for this specific event from the
+        // daily_note.meetings markdown, if present. Headings look like
+        // "### <title> — <time>\n<body>" (see askHomeReplaceMeetingNote).
+        const extractExisting = (event) => {
+            const blob = notesByDate[event.event_date] || '';
+            if (!blob.trim()) return '';
+            const whenLabel = formatMeetingWhen(event).timeLabel;
+            const heading = `### ${event.title || 'Untitled meeting'}${whenLabel ? ' — ' + whenLabel : ''}`;
+            const idx = blob.indexOf(heading);
+            if (idx === -1) return '';
+            const rest = blob.slice(idx + heading.length).trimStart();
+            const nextHeading = rest.indexOf('\n### ');
+            return (nextHeading === -1 ? rest : rest.slice(0, nextHeading)).trim();
+        };
+
         const cards = events.map((e, idx) => {
             const when = formatMeetingWhen(e);
-            const attendees = Array.isArray(e.attendees) ? e.attendees.slice(0, 6) : [];
+            const attendees = Array.isArray(e.attendees) ? e.attendees.slice(0, 8) : [];
+            const existingNotes = extractExisting(e);
+            const hasNotes = !!existingNotes;
+            // Expand the first card by default so the user sees a usable editor
+            // immediately; subsequent cards collapse to reduce clutter.
+            const isExpanded = idx === 0;
             return `
-                <div class="askhome-meeting-card" data-idx="${idx}">
-                    <div class="askhome-meeting-card-head">
-                        <div class="askhome-meeting-title">${esc(e.title || '(untitled meeting)')}</div>
-                        <div class="askhome-meeting-when">${esc(when.dateLabel)}${when.timeLabel ? ' · ' + esc(when.timeLabel) : ''}</div>
+                <div class="meeting-card askhome-meeting-card${isExpanded ? ' expanded' : ''}" data-idx="${idx}">
+                    <div class="meeting-card-header" data-idx="${idx}">
+                        <span class="meeting-card-chevron">&#x25B8;</span>
+                        ${when.timeLabel ? `<span class="meeting-card-time">${esc(when.timeLabel)}</span>` : ''}
+                        <span class="meeting-card-title-display">${esc(e.title || 'Untitled meeting')}</span>
+                        <span class="meeting-card-indicator${hasNotes ? ' has-notes' : ''}" title="${hasNotes ? 'Has notes' : 'No notes yet'}">&#x25CF;</span>
                     </div>
-                    ${(e.location || e.organizer || attendees.length) ? `
-                        <div class="askhome-meeting-meta">
-                            ${e.location ? `<span class="chip">${esc(e.location)}</span>` : ''}
-                            ${e.organizer ? `<span class="chip">${esc(e.organizer)}</span>` : ''}
-                            ${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join('')}
-                            ${Array.isArray(e.attendees) && e.attendees.length > attendees.length ? `<span class="chip">+${e.attendees.length - attendees.length}</span>` : ''}
-                        </div>` : ''}
-                    <textarea class="askhome-input askhome-meeting-note" data-idx="${idx}" rows="3" placeholder="Notes for this meeting…"></textarea>
-                    <div class="askhome-panel-actions">
-                        <span class="askhome-panel-status" data-status-for="${idx}"></span>
-                        <button class="btn-ghost-sm askhome-meeting-save" type="button" data-idx="${idx}">Save to ${esc(e.event_date)}</button>
+                    <div class="meeting-card-expanded-content">
+                        ${(e.location || e.organizer || attendees.length) ? `
+                            <div class="askhome-meeting-meta">
+                                ${e.location ? `<span class="chip">${esc(e.location)}</span>` : ''}
+                                ${e.organizer ? `<span class="chip">${esc(e.organizer)}</span>` : ''}
+                                ${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join('')}
+                                ${Array.isArray(e.attendees) && e.attendees.length > attendees.length ? `<span class="chip">+${e.attendees.length - attendees.length}</span>` : ''}
+                            </div>` : ''}
+                        <textarea class="askhome-input askhome-meeting-note" data-idx="${idx}" rows="5" placeholder="Prep, decisions, follow-ups…">${esc(existingNotes)}</textarea>
+                        <div class="askhome-panel-actions">
+                            <span class="askhome-panel-status" data-status-for="${idx}"></span>
+                            <button class="btn-ghost-sm askhome-meeting-save" type="button" data-idx="${idx}">Save to ${esc(e.event_date)}</button>
+                        </div>
                     </div>
                 </div>
             `;
@@ -17414,17 +17447,17 @@
         refreshIcons();
         panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
 
-        // Prefill any existing meeting-date notes so the user sees what's already captured.
-        // Fetch daily_notes for the dates in range once and map by date.
-        const dates = [...new Set(events.map(e => e.event_date).filter(Boolean))];
-        if (dates.length) {
-            const { data: notes } = await db.from('daily_notes').select('note_date,meetings').in('note_date', dates);
-            askHomeState.meetingNotesByDate = {};
-            (notes || []).forEach(n => { askHomeState.meetingNotesByDate[n.note_date] = n.meetings || ''; });
-        }
+        // Wire collapse/expand on header click
+        panel.querySelectorAll('.meeting-card-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const card = header.closest('.meeting-card');
+                card?.classList.toggle('expanded');
+            });
+        });
 
         panel.querySelectorAll('.askhome-meeting-save').forEach(btn => {
-            btn.addEventListener('click', async () => {
+            btn.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
                 const idx = parseInt(btn.dataset.idx, 10);
                 const event = events[idx];
                 const textarea = panel.querySelector(`textarea[data-idx="${idx}"]`);
@@ -17434,9 +17467,11 @@
                 status.textContent = 'Saving…';
                 btn.disabled = true;
                 try {
-                    await askHomeAppendMeetingNote(event, text);
+                    await askHomeReplaceMeetingNote(event, text);
                     status.textContent = 'Saved ✓';
-                    textarea.value = '';
+                    // Flip the indicator on
+                    const card = btn.closest('.meeting-card');
+                    card?.querySelector('.meeting-card-indicator')?.classList.add('has-notes');
                 } catch (err) {
                     status.textContent = `Error: ${err.message}`;
                 } finally {
@@ -17472,18 +17507,32 @@
         catch { return iso; }
     }
 
-    async function askHomeAppendMeetingNote(event, note) {
+    async function askHomeReplaceMeetingNote(event, note) {
         // Save into the meeting's own date's daily note, not always today's.
-        // Pre-meeting prep stays with the meeting; after-action notes ditto.
+        // Replace-in-place: if a section with this heading already exists, swap
+        // its body for the new text; otherwise append at the end. Keeps edit
+        // sessions idempotent so the user doesn't accumulate duplicate entries.
         const target = event.event_date || askHomeTodayISO();
         const { data: existing } = await db.from('daily_notes').select('*').eq('note_date', target).limit(1);
         const row = (existing && existing[0]) || {};
         const timeLabel = formatMeetingWhen(event).timeLabel;
         const heading = `### ${event.title || 'Untitled meeting'}${timeLabel ? ' — ' + timeLabel : ''}`;
-        const existingMeetings = (row.meetings || '').trim();
-        const nextMeetings = existingMeetings
-            ? `${existingMeetings}\n\n${heading}\n${note}`
-            : `${heading}\n${note}`;
+        const existingMeetings = (row.meetings || '');
+        let nextMeetings;
+        const idx = existingMeetings.indexOf(heading);
+        if (idx !== -1) {
+            // Find the end of this section (next '\n### ' or end of string)
+            const afterHeadingStart = idx + heading.length;
+            const rest = existingMeetings.slice(afterHeadingStart);
+            const nextHeadingOffset = rest.indexOf('\n### ');
+            const sectionEnd = nextHeadingOffset === -1
+                ? existingMeetings.length
+                : afterHeadingStart + nextHeadingOffset;
+            nextMeetings = `${existingMeetings.slice(0, idx)}${heading}\n${note}${existingMeetings.slice(sectionEnd)}`;
+        } else {
+            const trimmed = existingMeetings.trim();
+            nextMeetings = trimmed ? `${trimmed}\n\n${heading}\n${note}` : `${heading}\n${note}`;
+        }
         const payload = {
             note_date: target,
             tasks: row.tasks || '',
