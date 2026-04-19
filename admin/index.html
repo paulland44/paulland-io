@@ -4108,31 +4108,44 @@
         }
 
         /* ─── Ask Home 3-column layout ─── */
+        /* Chat lives in a fixed-width centre column, always horizontally
+           centred in the main area. Source and context panels occupy the
+           left/right gutters. When a panel opens we shrink the centre column
+           max-width so the gutter has enough room for a readable panel —
+           the chat stays centred, just slightly narrower. */
         .askhome-layout {
             display: grid;
-            grid-template-columns: minmax(0, 1fr);
+            grid-template-columns: minmax(0, 1fr) minmax(0, var(--askhome-center-max, 900px)) minmax(0, 1fr);
             gap: 1rem;
             align-items: stretch;
-            transition: grid-template-columns 0.2s ease;
+            --askhome-center-max: 900px;
         }
-        .askhome-layout[data-source-open="true"][data-context-open="false"] {
-            grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
-        }
-        .askhome-layout[data-source-open="false"][data-context-open="true"] {
-            grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+        .askhome-layout[data-source-open="true"],
+        .askhome-layout[data-context-open="true"] {
+            --askhome-center-max: 720px;
         }
         .askhome-layout[data-source-open="true"][data-context-open="true"] {
-            grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 320px);
+            --askhome-center-max: 640px;
         }
         .askhome-layout .askhome-side { display: none; }
         .askhome-layout[data-source-open="true"] .askhome-side--left { display: flex; }
         .askhome-layout[data-context-open="true"] .askhome-side--right { display: flex; }
+        .askhome-layout .askhome-side--left {
+            grid-column: 1;
+            justify-self: end;   /* dock against the chat's left edge */
+            width: 100%;
+            max-width: 420px;
+        }
+        .askhome-layout .askhome-side--right {
+            grid-column: 3;
+            justify-self: start;  /* dock against the chat's right edge */
+            width: 100%;
+            max-width: 420px;
+        }
         .askhome-layout .askhome-center {
-            margin: 0 auto;
+            grid-column: 2;
             width: 100%;
         }
-        /* Center column keeps its comfortable prose width when panels are closed */
-        .askhome-layout[data-source-open="false"][data-context-open="false"] .askhome-center { max-width: 900px; }
 
         .askhome-side {
             flex-direction: column;
