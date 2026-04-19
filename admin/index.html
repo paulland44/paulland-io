@@ -4249,6 +4249,17 @@
             border-color: var(--accent);
             background: var(--tint-medium);
         }
+        .ask-source-item--auth { border-left: 2px solid var(--accent); }
+        .ask-source-auth {
+            background: var(--accent-dim);
+            color: var(--accent);
+            font-family: var(--mono);
+            font-size: 0.68rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-pill);
+            font-weight: 600;
+            letter-spacing: 0.02em;
+        }
 
         /* Scroll-to-latest floating button */
         .askhome-scroll-tail {
@@ -16575,6 +16586,7 @@
         product_evidence: `${icon('microscope')} Product Evidence`,
         product_decisions: `${icon('scale')} Decision`,
         reflections_log: `${icon('brain')} Reflection`,
+        calendar_events: `${icon('calendar-clock')} Calendar Event`,
     };
 
     const ASK_HOME_DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -16727,11 +16739,12 @@
         const items = sources.map(s => {
             const iconLabel = ASK_HOME_SOURCE_LABELS[s.source_table] || s.source_table;
             const labelText = iconLabel.includes('</i>') ? iconLabel.split('</i>').slice(-1)[0].trim() : s.source_table;
+            const authoritativeTag = s.authoritative ? '<span class="ask-source-auth" title="Authoritative — pulled directly from structured data">authoritative</span>' : '';
             return `
-                <div class="ask-source-item" data-table="${esc(s.source_table)}" data-id="${esc(s.source_id)}">
+                <div class="ask-source-item${s.authoritative ? ' ask-source-item--auth' : ''}" data-table="${esc(s.source_table)}" data-id="${esc(s.source_id)}">
                     <span class="ask-source-title">${esc(labelText)} — ${esc(s.title)}</span>
                     <span class="ask-source-date">${esc(s.date || '')}</span>
-                    <span class="ask-source-score">${s.similarity}</span>
+                    ${authoritativeTag || `<span class="ask-source-score">${s.similarity}</span>`}
                 </div>
             `;
         }).join('');
@@ -16885,6 +16898,7 @@
                 messages: askHomeState.messages
                     .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content))
                     .map(m => ({ role: m.role, content: m.content })),
+                client_date: askHomeTodayISO(),
             };
             const f = askHomeState.filters;
             if (f.tables) body.tables = f.tables;
@@ -17076,12 +17090,17 @@
     }
 
     async function askHomeFetchSourceRow(table, id) {
-        const readable = ['content', 'daily_notes', 'summaries', 'people', 'companies', 'products', 'projects', 'people_log', 'product_evidence', 'product_decisions', 'reflections_log', 'persona_log', 'research_log'];
+        const readable = ['content', 'daily_notes', 'summaries', 'people', 'companies', 'products', 'projects', 'people_log', 'product_evidence', 'product_decisions', 'reflections_log', 'persona_log', 'research_log', 'calendar_events'];
         if (!readable.includes(table)) throw new Error(`Unsupported source table: ${table}`);
-        // Expand person for people_log so we can title with the person's name
-        let query = db.from(table).select('*').eq('id', id).limit(1);
-        if (table === 'people_log') {
+        // calendar_events use `uid` as the external key, not `id`
+        let query;
+        if (table === 'calendar_events') {
+            query = db.from(table).select('*').eq('uid', id).order('event_date', { ascending: false }).limit(1);
+        } else if (table === 'people_log') {
+            // Expand person so we can title with the person's name
             query = db.from(table).select('*, person:people(name, role, organization)').eq('id', id).limit(1);
+        } else {
+            query = db.from(table).select('*').eq('id', id).limit(1);
         }
         const { data, error } = await query;
         if (error) throw new Error(error.message);
@@ -17119,7 +17138,7 @@
     }
 
     function askHomeSourceTableLabel(table) {
-        const labels = { content: 'Content', daily_notes: 'Daily Note', summaries: 'Summary', people: 'Person', companies: 'Company', products: 'Product', projects: 'Project', people_log: 'Note about a person', product_evidence: 'Product evidence', product_decisions: 'Decision', reflections_log: 'Reflection', persona_log: 'Persona log', research_log: 'Research log' };
+        const labels = { content: 'Content', daily_notes: 'Daily Note', summaries: 'Summary', people: 'Person', companies: 'Company', products: 'Product', projects: 'Project', people_log: 'Note about a person', product_evidence: 'Product evidence', product_decisions: 'Decision', reflections_log: 'Reflection', persona_log: 'Persona log', research_log: 'Research log', calendar_events: 'Calendar event' };
         return labels[table] || table;
     }
 
@@ -17178,6 +17197,24 @@
                 return { title: 'Decision', date: row.note_date, meta: '', body: `${md(row.decision || '')}${row.context ? '<h3>Context</h3>' + md(row.context) : ''}` };
             case 'reflections_log':
                 return { title: `Reflection — ${row.category || 'leadership'}`, date: row.note_date, meta: '', body: `${md(row.observation || '')}${row.coach_perspective ? '<h3>Coach perspective</h3>' + md(row.coach_perspective) : ''}` };
+            case 'calendar_events': {
+                const when = formatMeetingWhen(row);
+                const attendees = Array.isArray(row.attendees) ? row.attendees : [];
+                const metaBits = [
+                    when.timeLabel && `<span class="chip">${esc(when.timeLabel)}</span>`,
+                    row.location && `<span class="chip">${esc(row.location)}</span>`,
+                    row.organizer && `<span class="chip">Organiser: ${esc(row.organizer)}</span>`,
+                ].filter(Boolean).join(' ');
+                const attHtml = attendees.length
+                    ? `<h3>Attendees</h3>${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join(' ')}`
+                    : '';
+                return {
+                    title: row.title || '(untitled event)',
+                    date: row.event_date,
+                    meta: metaBits,
+                    body: `${row.description ? md(row.description) : '<em>(no description)</em>'}${attHtml}`,
+                };
+            }
             default:
                 return { title: row.title || row.name || 'Source', date: '', meta: '', body: `<pre>${esc(JSON.stringify(row, null, 2))}</pre>` };
         }

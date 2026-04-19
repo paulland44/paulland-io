@@ -3219,6 +3219,171 @@ ${question}`;
   return json({ ok: true, answer, sources, model: modelUsed, fallback });
 }
 
+// ─── Time-aware intent resolution (for meeting/task questions) ───
+// Semantic RAG alone can't answer "what meetings do I have tomorrow?" because
+// (a) calendar_events aren't embedded and (b) vector search has no date math.
+// These helpers detect intent + a date range, then fetch calendar_events and
+// daily_notes directly as authoritative structured context for the LLM.
+
+function isoAddDays(isoDate, n) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function resolveTimeRange(q, today) {
+  if (/\btomorrow\b/.test(q)) return { from: isoAddDays(today, 1), to: isoAddDays(today, 1), label: 'tomorrow' };
+  if (/\byesterday\b/.test(q)) return { from: isoAddDays(today, -1), to: isoAddDays(today, -1), label: 'yesterday' };
+  if (/\btoday\b/.test(q) || /\bright now\b/.test(q)) return { from: today, to: today, label: 'today' };
+  if (/\bthis\s+week\b/.test(q)) {
+    const d = new Date(today + 'T00:00:00Z');
+    const dow = d.getUTCDay(); // 0=Sun
+    const daysToMon = dow === 0 ? -6 : 1 - dow;
+    const from = isoAddDays(today, daysToMon);
+    return { from, to: isoAddDays(from, 6), label: 'this week' };
+  }
+  if (/\bnext\s+week\b/.test(q)) {
+    const d = new Date(today + 'T00:00:00Z');
+    const dow = d.getUTCDay();
+    const daysToNextMon = dow === 0 ? 1 : 8 - dow;
+    const from = isoAddDays(today, daysToNextMon);
+    return { from, to: isoAddDays(from, 6), label: 'next week' };
+  }
+  const weekdayMatch = q.match(/\b(?:on\s+|this\s+|next\s+)?(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/i);
+  if (weekdayMatch) {
+    const names = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const target = names.indexOf(weekdayMatch[1].toLowerCase());
+    const d = new Date(today + 'T00:00:00Z');
+    const dow = d.getUTCDay();
+    let days = (target - dow + 7) % 7;
+    if (days === 0) days = /\bnext\b/.test(q) ? 7 : 0;
+    if (/\bnext\s/.test(q) && days > 0 && days < 7) days += 7;
+    const from = isoAddDays(today, days);
+    return { from, to: from, label: weekdayMatch[0].toLowerCase() };
+  }
+  return null;
+}
+
+function resolveTimeIntent(question, today) {
+  const q = String(question || '').toLowerCase();
+  const meetingHit = /\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar)\b/.test(q)
+    || /\bwhen(?:'s| is)?\s+my\s+(?:next\s+)?(?:meeting|call|event|1:1|one\s*on\s*one)\b/.test(q);
+  const taskHit = /\b(tasks?|to[- ]?dos?|todos?|priorit(?:y|ies)|plate|agenda)\b/.test(q)
+    || /\bwhat (?:do|have) i (?:need to |got to )?do\b/.test(q);
+
+  if (!meetingHit && !taskHit) return null;
+
+  const kind = meetingHit && taskHit ? 'both' : (meetingHit ? 'meeting' : 'task');
+  let range = resolveTimeRange(q, today);
+
+  // Defaults when the user didn't specify a time window
+  if (!range) {
+    if (kind === 'task') {
+      range = { from: today, to: today, label: 'today (default)' };
+    } else {
+      // Meeting intent with no date → assume "upcoming" = today + next 14 days
+      range = { from: today, to: isoAddDays(today, 14), label: 'upcoming' };
+    }
+  }
+
+  return { kind, from: range.from, to: range.to, label: range.label };
+}
+
+function formatEventTime(event) {
+  if (event.all_day) return 'all day';
+  if (!event.start_time) return '';
+  const start = new Date(event.start_time);
+  const end = event.end_time ? new Date(event.end_time) : null;
+  const fmt = (d) => d.toISOString().slice(11, 16); // HH:MM UTC
+  return end ? `${fmt(start)}–${fmt(end)}` : fmt(start);
+}
+
+async function fetchStructuredContext(env, intent) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const { kind, from, to, label } = intent;
+  const blocks = [];
+  const extraSources = [];
+  const rangeLabel = from === to ? from : `${from} → ${to}`;
+
+  if (kind === 'meeting' || kind === 'both') {
+    // Calendar events in range
+    try {
+      const events = await supabaseGet(supabaseUrl, serviceKey,
+        `calendar_events?event_date=gte.${from}&event_date=lte.${to}&order=event_date.asc,start_time.asc&select=uid,title,event_date,start_time,end_time,all_day,location,organizer,attendees`);
+      if (events.length) {
+        const lines = events.map(e => {
+          const atts = Array.isArray(e.attendees) ? e.attendees.slice(0, 8) : [];
+          const attList = atts.length
+            ? `\n  Attendees: ${atts.map(a => typeof a === 'string' ? a : (a.name || a.email || '')).filter(Boolean).join(', ')}${e.attendees.length > atts.length ? ` (+${e.attendees.length - atts.length} more)` : ''}`
+            : '';
+          return `- **${e.event_date}** ${formatEventTime(e)} — ${e.title || '(untitled)'}${e.location ? ` @ ${e.location}` : ''}${e.organizer ? ` (organiser: ${e.organizer})` : ''}${attList}`;
+        });
+        blocks.push(`### Calendar events (${rangeLabel})\n\n${lines.join('\n')}`);
+        // Surface in sources so the user can click through
+        events.forEach(e => extraSources.push({
+          source_table: 'calendar_events',
+          source_id: e.uid,
+          title: e.title || '(untitled event)',
+          date: e.event_date,
+          similarity: 1.0,
+          snippet: `${e.event_date} ${formatEventTime(e)} — ${e.title || ''}`,
+          authoritative: true,
+        }));
+      } else {
+        blocks.push(`### Calendar events (${rangeLabel})\n\nNo calendar events found for this range.`);
+      }
+    } catch (err) {
+      blocks.push(`### Calendar events (${rangeLabel})\n\n(Failed to fetch: ${err.message})`);
+    }
+
+    // Daily-note meetings field in range
+    try {
+      const notes = await supabaseGet(supabaseUrl, serviceKey,
+        `daily_notes?note_date=gte.${from}&note_date=lte.${to}&order=note_date.asc&select=id,note_date,meetings`);
+      const withMeetings = notes.filter(n => n.meetings && n.meetings.trim());
+      if (withMeetings.length) {
+        const lines = withMeetings.map(n => `**${n.note_date}:**\n${n.meetings}`);
+        blocks.push(`### Meeting notes from daily journal (${rangeLabel})\n\n${lines.join('\n\n')}`);
+        withMeetings.forEach(n => extraSources.push({
+          source_table: 'daily_notes',
+          source_id: n.id,
+          title: `Daily Note ${n.note_date}`,
+          date: n.note_date,
+          similarity: 1.0,
+          snippet: (n.meetings || '').slice(0, 200),
+          authoritative: true,
+        }));
+      }
+    } catch {}
+  }
+
+  if (kind === 'task' || kind === 'both') {
+    try {
+      const notes = await supabaseGet(supabaseUrl, serviceKey,
+        `daily_notes?note_date=gte.${from}&note_date=lte.${to}&order=note_date.asc&select=id,note_date,tasks`);
+      const withTasks = notes.filter(n => n.tasks && n.tasks.trim());
+      if (withTasks.length) {
+        const lines = withTasks.map(n => `**${n.note_date}:**\n${n.tasks}`);
+        blocks.push(`### Tasks from daily journal (${rangeLabel})\n\n${lines.join('\n\n')}`);
+        withTasks.forEach(n => extraSources.push({
+          source_table: 'daily_notes',
+          source_id: n.id,
+          title: `Daily Note ${n.note_date}`,
+          date: n.note_date,
+          similarity: 1.0,
+          snippet: (n.tasks || '').slice(0, 200),
+          authoritative: true,
+        }));
+      } else {
+        blocks.push(`### Tasks from daily journal (${rangeLabel})\n\nNo tasks recorded for this range.`);
+      }
+    } catch {}
+  }
+
+  return { blocks, sources: extraSources, label, rangeLabel };
+}
+
 /**
  * POST /api/ask-stream — Streaming conversational RAG.
  * Body: { messages: [{role,content}...], tables?, date_from?, date_to?, tags? }
@@ -3232,7 +3397,7 @@ ${question}`;
 async function handleAskStream(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  const { messages, tables, date_from, date_to, tags } = body || {};
+  const { messages, tables, date_from, date_to, tags, client_date } = body || {};
 
   if (!Array.isArray(messages) || !messages.length) {
     return json({ error: 'messages array required' }, 400);
@@ -3242,6 +3407,9 @@ async function handleAskStream(request, env) {
     return json({ error: 'Last user message required' }, 400);
   }
   const question = lastUser.content;
+  const todayISO = /^\d{4}-\d{2}-\d{2}$/.test(client_date || '')
+    ? client_date
+    : new Date().toISOString().slice(0, 10);
 
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
@@ -3292,8 +3460,28 @@ async function handleAskStream(request, env) {
     snippet: r.content_text.substring(0, 200),
   }));
 
+  // 2b. Time-aware structured context: when the question is about meetings or
+  // tasks, fetch calendar_events + daily_notes directly for the resolved date
+  // range and prepend as authoritative context. This fixes cases like "what
+  // meetings do I have tomorrow?" that pure vector RAG answers poorly.
+  let structuredBlocks = [];
+  let structuredSources = [];
+  let intent = null;
+  try {
+    intent = resolveTimeIntent(question, todayISO);
+    if (intent) {
+      const structured = await fetchStructuredContext(env, intent);
+      structuredBlocks = structured.blocks;
+      structuredSources = structured.sources;
+    }
+  } catch (err) {
+    // Never fail the request because of structured-context fetches — just log
+    // and fall back to pure RAG.
+    console.warn('Structured context failed:', err.message);
+  }
+
   // 3. Build context + prompts
-  const contextBlocks = searchResults.length
+  const ragBlocks = searchResults.length
     ? searchResults.map((r, i) => {
         const meta = r.metadata || {};
         const source = `[Source ${i + 1}: ${meta.title || r.source_table} ${meta.date ? '(' + meta.date + ')' : ''}]`;
@@ -3301,19 +3489,31 @@ async function handleAskStream(request, env) {
       }).join('\n\n---\n\n')
     : '(No relevant context found in the knowledge base.)';
 
-  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+  const structuredSection = structuredBlocks.length
+    ? `## AUTHORITATIVE: Direct calendar & daily-journal data\n\nToday is ${todayISO}. The question resolves to: **${intent.kind}** (${intent.label}).\n\nThe following is pulled directly from structured sources and is authoritative for date-specific questions. Prefer this data over the semantic matches below.\n\n${structuredBlocks.join('\n\n')}\n\n---\n\n`
+    : '';
 
-Answer questions based ONLY on the provided context from his knowledge base. Follow these rules:
-- Always cite your sources by referencing the source number, type, and date (e.g. "[Source 1]")
-- If the context doesn't contain enough information, say so honestly
-- Be concise and direct
-- Use markdown formatting for readability
-- When summarising across multiple sources, note the date range covered
-- Consider prior turns in this conversation for continuity, but re-ground each answer in the fresh context provided`;
+  const contextBlocks = `${structuredSection}## Semantic matches from the knowledge base\n\n${ragBlocks}`;
+
+  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko. Today is ${todayISO}.
+
+Answer questions based ONLY on the provided context. Follow these rules:
+- When the context includes an "AUTHORITATIVE" section (calendar events, daily-journal meetings/tasks), treat it as the ground truth for that date range. Answer the "what meetings do I have…" or "what tasks…" question directly from it.
+- If the authoritative section is empty for the requested date, say so plainly (e.g. "You have no meetings scheduled tomorrow") — do not speculate.
+- Otherwise cite semantic sources by number and date (e.g. "[Source 1]").
+- Be concise and direct. Use markdown for readability.
+- When summarising across multiple sources, note the date range covered.
+- Consider prior turns in this conversation for continuity, but re-ground each answer in the fresh context provided.`;
+
+  // Merge structured sources above semantic ones in the sources list, de-duped.
+  const mergedSources = [
+    ...structuredSources,
+    ...sources.filter(s => !structuredSources.some(ss => ss.source_table === s.source_table && ss.source_id === s.source_id)),
+  ];
 
   // History excluding the last user message; final user message re-wraps question with context.
   const priorHistory = messages.slice(0, -1).map(m => ({ role: m.role, content: String(m.content || '') }));
-  const finalUserMessage = `## Context from Knowledge Base\n\n${contextBlocks}\n\n---\n\n## Question\n\n${question}`;
+  const finalUserMessage = `${contextBlocks}\n\n---\n\n## Question\n\n${question}`;
   const llmMessages = [...priorHistory, { role: 'user', content: finalUserMessage }];
 
   const preferredModel = DEFAULT_PREFERRED_MODEL;
@@ -3325,11 +3525,11 @@ Answer questions based ONLY on the provided context from his knowledge base. Fol
 
   const streamPromise = (async () => {
     try {
-      // Emit initial meta with sources + preferred model
-      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model: preferredModel, sources })}\n\n`));
+      // Emit initial meta with merged (structured + RAG) sources + preferred model
+      await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model: preferredModel, sources: mergedSources, intent })}\n\n`));
 
-      if (!searchResults.length) {
-        // Short-circuit: no context → give a direct answer without calling LLM
+      const hasAnyContext = searchResults.length > 0 || structuredBlocks.length > 0;
+      if (!hasAnyContext) {
         const fallbackAnswer = "I couldn't find any relevant information in your knowledge base for this question.";
         await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'delta', text: fallbackAnswer })}\n\n`));
       } else {
