@@ -4261,11 +4261,15 @@
             letter-spacing: 0.02em;
         }
 
-        /* Scroll-to-latest floating button */
+        /* Scroll-to-latest button — anchored above the input bar, horizontally
+           centred on the chat column. Sits with the input bar as it sticks at
+           the bottom, so it's always within reach. */
+        .askhome-input-bar { position: sticky; bottom: 0; }
         .askhome-scroll-tail {
-            position: fixed;
-            right: 2rem;
-            bottom: 8.5rem;
+            position: absolute;
+            top: -48px;
+            left: 50%;
+            transform: translateX(-50%);
             width: 36px;
             height: 36px;
             border-radius: 50%;
@@ -4273,15 +4277,60 @@
             background: var(--void-light);
             color: var(--text-body);
             cursor: pointer;
-            display: flex;
             align-items: center;
             justify-content: center;
             box-shadow: var(--shadow-md);
-            z-index: 10;
+            z-index: 2;
             transition: border-color 0.15s, color 0.15s;
         }
         .askhome-scroll-tail:hover { border-color: var(--accent); color: var(--accent); }
         .askhome-scroll-tail .icon svg { width: 16px; height: 16px; }
+
+        /* Editable meeting / task cards in the right panel */
+        .askhome-meeting-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding-top: 0.5rem;
+        }
+        .askhome-meeting-card {
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            background: var(--void);
+            padding: 0.7rem 0.85rem;
+        }
+        .askhome-meeting-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 0.5rem;
+            margin-bottom: 0.35rem;
+        }
+        .askhome-meeting-title {
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--star);
+            line-height: 1.3;
+            flex: 1;
+        }
+        .askhome-meeting-when {
+            font-size: 0.72rem;
+            font-family: var(--mono);
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .askhome-meeting-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            margin-bottom: 0.5rem;
+        }
+        .askhome-meeting-note,
+        .askhome-task-input {
+            width: 100%;
+            font-size: 0.82rem;
+            min-height: 50px;
+        }
 
         @media (max-width: 1100px) {
             .askhome-layout { grid-template-columns: 1fr !important; }
@@ -16621,8 +16670,8 @@
                         <button id="askHomeNewBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><i class="icon" data-lucide="plus"></i></button>
                     </div>
                     <div class="askhome-thread" id="askHomeThread"></div>
-                    <button class="askhome-scroll-tail" id="askHomeScrollTail" type="button" aria-label="Scroll to latest" title="Scroll to latest" style="display:none"><i class="icon" data-lucide="arrow-down"></i></button>
                     <div class="askhome-input-bar">
+                        <button class="askhome-scroll-tail" id="askHomeScrollTail" type="button" aria-label="Scroll to latest" title="Scroll to latest" style="display:none"><i class="icon" data-lucide="arrow-down"></i></button>
                         <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask anything about your knowledge base…"></textarea>
                         <div class="askhome-input-actions">
                             <details class="askhome-filters" id="askHomeFiltersDetails">
@@ -16939,6 +16988,12 @@
                             assistantMsg.fallbackReason = parsed.reason || null;
                         }
                         if (parsed.sources) assistantMsg.sources = parsed.sources;
+                        // Backend sends an authoritative intent with resolved dates.
+                        // Re-render the right panel with that range so the editable
+                        // meeting / tasks view matches what the user actually asked for.
+                        if (parsed.intent && askHomeState.contextPanelOpen) {
+                            askHomeOpenContextPanel(parsed.intent).catch(() => {});
+                        }
                         updateAssistantBubble(assistantMsg);
                     } else if (parsed.type === 'delta' && parsed.text) {
                         assistantMsg.content += parsed.text;
@@ -17238,10 +17293,17 @@
         const layout = document.getElementById('askHomeLayout');
         const panel = document.getElementById('askHomeContextPanel');
         if (!layout || !panel) return;
+        // Normalise: caller may pass a plain kind string ("meeting" | "tasks")
+        // or a full {kind, from, to, label} object from the backend.
+        const normalised = typeof intent === 'string'
+            ? { kind: intent === 'tasks' ? 'task' : intent }
+            : { ...intent };
+        askHomeState.currentIntent = normalised;
+
         panel.innerHTML = `
             <div class="askhome-panel-header">
                 <div>
-                    <div class="askhome-panel-kicker">${intent === 'meeting' ? 'Next meeting' : "Today's tasks"}</div>
+                    <div class="askhome-panel-kicker">${normalised.kind === 'task' ? 'Tasks' : 'Meetings'}${normalised.label ? ' · ' + esc(normalised.label) : ''}</div>
                     <div class="askhome-panel-title">Loading…</div>
                 </div>
                 <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
@@ -17254,10 +17316,10 @@
         panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
 
         try {
-            if (intent === 'meeting') {
-                await askHomeRenderMeetingWidget(panel);
-            } else if (intent === 'tasks') {
-                await askHomeRenderTasksWidget(panel);
+            if (normalised.kind === 'meeting' || normalised.kind === 'both') {
+                await askHomeRenderMeetingWidget(panel, normalised);
+            } else if (normalised.kind === 'task') {
+                await askHomeRenderTasksWidget(panel, normalised);
             }
         } catch (err) {
             const body = panel.querySelector('.askhome-panel-body');
@@ -17276,95 +17338,116 @@
         return new Date().toISOString().slice(0, 10);
     }
 
-    async function askHomeRenderMeetingWidget(panel) {
+    async function askHomeRenderMeetingWidget(panel, intent) {
         const today = askHomeTodayISO();
-        // Grab next upcoming event (today or later, nearest start_time)
-        const now = new Date();
-        const nowDate = now.toISOString().slice(0, 10);
-        const nowIso = now.toISOString();
-        const { data: events, error } = await db
+        const from = intent?.from || today;
+        // Default range: today + 14 days when the backend intent is missing.
+        const to = intent?.to || (intent?.from ? intent.from : isoDateAddDays(today, 14));
+
+        const { data: rawEvents, error } = await db
             .from('calendar_events')
             .select('uid, title, start_time, end_time, all_day, location, organizer, attendees, event_date')
-            .gte('event_date', nowDate)
+            .gte('event_date', from)
+            .lte('event_date', to)
             .order('event_date', { ascending: true })
             .order('start_time', { ascending: true })
-            .limit(12);
+            .limit(50);
         if (error) throw new Error(error.message);
 
-        // Prefer events whose start is after now; fall back to the earliest today
-        const eventStartMs = (e) => {
-            if (!e.event_date) return null;
-            const t = e.all_day || !e.start_time ? '00:00' : e.start_time;
-            const ms = Date.parse(`${e.event_date}T${t}:00`);
-            return Number.isFinite(ms) ? ms : null;
-        };
-        const nowMs = now.getTime();
-        const upcoming = (events || []).find(e => {
-            const ms = eventStartMs(e);
-            return ms === null || ms >= nowMs;
-        }) || (events || [])[0];
-        if (!upcoming) {
-            panel.innerHTML = `
-                <div class="askhome-panel-header">
-                    <div>
-                        <div class="askhome-panel-kicker">Next meeting</div>
-                        <div class="askhome-panel-title">No upcoming meetings</div>
-                    </div>
-                    <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close"><i class="icon" data-lucide="x"></i></button>
+        // Dedupe: same meeting often appears multiple times when more than one
+        // calendar is synced. Key on title+date+start_time to collapse copies.
+        const seen = new Set();
+        const events = (rawEvents || []).filter(e => {
+            const key = `${(e.title || '').toLowerCase().trim()}|${e.event_date}|${e.start_time || ''}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+        const rangeLabel = from === to ? prettyDate(from) : `${prettyDate(from)} → ${prettyDate(to)}`;
+        const header = `
+            <div class="askhome-panel-header">
+                <div>
+                    <div class="askhome-panel-kicker">Meetings · ${esc(rangeLabel)}</div>
+                    <div class="askhome-panel-title">${events.length} ${events.length === 1 ? 'meeting' : 'meetings'}${intent?.label ? ` · ${esc(intent.label)}` : ''}</div>
                 </div>
-                <div class="askhome-panel-body"><div class="askhome-panel-empty">Nothing on the calendar.</div></div>
-            `;
+                <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+            </div>
+        `;
+
+        if (!events.length) {
+            panel.innerHTML = `${header}<div class="askhome-panel-body"><div class="askhome-panel-empty">No meetings on the calendar for this range.</div></div>`;
             refreshIcons();
             panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
             return;
         }
 
-        const when = formatMeetingWhen(upcoming);
-        const attendees = (upcoming.attendees || []).slice(0, 8);
-        panel.innerHTML = `
-            <div class="askhome-panel-header">
-                <div>
-                    <div class="askhome-panel-kicker">Next meeting · ${esc(when.dateLabel)}</div>
-                    <div class="askhome-panel-title">${esc(upcoming.title || '(untitled meeting)')}</div>
+        const cards = events.map((e, idx) => {
+            const when = formatMeetingWhen(e);
+            const attendees = Array.isArray(e.attendees) ? e.attendees.slice(0, 6) : [];
+            return `
+                <div class="askhome-meeting-card" data-idx="${idx}">
+                    <div class="askhome-meeting-card-head">
+                        <div class="askhome-meeting-title">${esc(e.title || '(untitled meeting)')}</div>
+                        <div class="askhome-meeting-when">${esc(when.dateLabel)}${when.timeLabel ? ' · ' + esc(when.timeLabel) : ''}</div>
+                    </div>
+                    ${(e.location || e.organizer || attendees.length) ? `
+                        <div class="askhome-meeting-meta">
+                            ${e.location ? `<span class="chip">${esc(e.location)}</span>` : ''}
+                            ${e.organizer ? `<span class="chip">${esc(e.organizer)}</span>` : ''}
+                            ${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join('')}
+                            ${Array.isArray(e.attendees) && e.attendees.length > attendees.length ? `<span class="chip">+${e.attendees.length - attendees.length}</span>` : ''}
+                        </div>` : ''}
+                    <textarea class="askhome-input askhome-meeting-note" data-idx="${idx}" rows="3" placeholder="Notes for this meeting…"></textarea>
+                    <div class="askhome-panel-actions">
+                        <span class="askhome-panel-status" data-status-for="${idx}"></span>
+                        <button class="btn-ghost-sm askhome-meeting-save" type="button" data-idx="${idx}">Save to ${esc(e.event_date)}</button>
+                    </div>
                 </div>
-                <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
-            </div>
-            <div class="askhome-panel-meta">
-                ${when.timeLabel ? `<span class="chip"><i class="icon" data-lucide="clock" style="width:11px;height:11px"></i> ${esc(when.timeLabel)}</span>` : ''}
-                ${upcoming.location ? `<span class="chip"><i class="icon" data-lucide="map-pin" style="width:11px;height:11px"></i> ${esc(upcoming.location)}</span>` : ''}
-                ${upcoming.organizer ? `<span class="chip"><i class="icon" data-lucide="user" style="width:11px;height:11px"></i> ${esc(upcoming.organizer)}</span>` : ''}
-            </div>
-            ${attendees.length ? `<div class="askhome-panel-attendees">${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join('')}${upcoming.attendees.length > 8 ? `<span class="chip">+${upcoming.attendees.length - 8} more</span>` : ''}</div>` : ''}
-            <div class="askhome-panel-body">
-                <label class="askhome-panel-label">Notes (append to today's daily note · meetings)</label>
-                <textarea id="askHomeMeetingNote" class="askhome-input" rows="6" placeholder="Capture what you want to discuss, decisions, follow-ups…"></textarea>
-                <div class="askhome-panel-actions">
-                    <span class="askhome-panel-status" id="askHomeMeetingStatus"></span>
-                    <button class="btn-action" id="askHomeMeetingSave" type="button">Save to today's note</button>
-                </div>
-            </div>
-        `;
+            `;
+        }).join('');
+
+        panel.innerHTML = `${header}<div class="askhome-panel-body askhome-meeting-list">${cards}</div>`;
         refreshIcons();
         panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
-        panel.querySelector('#askHomeMeetingSave').addEventListener('click', async () => {
-            const textarea = document.getElementById('askHomeMeetingNote');
-            const text = textarea.value.trim();
-            if (!text) return;
-            const status = document.getElementById('askHomeMeetingStatus');
-            const btn = document.getElementById('askHomeMeetingSave');
-            status.textContent = 'Saving…';
-            btn.disabled = true;
-            try {
-                await askHomeAppendMeetingNote(upcoming, text, today);
-                status.textContent = 'Saved ✓';
-                textarea.value = '';
-            } catch (err) {
-                status.textContent = `Error: ${err.message}`;
-            } finally {
-                btn.disabled = false;
-                setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
-            }
+
+        // Prefill any existing meeting-date notes so the user sees what's already captured.
+        // Fetch daily_notes for the dates in range once and map by date.
+        const dates = [...new Set(events.map(e => e.event_date).filter(Boolean))];
+        if (dates.length) {
+            const { data: notes } = await db.from('daily_notes').select('note_date,meetings').in('note_date', dates);
+            askHomeState.meetingNotesByDate = {};
+            (notes || []).forEach(n => { askHomeState.meetingNotesByDate[n.note_date] = n.meetings || ''; });
+        }
+
+        panel.querySelectorAll('.askhome-meeting-save').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const idx = parseInt(btn.dataset.idx, 10);
+                const event = events[idx];
+                const textarea = panel.querySelector(`textarea[data-idx="${idx}"]`);
+                const status = panel.querySelector(`span[data-status-for="${idx}"]`);
+                const text = textarea.value.trim();
+                if (!text) return;
+                status.textContent = 'Saving…';
+                btn.disabled = true;
+                try {
+                    await askHomeAppendMeetingNote(event, text);
+                    status.textContent = 'Saved ✓';
+                    textarea.value = '';
+                } catch (err) {
+                    status.textContent = `Error: ${err.message}`;
+                } finally {
+                    btn.disabled = false;
+                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+                }
+            });
         });
+    }
+
+    function isoDateAddDays(iso, n) {
+        const d = new Date(iso + 'T00:00:00Z');
+        d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
     }
 
     function formatMeetingWhen(event) {
@@ -17386,18 +17469,20 @@
         catch { return iso; }
     }
 
-    async function askHomeAppendMeetingNote(event, note, today) {
-        // Fetch today's daily note (if any) so we don't overwrite tasks/notes
-        const { data: existing } = await db.from('daily_notes').select('*').eq('note_date', today).limit(1);
+    async function askHomeAppendMeetingNote(event, note) {
+        // Save into the meeting's own date's daily note, not always today's.
+        // Pre-meeting prep stays with the meeting; after-action notes ditto.
+        const target = event.event_date || askHomeTodayISO();
+        const { data: existing } = await db.from('daily_notes').select('*').eq('note_date', target).limit(1);
         const row = (existing && existing[0]) || {};
         const timeLabel = formatMeetingWhen(event).timeLabel;
-        const header = `### ${event.title || 'Untitled meeting'}${timeLabel ? ' — ' + timeLabel : ''}`;
+        const heading = `### ${event.title || 'Untitled meeting'}${timeLabel ? ' — ' + timeLabel : ''}`;
         const existingMeetings = (row.meetings || '').trim();
         const nextMeetings = existingMeetings
-            ? `${existingMeetings}\n\n${header}\n${note}`
-            : `${header}\n${note}`;
+            ? `${existingMeetings}\n\n${heading}\n${note}`
+            : `${heading}\n${note}`;
         const payload = {
-            note_date: today,
+            note_date: target,
             tasks: row.tasks || '',
             notes: row.notes || '',
             meetings: nextMeetings,
@@ -17411,58 +17496,83 @@
         if (!res.ok) throw new Error(await res.text());
     }
 
-    async function askHomeRenderTasksWidget(panel) {
+    async function askHomeRenderTasksWidget(panel, intent) {
         const today = askHomeTodayISO();
-        const { data: existing, error } = await db.from('daily_notes').select('*').eq('note_date', today).limit(1);
-        if (error) throw new Error(error.message);
-        const row = (existing && existing[0]) || { tasks: '', notes: '', meetings: '', metadata: {} };
+        const from = intent?.from || today;
+        const to = intent?.to || from;
 
-        panel.innerHTML = `
+        // Build ascending list of dates in [from..to] — bounded to keep payload sensible.
+        const dates = [];
+        let cur = from;
+        while (cur <= to && dates.length < 14) { dates.push(cur); cur = isoDateAddDays(cur, 1); }
+
+        const { data: existing, error } = await db.from('daily_notes').select('id,note_date,tasks,notes,meetings,metadata').in('note_date', dates);
+        if (error) throw new Error(error.message);
+        const byDate = {};
+        (existing || []).forEach(r => { byDate[r.note_date] = r; });
+
+        const rangeLabel = from === to ? prettyDate(from) : `${prettyDate(from)} → ${prettyDate(to)}`;
+        const header = `
             <div class="askhome-panel-header">
                 <div>
-                    <div class="askhome-panel-kicker">Today · ${esc(prettyDate(today))}</div>
-                    <div class="askhome-panel-title">Tasks</div>
+                    <div class="askhome-panel-kicker">Tasks · ${esc(rangeLabel)}</div>
+                    <div class="askhome-panel-title">${dates.length === 1 ? 'Today' : `${dates.length} days`}${intent?.label ? ` · ${esc(intent.label)}` : ''}</div>
                 </div>
                 <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close"><i class="icon" data-lucide="x"></i></button>
             </div>
-            <div class="askhome-panel-body">
-                <textarea id="askHomeTasksInput" class="askhome-input" rows="14" placeholder="Capture today's tasks…"></textarea>
-                <div class="askhome-panel-actions">
-                    <span class="askhome-panel-status" id="askHomeTasksStatus"></span>
-                    <button class="btn-action" id="askHomeTasksSave" type="button">Save tasks</button>
-                </div>
-            </div>
         `;
-        document.getElementById('askHomeTasksInput').value = row.tasks || '';
+
+        const cards = dates.map(d => {
+            const row = byDate[d] || { tasks: '', notes: '', meetings: '', metadata: {} };
+            return `
+                <div class="askhome-meeting-card" data-date="${esc(d)}">
+                    <div class="askhome-meeting-card-head">
+                        <div class="askhome-meeting-title">${esc(prettyDate(d))}</div>
+                        <div class="askhome-meeting-when">${esc(d)}</div>
+                    </div>
+                    <textarea class="askhome-input askhome-task-input" data-date="${esc(d)}" rows="${dates.length === 1 ? 10 : 4}" placeholder="Tasks for this day…">${esc(row.tasks || '')}</textarea>
+                    <div class="askhome-panel-actions">
+                        <span class="askhome-panel-status" data-status-for="${esc(d)}"></span>
+                        <button class="btn-ghost-sm askhome-task-save" type="button" data-date="${esc(d)}">Save</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        panel.innerHTML = `${header}<div class="askhome-panel-body askhome-meeting-list">${cards}</div>`;
         refreshIcons();
         panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
-        panel.querySelector('#askHomeTasksSave').addEventListener('click', async () => {
-            const status = document.getElementById('askHomeTasksStatus');
-            const btn = document.getElementById('askHomeTasksSave');
-            const val = document.getElementById('askHomeTasksInput').value;
-            status.textContent = 'Saving…';
-            btn.disabled = true;
-            try {
-                const payload = {
-                    note_date: today,
-                    tasks: val,
-                    notes: row.notes || '',
-                    meetings: row.meetings || '',
-                    metadata: row.metadata || {},
-                };
-                const res = await fetch('/api/daily-notes', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload),
-                });
-                if (!res.ok) throw new Error(await res.text());
-                status.textContent = 'Saved ✓';
-            } catch (err) {
-                status.textContent = `Error: ${err.message}`;
-            } finally {
-                btn.disabled = false;
-                setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
-            }
+        panel.querySelectorAll('.askhome-task-save').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const d = btn.dataset.date;
+                const textarea = panel.querySelector(`textarea[data-date="${d}"]`);
+                const status = panel.querySelector(`span[data-status-for="${d}"]`);
+                const val = textarea.value;
+                const row = byDate[d] || { tasks: '', notes: '', meetings: '', metadata: {} };
+                status.textContent = 'Saving…';
+                btn.disabled = true;
+                try {
+                    const payload = {
+                        note_date: d,
+                        tasks: val,
+                        notes: row.notes || '',
+                        meetings: row.meetings || '',
+                        metadata: row.metadata || {},
+                    };
+                    const res = await fetch('/api/daily-notes', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    status.textContent = 'Saved ✓';
+                } catch (err) {
+                    status.textContent = `Error: ${err.message}`;
+                } finally {
+                    btn.disabled = false;
+                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+                }
+            });
         });
     }
 

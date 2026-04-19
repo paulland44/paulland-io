@@ -3308,8 +3308,16 @@ async function fetchStructuredContext(env, intent) {
   if (kind === 'meeting' || kind === 'both') {
     // Calendar events in range
     try {
-      const events = await supabaseGet(supabaseUrl, serviceKey,
+      const rawEvents = await supabaseGet(supabaseUrl, serviceKey,
         `calendar_events?event_date=gte.${from}&event_date=lte.${to}&order=event_date.asc,start_time.asc&select=uid,title,event_date,start_time,end_time,all_day,location,organizer,attendees`);
+      // Dedupe: same meeting can be synced from multiple calendars / reruns.
+      const seenKeys = new Set();
+      const events = rawEvents.filter(e => {
+        const key = `${(e.title || '').toLowerCase()}|${e.event_date}|${e.start_time || ''}`;
+        if (seenKeys.has(key)) return false;
+        seenKeys.add(key);
+        return true;
+      });
       if (events.length) {
         const lines = events.map(e => {
           const atts = Array.isArray(e.attendees) ? e.attendees.slice(0, 8) : [];
