@@ -275,6 +275,76 @@
         .topbar-theme-toggle:hover { color: var(--v2-text); background: var(--v2-hover); }
         .topbar-theme-toggle .icon svg { width: 16px; height: 16px; }
 
+        .ai-usage-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.3rem 0.65rem;
+            border: 1px solid rgba(196, 168, 80, 0.4);
+            background: rgba(196, 168, 80, 0.1);
+            color: var(--yellow);
+            border-radius: var(--radius-pill);
+            font-size: 0.75rem;
+            font-family: var(--mono);
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            margin-right: 0.5rem;
+        }
+        .ai-usage-badge:hover { background: rgba(196, 168, 80, 0.18); border-color: var(--yellow); }
+        .ai-usage-badge .icon svg { width: 13px; height: 13px; }
+        .ai-usage-count { font-weight: 600; }
+
+        /* Usage-errors modal */
+        .usage-modal-overlay {
+            position: fixed; inset: 0;
+            background: rgba(0, 0, 0, 0.4);
+            z-index: 200;
+            display: none;
+        }
+        .usage-modal-overlay.open { display: flex; align-items: center; justify-content: center; }
+        .usage-modal {
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: min(600px, 90vw);
+            max-height: 80vh;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-lg);
+        }
+        .usage-modal-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .usage-modal-header h3 { margin: 0; font-size: 1rem; color: var(--star); }
+        .usage-modal-body { padding: 0.5rem 0; overflow-y: auto; }
+        .usage-err-row {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 0.5rem 1rem;
+            align-items: start;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.82rem;
+        }
+        .usage-err-row:last-child { border-bottom: none; }
+        .usage-err-chip {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-pill);
+            background: var(--tint-subtle);
+            color: var(--text-muted);
+            white-space: nowrap;
+        }
+        .usage-err-status { color: var(--red); font-weight: 600; }
+        .usage-err-message { color: var(--text-body); line-height: 1.45; word-break: break-word; }
+        .usage-err-time { color: var(--text-muted); font-family: var(--mono); font-size: 0.72rem; white-space: nowrap; }
+        .usage-err-meta { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-top: 0.3rem; }
+
         /* ─── Small ghost pill button (inline actions like "Find Related") ─── */
         .btn-ghost-sm {
             display: inline-flex;
@@ -4500,6 +4570,10 @@
 
         <div class="top-bar">
             <span style="flex:1"></span>
+            <button class="ai-usage-badge" id="aiUsageBadge" type="button" title="AI provider issues in the last 24h" style="display:none">
+                <i class="icon" data-lucide="alert-triangle"></i>
+                <span class="ai-usage-count" id="aiUsageCount">0</span>
+            </button>
             <div class="topbar-theme" id="topbarTheme"></div>
             <button class="today-btn" id="todayBtn">
                 <i class="icon" data-lucide="calendar-days"></i> Today
@@ -4686,6 +4760,10 @@
         } else {
             setTimeout(drainEmbeddingsInBackground, 2000);
         }
+        // Poll AI usage errors so the topbar badge lights up when providers fail
+        refreshAiUsageBadge();
+        setInterval(refreshAiUsageBadge, 5 * 60 * 1000);
+        document.getElementById('aiUsageBadge')?.addEventListener('click', openAiUsageModal);
         // Restore last section/view or default to dashboard
         let savedSection = sessionStorage.getItem('paulland_section');
         let savedView = sessionStorage.getItem('paulland_view');
@@ -4878,6 +4956,110 @@
         } finally {
             embeddingDrainRunning = false;
         }
+    }
+
+    // ─── AI usage error badge ─────────────────────────────────
+    let aiUsageState = { count: 0, errors: [], missing: false };
+
+    async function refreshAiUsageBadge() {
+        const badge = document.getElementById('aiUsageBadge');
+        const countEl = document.getElementById('aiUsageCount');
+        if (!badge || !countEl) return;
+        try {
+            const res = await fetch('/api/usage-errors?window=24h');
+            if (!res.ok) return;
+            const data = await res.json();
+            aiUsageState = { count: data.count || 0, errors: data.errors || [], missing: !!data.missing };
+            if (data.count > 0) {
+                countEl.textContent = data.count > 99 ? '99+' : String(data.count);
+                badge.style.display = 'inline-flex';
+                refreshIcons();
+            } else {
+                badge.style.display = 'none';
+            }
+        } catch {
+            // Silent — don't flash the badge on transient network issues.
+        }
+    }
+
+    function openAiUsageModal() {
+        const existing = document.getElementById('aiUsageModalOverlay');
+        if (existing) existing.remove();
+        const rows = (aiUsageState.errors || []).map(e => {
+            const when = new Date(e.created_at);
+            const ago = timeAgoShort(when);
+            return `
+                <div class="usage-err-row" data-id="${esc(e.id)}">
+                    <div>
+                        <span class="usage-err-chip">${esc(e.provider || '?')}</span>
+                        ${e.status ? `<span class="usage-err-chip usage-err-status">HTTP ${esc(String(e.status))}</span>` : ''}
+                    </div>
+                    <div>
+                        <div class="usage-err-message">${esc((e.message || '').slice(0, 400))}</div>
+                        <div class="usage-err-meta">
+                            ${e.model ? `<span class="usage-err-chip">${esc(e.model)}</span>` : ''}
+                            ${e.endpoint ? `<span class="usage-err-chip">${esc(e.endpoint)}</span>` : ''}
+                        </div>
+                    </div>
+                    <div style="display:flex; flex-direction:column; align-items:flex-end; gap:0.35rem">
+                        <span class="usage-err-time" title="${esc(when.toISOString())}">${esc(ago)}</span>
+                        <button class="btn-ghost-sm" data-resolve="${esc(e.id)}" type="button">Resolve</button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        const missingWarning = aiUsageState.missing
+            ? `<div style="padding:0.75rem 1.25rem; color: var(--text-muted); font-size: 0.82rem; border-bottom: 1px solid var(--border)">
+                 The <code>ai_usage_errors</code> table is missing. Run <code>migrations/010_ai_usage_errors.sql</code> in Supabase to enable error logging.
+               </div>`
+            : '';
+        const body = aiUsageState.errors.length
+            ? rows
+            : `<div style="padding:1.25rem; color: var(--text-muted); font-size: 0.85rem">No unresolved AI provider errors in the last 24 hours.</div>`;
+        const overlay = document.createElement('div');
+        overlay.className = 'usage-modal-overlay open';
+        overlay.id = 'aiUsageModalOverlay';
+        overlay.innerHTML = `
+            <div class="usage-modal">
+                <div class="usage-modal-header">
+                    <h3>AI provider errors · last 24h</h3>
+                    <button class="icon-btn" id="usageModalClose" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+                </div>
+                ${missingWarning}
+                <div class="usage-modal-body">${body}</div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        refreshIcons();
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
+        overlay.querySelector('#usageModalClose').addEventListener('click', () => overlay.remove());
+        overlay.querySelectorAll('button[data-resolve]').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const id = btn.dataset.resolve;
+                btn.textContent = 'Resolving…';
+                btn.disabled = true;
+                try {
+                    const res = await fetch(`/api/usage-errors/${encodeURIComponent(id)}/resolve`, { method: 'POST' });
+                    if (res.ok) {
+                        btn.closest('.usage-err-row')?.remove();
+                        await refreshAiUsageBadge();
+                        if (aiUsageState.count === 0) overlay.remove();
+                    } else {
+                        btn.textContent = 'Failed';
+                    }
+                } catch {
+                    btn.textContent = 'Failed';
+                }
+            });
+        });
+    }
+
+    function timeAgoShort(date) {
+        const s = Math.round((Date.now() - date.getTime()) / 1000);
+        if (s < 60) return `${s}s ago`;
+        if (s < 3600) return `${Math.round(s / 60)}m ago`;
+        if (s < 86_400) return `${Math.round(s / 3600)}h ago`;
+        return `${Math.round(s / 86_400)}d ago`;
     }
 
     // ─── Counts ───────────────────────────────────────────────

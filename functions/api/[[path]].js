@@ -82,10 +82,18 @@ export async function onRequest(ctx) {
     return handleAssetDelete(assetId, env);
   }
 
+  // Resolve a single usage error — PATCH /api/usage-errors/:id/resolve
+  if (request.method === 'POST' && path.match(/^usage-errors\/[0-9a-f-]+\/resolve$/)) {
+    const id = path.split('/')[1];
+    return handleResolveUsageError(id, env);
+  }
+
   if (request.method === 'GET') {
     switch (path) {
       case 'calendar-events':
         return handleCalendarEvents(request, env);
+      case 'usage-errors':
+        return handleListUsageErrors(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -2621,7 +2629,9 @@ async function generateEmbeddings(env, texts) {
       const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: texts });
       if (result?.data) return result.data;
     } catch (e) {
-      // Binding failed, try REST API fallback
+      // Binding failed, try REST API fallback. Log it so the admin badge
+      // fires even when the REST fallback recovers the call.
+      await logAiError(env, { provider: 'cloudflare_ai', model: '@cf/baai/bge-base-en-v1.5', endpoint: 'embed', status: null, message: e?.message || 'AI binding threw' });
     }
   }
 
@@ -2629,6 +2639,7 @@ async function generateEmbeddings(env, texts) {
   const accountId = env.CF_ACCOUNT_ID;
   const apiToken = env.CF_API_TOKEN;
   if (!accountId || !apiToken) {
+    await logAiError(env, { provider: 'cloudflare_ai_rest', endpoint: 'embed', status: null, message: 'CF_ACCOUNT_ID or CF_API_TOKEN not set' });
     throw new Error('Workers AI not available. Set CF_ACCOUNT_ID and CF_API_TOKEN env vars, or configure [ai] binding.');
   }
 
@@ -2646,12 +2657,111 @@ async function generateEmbeddings(env, texts) {
 
   if (!res.ok) {
     const err = await res.text();
+    await logAiError(env, { provider: 'cloudflare_ai_rest', model: '@cf/baai/bge-base-en-v1.5', endpoint: 'embed', status: res.status, message: err.slice(0, 500) });
     throw new Error(`Workers AI REST API error (${res.status}): ${err}`);
   }
 
   const data = await res.json();
   if (!data.result?.data) throw new Error('Unexpected Workers AI response format');
   return data.result.data;
+}
+
+// ─── AI usage error logging ──────────────────────────────────
+// Best-effort insert into ai_usage_errors; never throws so it can't cascade
+// and break the caller. The admin topbar badge polls this table on load.
+
+async function logAiError(env, { provider, model, endpoint, status, message }) {
+  try {
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) return;
+    await fetch(`${env.SUPABASE_URL}/rest/v1/ai_usage_errors`, {
+      method: 'POST',
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        provider: provider || 'unknown',
+        model: model || null,
+        endpoint: endpoint || null,
+        status: Number.isFinite(status) ? status : null,
+        message: (message || '').toString().slice(0, 2000),
+      }),
+    });
+  } catch {
+    // Never let logging break the caller
+  }
+}
+
+function isAuthOrQuotaSignal(status, message) {
+  if (!status && !message) return false;
+  if (status === 401 || status === 402 || status === 403 || status === 429) return true;
+  if (status >= 500 && status < 600) return true;
+  if (message && /quota|credit|rate.?limit|overloaded|invalid.?api.?key|authentication|neuron/i.test(message)) return true;
+  return false;
+}
+
+/**
+ * GET /api/usage-errors?window=24h — list unresolved AI usage errors from the
+ * last window and return a count + the most recent 20 rows for the badge UI.
+ */
+async function handleListUsageErrors(request, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) return json({ error: 'Server misconfigured' }, 500);
+
+  const url = new URL(request.url);
+  const windowParam = url.searchParams.get('window') || '24h';
+  const hours = windowParam.endsWith('h') ? parseInt(windowParam, 10) : 24;
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/ai_usage_errors?resolved_at=is.null&created_at=gte.${since}&order=created_at.desc&limit=20`,
+    {
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Prefer': 'count=exact',
+      },
+    }
+  );
+  if (!res.ok) {
+    const txt = await res.text();
+    // Common case: table doesn't exist yet — degrade gracefully with an empty list
+    if (res.status === 404 || /relation.*does not exist|Could not find the table/i.test(txt)) {
+      return json({ ok: true, count: 0, errors: [], missing: true });
+    }
+    return json({ error: 'Failed to load', detail: txt }, res.status);
+  }
+  const errors = await res.json();
+  const countHeader = res.headers.get('content-range') || '';
+  const total = parseInt(countHeader.split('/')[1], 10);
+  return json({ ok: true, count: Number.isFinite(total) ? total : errors.length, errors });
+}
+
+/**
+ * POST /api/usage-errors/:id/resolve — mark a single error as resolved.
+ */
+async function handleResolveUsageError(id, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) return json({ error: 'Server misconfigured' }, 500);
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/ai_usage_errors?id=eq.${id}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({ resolved_at: new Date().toISOString() }),
+    }
+  );
+  if (!res.ok) return json({ error: 'Failed to resolve', detail: await res.text() }, res.status);
+  return json({ ok: true });
 }
 
 /**
@@ -3761,10 +3871,14 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
         body: JSON.stringify(buildAnthropicBody({ model, systemPrompt, userMessage, messages, maxTokens, stream: true })),
       });
     } catch (err) {
+      await logAiError(env, { provider: 'anthropic', model, endpoint: 'stream', status: 0, message: err?.message });
       return { ok: false, status: 0, errText: `Network error: ${err.message}` };
     }
     if (!res.ok) {
       const errText = await res.text();
+      if (isAuthOrQuotaSignal(res.status, errText)) {
+        await logAiError(env, { provider: 'anthropic', model, endpoint: 'stream', status: res.status, message: errText });
+      }
       return { ok: false, status: res.status, errText };
     }
 
@@ -3787,7 +3901,9 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
           await sendDelta(parsed.delta.text);
         } else if (parsed.type === 'error') {
           // Mid-stream error — surface to client, cannot fall back now
-          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: parsed.error?.message || JSON.stringify(parsed.error) })}\n\n`));
+          const msg = parsed.error?.message || JSON.stringify(parsed.error);
+          await logAiError(env, { provider: 'anthropic', model, endpoint: 'stream', status: null, message: msg });
+          await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: msg })}\n\n`));
         }
       }
     }
@@ -3800,6 +3916,7 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
     try {
       stream = await env.AI.run(model, buildWorkersAiArgs({ systemPrompt, userMessage, messages, maxTokens, stream: true }));
     } catch (err) {
+      await logAiError(env, { provider: 'cloudflare_ai', model, endpoint: 'stream', status: 0, message: err?.message });
       return { ok: false, status: 0, errText: `Workers AI error: ${err.message}` };
     }
 
@@ -3851,10 +3968,14 @@ async function invokeOneModel({ env, model, systemPrompt, userMessage, messages,
         body: JSON.stringify(buildAnthropicBody({ model, systemPrompt, userMessage, messages, maxTokens, stream: false })),
       });
     } catch (err) {
+      await logAiError(env, { provider: 'anthropic', model, endpoint: 'invoke', status: 0, message: err?.message });
       return { ok: false, status: 0, errText: `Network error: ${err.message}` };
     }
     if (!res.ok) {
       const errText = await res.text();
+      if (isAuthOrQuotaSignal(res.status, errText)) {
+        await logAiError(env, { provider: 'anthropic', model, endpoint: 'invoke', status: res.status, message: errText });
+      }
       return { ok: false, status: res.status, errText };
     }
     const data = await res.json();
@@ -3869,6 +3990,7 @@ async function invokeOneModel({ env, model, systemPrompt, userMessage, messages,
       const text = out?.response ?? out?.result?.response ?? '';
       return { ok: true, text };
     } catch (err) {
+      await logAiError(env, { provider: 'cloudflare_ai', model, endpoint: 'invoke', status: 0, message: err?.message });
       return { ok: false, status: 0, errText: `Workers AI error: ${err.message}` };
     }
   }
