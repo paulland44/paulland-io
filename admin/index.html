@@ -16989,9 +16989,10 @@
                         }
                         if (parsed.sources) assistantMsg.sources = parsed.sources;
                         // Backend sends an authoritative intent with resolved dates.
-                        // Re-render the right panel with that range so the editable
-                        // meeting / tasks view matches what the user actually asked for.
-                        if (parsed.intent && askHomeState.contextPanelOpen) {
+                        // Open the right panel with that range — even if the frontend
+                        // regex didn't detect intent upfront — so the user always gets
+                        // the editable meeting / tasks view for time-aware questions.
+                        if (parsed.intent) {
                             askHomeOpenContextPanel(parsed.intent).catch(() => {});
                         }
                         updateAssistantBubble(assistantMsg);
@@ -17276,15 +17277,17 @@
     }
 
     // ─── Ask Home: Context panel (right) ───────────────────────
+    // Broad keyword match, mirroring the backend's resolveTimeIntent. Opens the
+    // panel optimistically so the user sees something immediately; the backend
+    // meta frame then refines the resolved date range.
     function askHomeDetectIntent(question) {
         const q = String(question || '').toLowerCase();
-        if (/\b(next|upcoming|today'?s?)\s+(meeting|call|event|1:1|one\s*on\s*one)\b/.test(q) ||
-            /\bwhen(?:'s| is)?\s+my\s+(next\s+)?meeting\b/.test(q) ||
-            /\bmeeting\s+(today|next)\b/.test(q)) {
+        if (/\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar)\b/.test(q)) {
             return 'meeting';
         }
-        if (/\b(tasks?|to[- ]?do|todos?|priorit(?:y|ies)|what (?:do|have) i (?:need to )?do|what'?s on my plate|plate today|agenda)\b/.test(q)) {
-            return 'tasks';
+        if (/\b(tasks?|to[- ]?dos?|todos?|priorit(?:y|ies)|plate|agenda)\b/.test(q) ||
+            /\bwhat (?:do|have) i (?:need to |got to )?do\b/.test(q)) {
+            return 'task';
         }
         return null;
     }
