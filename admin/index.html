@@ -3845,7 +3845,6 @@
             flex-direction: column;
             gap: 1rem;
             padding: 0.5rem 0 1rem;
-            overflow-y: auto;
         }
         .askhome-empty {
             padding: 3rem 1rem;
@@ -16548,7 +16547,16 @@
             btn.addEventListener('click', () => askHomeSaveMessage(btn.dataset.id, btn.dataset.kind, btn));
         });
         refreshIcons();
-        thread.scrollTop = thread.scrollHeight;
+        askHomeScrollToTail();
+    }
+
+    function askHomeScrollToTail() {
+        const thread = document.getElementById('askHomeThread');
+        if (!thread) return;
+        const last = thread.lastElementChild;
+        if (!last) return;
+        try { last.scrollIntoView({ block: 'end', behavior: 'instant' }); }
+        catch { last.scrollIntoView(false); }
     }
 
     function updateAssistantBubble(msg) {
@@ -16578,8 +16586,7 @@
                 footer.insertAdjacentHTML('beforebegin', sourcesHTML);
             }
         }
-        const thread = document.getElementById('askHomeThread');
-        if (thread) thread.scrollTop = thread.scrollHeight;
+        askHomeScrollToTail();
     }
 
     async function askHomeSend() {
