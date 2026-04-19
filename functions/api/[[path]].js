@@ -127,6 +127,8 @@ export async function onRequest(ctx) {
         return handleAsk(request, env);
       case 'ask-stream':
         return handleAskStream(request, env);
+      case 'summarize-to-note':
+        return handleSummarizeToNote(request, env);
       case 'feed-items/capture':
         return handleFeedItemCapture(request, env);
       case 'competitor-research':
@@ -3514,7 +3516,7 @@ async function fetchStructuredContext(env, intent) {
 async function handleAskStream(request, env) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
-  const { messages, tables, date_from, date_to, tags, client_date } = body || {};
+  const { messages, tables, date_from, date_to, tags, client_date, focused_meeting } = body || {};
 
   if (!Array.isArray(messages) || !messages.length) {
     return json({ error: 'messages array required' }, 400);
@@ -3623,6 +3625,18 @@ async function handleAskStream(request, env) {
 
   const contextBlocks = `${structuredSection}## Semantic matches from the knowledge base\n\n${ragBlocks}`;
 
+  let focusedSection = '';
+  if (focused_meeting && typeof focused_meeting === 'object' && focused_meeting.title) {
+    const fe = focused_meeting;
+    const timeLabel = fe.all_day
+      ? 'all day'
+      : (fe.end_time ? `${fe.start_time}–${fe.end_time}` : fe.start_time || '');
+    const atts = Array.isArray(fe.attendees)
+      ? fe.attendees.map(a => typeof a === 'string' ? a : (a?.name || a?.email || '')).filter(Boolean).slice(0, 12).join(', ')
+      : '';
+    focusedSection = `\n\n## FOCUSED MEETING\n\nThe user is preparing for:\n- **${fe.title}** on ${fe.event_date}${timeLabel ? ' at ' + timeLabel : ''}\n${fe.location ? '- Location: ' + fe.location + '\n' : ''}${fe.organizer ? '- Organiser: ' + fe.organizer + '\n' : ''}${atts ? '- Attendees: ' + atts + '\n' : ''}\nAnchor every answer to THIS meeting. When the user asks for prep suggestions, questions, or agenda items, make them specific to this meeting's attendees and subject. When they ask generic questions, interpret them in the context of this meeting unless clearly unrelated.`;
+  }
+
   const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko. Today is ${todayISO}.
 
 Answer questions based ONLY on the provided context. Follow these rules:
@@ -3631,7 +3645,7 @@ Answer questions based ONLY on the provided context. Follow these rules:
 - Otherwise cite semantic sources by number and date (e.g. "[Source 1]").
 - Be concise and direct. Use markdown for readability.
 - When summarising across multiple sources, note the date range covered.
-- Consider prior turns in this conversation for continuity, but re-ground each answer in the fresh context provided.`;
+- Consider prior turns in this conversation for continuity, but re-ground each answer in the fresh context provided.${focusedSection}`;
 
   // Merge structured sources above semantic ones in the sources list, de-duped.
   const mergedSources = [
@@ -3691,6 +3705,60 @@ Answer questions based ONLY on the provided context. Follow these rules:
       'Connection': 'keep-alive',
     },
   });
+}
+
+/**
+ * POST /api/summarize-to-note — Summarise a slice of an Ask conversation into
+ * clean markdown meeting notes. Used by the focused-meeting card's "Save
+ * discussion as notes" action. Body: { event, messages }.
+ */
+async function handleSummarizeToNote(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const { event, messages } = body || {};
+  if (!event || !event.title || !Array.isArray(messages) || messages.length < 2) {
+    return json({ error: 'event and a non-trivial messages array are required' }, 400);
+  }
+
+  const timeLabel = event.all_day
+    ? 'all day'
+    : (event.end_time ? `${event.start_time}–${event.end_time}` : event.start_time || '');
+  const atts = Array.isArray(event.attendees)
+    ? event.attendees.map(a => typeof a === 'string' ? a : (a?.name || a?.email || '')).filter(Boolean).slice(0, 12).join(', ')
+    : '';
+
+  const transcript = messages
+    .map(m => `**${m.role === 'user' ? 'Me' : 'Assistant'}:**\n${m.content}`)
+    .join('\n\n---\n\n');
+
+  const systemPrompt = `You are summarising a brainstorming / prep discussion into clean meeting notes for Paul Land's daily journal.
+
+Target meeting:
+- Title: ${event.title}
+- Date: ${event.event_date}${timeLabel ? ' · ' + timeLabel : ''}${event.location ? '\n- Location: ' + event.location : ''}${event.organizer ? '\n- Organiser: ' + event.organizer : ''}${atts ? '\n- Attendees: ' + atts : ''}
+
+Return ONLY the notes body in markdown (no top-level heading — the daily-note system adds that). Structure with short sections like:
+- **Agenda / topics to cover**
+- **Key points**
+- **Decisions**
+- **Follow-ups / action items**
+
+Skip any section that has nothing to say rather than leaving it empty. Keep it punchy — bullets, not essays. Turn chat-style exchanges into declarative notes (e.g. "Confirmed Q3 plan" not "The assistant said Q3 plan is confirmed").`;
+
+  const userMessage = `Summarise this discussion into notes for the meeting above.\n\n${transcript}`;
+
+  try {
+    const { text, model } = await callLLM({
+      env,
+      systemPrompt,
+      userMessage,
+      maxTokens: 2000,
+      tier: 'balanced',
+    });
+    return json({ ok: true, summary: text.trim(), model });
+  } catch (err) {
+    return json({ error: 'Summarisation failed', detail: err.message, attempts: err.attempts }, err.status || 502);
+  }
 }
 
 // ─── Extract Signals from Content ─────────────────────────────

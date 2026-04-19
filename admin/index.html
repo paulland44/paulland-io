@@ -4402,6 +4402,27 @@
             min-height: 50px;
         }
 
+        /* Focused meeting card: anchors the chat */
+        .meeting-card.askhome-meeting-card.is-focused {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px var(--accent-dim);
+        }
+        .askhome-focus-chip {
+            font-family: var(--mono);
+            font-size: 0.68rem;
+            padding: 0.12rem 0.45rem;
+            border-radius: var(--radius-pill);
+            background: var(--accent-dim);
+            color: var(--accent);
+            letter-spacing: 0.02em;
+            margin-right: 0.35rem;
+            flex-shrink: 0;
+        }
+        .askhome-panel-actions-stack {
+            flex-wrap: wrap;
+            gap: 0.35rem;
+        }
+
         @media (max-width: 1100px) {
             .askhome-layout { grid-template-columns: 1fr !important; }
             .askhome-side {
@@ -16835,6 +16856,13 @@
         filters: { tables: null, date_from: null, date_to: null, tags: null },
         preferredModel: ASK_HOME_DEFAULT_MODEL,
         streaming: false,
+        // Meeting focus mode: when the user clicks a meeting card's body it
+        // enters "focused" state. While focused, every chat message adds the
+        // meeting's metadata to the request so the LLM anchors answers there.
+        // Focus tracks focusMsgIdx so "Save discussion as notes" knows which
+        // message slice to summarise.
+        focusedEvent: null,
+        focusMsgIdx: null,
     };
 
     async function loadAskHome() {
@@ -16915,6 +16943,7 @@
         newBtn.addEventListener('click', () => {
             if (askHomeState.streaming) return;
             askHomeState.messages = [];
+            askHomeClearFocus();
             askHomeCloseSourcePanel();
             askHomeCloseContextPanel();
             renderAskHomeThread();
@@ -17136,6 +17165,20 @@
             if (f.date_from) body.date_from = f.date_from;
             if (f.date_to) body.date_to = f.date_to;
             if (f.tags) body.tags = f.tags;
+            // When the user has focused a meeting card, carry that context so
+            // the LLM anchors the answer to that specific meeting.
+            if (askHomeState.focusedEvent) {
+                const fe = askHomeState.focusedEvent;
+                body.focused_meeting = {
+                    title: fe.title || '',
+                    event_date: fe.event_date || '',
+                    start_time: fe.start_time || '',
+                    end_time: fe.end_time || '',
+                    location: fe.location || '',
+                    organizer: fe.organizer || '',
+                    attendees: Array.isArray(fe.attendees) ? fe.attendees.slice(0, 20) : [],
+                };
+            }
 
             const res = await fetch('/api/ask-stream', {
                 method: 'POST',
@@ -17599,12 +17642,14 @@
             // Expand the first card by default so the user sees a usable editor
             // immediately; subsequent cards collapse to reduce clutter.
             const isExpanded = idx === 0;
+            const isFocused = askHomeState.focusedEvent && askHomeIsSameEvent(askHomeState.focusedEvent, e);
             return `
-                <div class="meeting-card askhome-meeting-card${isExpanded ? ' expanded' : ''}" data-idx="${idx}">
+                <div class="meeting-card askhome-meeting-card${isExpanded ? ' expanded' : ''}${isFocused ? ' is-focused' : ''}" data-idx="${idx}">
                     <div class="meeting-card-header" data-idx="${idx}">
                         <span class="meeting-card-chevron">&#x25B8;</span>
                         ${when.timeLabel ? `<span class="meeting-card-time">${esc(when.timeLabel)}</span>` : ''}
                         <span class="meeting-card-title-display">${esc(e.title || 'Untitled meeting')}</span>
+                        ${isFocused ? '<span class="askhome-focus-chip" title="Chat is anchored to this meeting">Focused</span>' : ''}
                         <span class="meeting-card-indicator${hasNotes ? ' has-notes' : ''}" title="${hasNotes ? 'Has notes' : 'No notes yet'}">&#x25CF;</span>
                     </div>
                     <div class="meeting-card-expanded-content">
@@ -17616,7 +17661,9 @@
                                 ${Array.isArray(e.attendees) && e.attendees.length > attendees.length ? `<span class="chip">+${e.attendees.length - attendees.length}</span>` : ''}
                             </div>` : ''}
                         <textarea class="askhome-input askhome-meeting-note" data-idx="${idx}" rows="5" placeholder="Prep, decisions, follow-ups…">${esc(existingNotes)}</textarea>
-                        <div class="askhome-panel-actions">
+                        <div class="askhome-panel-actions askhome-panel-actions-stack">
+                            <button class="btn-ghost-sm askhome-meeting-focus" type="button" data-idx="${idx}">${isFocused ? 'Stop focusing' : 'Discuss in chat'}</button>
+                            ${isFocused ? `<button class="btn-ghost-sm askhome-meeting-summarise" type="button" data-idx="${idx}">Save discussion as notes</button>` : ''}
                             <span class="askhome-panel-status" data-status-for="${idx}"></span>
                             <button class="btn-ghost-sm askhome-meeting-save" type="button" data-idx="${idx}">Save to ${esc(e.event_date)}</button>
                         </div>
@@ -17662,6 +17709,86 @@
                 }
             });
         });
+
+        // Focus toggle — anchors the chat to this meeting until cleared
+        panel.querySelectorAll('.askhome-meeting-focus').forEach(btn => {
+            btn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const idx = parseInt(btn.dataset.idx, 10);
+                const event = events[idx];
+                if (askHomeState.focusedEvent && askHomeIsSameEvent(askHomeState.focusedEvent, event)) {
+                    askHomeClearFocus();
+                } else {
+                    askHomeSetFocus(event);
+                }
+                // Re-render cards to reflect focus state
+                askHomeRenderMeetingWidget(panel, askHomeState.currentIntent).catch(() => {});
+            });
+        });
+
+        // "Save discussion as notes" — summarise the focused slice via Claude
+        panel.querySelectorAll('.askhome-meeting-summarise').forEach(btn => {
+            btn.addEventListener('click', async (ev) => {
+                ev.stopPropagation();
+                const idx = parseInt(btn.dataset.idx, 10);
+                const event = events[idx];
+                const status = panel.querySelector(`span[data-status-for="${idx}"]`);
+                const sliceStart = askHomeState.focusMsgIdx ?? 0;
+                const slice = askHomeState.messages.slice(sliceStart)
+                    .filter(m => m.role === 'user' || (m.role === 'assistant' && m.content));
+                if (slice.length < 2) {
+                    status.textContent = 'Need at least one exchange';
+                    setTimeout(() => { status.textContent = ''; }, 2500);
+                    return;
+                }
+                status.textContent = 'Summarising…';
+                btn.disabled = true;
+                try {
+                    const summary = await askHomeSummariseForMeeting(event, slice);
+                    await askHomeReplaceMeetingNote(event, summary);
+                    status.textContent = 'Saved ✓';
+                    const card = btn.closest('.meeting-card');
+                    card?.querySelector('.meeting-card-indicator')?.classList.add('has-notes');
+                    const textarea = panel.querySelector(`textarea[data-idx="${idx}"]`);
+                    if (textarea) textarea.value = summary;
+                } catch (err) {
+                    status.textContent = `Error: ${err.message}`;
+                } finally {
+                    btn.disabled = false;
+                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 3500);
+                }
+            });
+        });
+    }
+
+    function askHomeIsSameEvent(a, b) {
+        if (!a || !b) return false;
+        if (a.uid && b.uid && a.uid === b.uid && a.event_date === b.event_date) return true;
+        return (a.title || '') === (b.title || '')
+            && a.event_date === b.event_date
+            && (a.start_time || '') === (b.start_time || '');
+    }
+
+    function askHomeSetFocus(event) {
+        askHomeState.focusedEvent = event;
+        askHomeState.focusMsgIdx = askHomeState.messages.length;
+    }
+
+    function askHomeClearFocus() {
+        askHomeState.focusedEvent = null;
+        askHomeState.focusMsgIdx = null;
+    }
+
+    async function askHomeSummariseForMeeting(event, messages) {
+        const res = await fetch('/api/summarize-to-note', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ event, messages }),
+        });
+        if (!res.ok) throw new Error(await res.text());
+        const data = await res.json();
+        if (!data.ok || !data.summary) throw new Error(data.error || 'Empty summary');
+        return data.summary;
     }
 
     function isoDateAddDays(iso, n) {
