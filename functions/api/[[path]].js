@@ -3290,12 +3290,11 @@ function resolveTimeIntent(question, today) {
 }
 
 function formatEventTime(event) {
+  // start_time and end_time are stored as "HH:MM" strings from the ICS parser,
+  // not full ISO datetimes. Use them as-is.
   if (event.all_day) return 'all day';
   if (!event.start_time) return '';
-  const start = new Date(event.start_time);
-  const end = event.end_time ? new Date(event.end_time) : null;
-  const fmt = (d) => d.toISOString().slice(11, 16); // HH:MM UTC
-  return end ? `${fmt(start)}–${fmt(end)}` : fmt(start);
+  return event.end_time ? `${event.start_time}–${event.end_time}` : event.start_time;
 }
 
 async function fetchStructuredContext(env, intent) {

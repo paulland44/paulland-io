@@ -17292,7 +17292,17 @@
         if (error) throw new Error(error.message);
 
         // Prefer events whose start is after now; fall back to the earliest today
-        const upcoming = (events || []).find(e => !e.start_time || new Date(e.start_time) >= now) || (events || [])[0];
+        const eventStartMs = (e) => {
+            if (!e.event_date) return null;
+            const t = e.all_day || !e.start_time ? '00:00' : e.start_time;
+            const ms = Date.parse(`${e.event_date}T${t}:00`);
+            return Number.isFinite(ms) ? ms : null;
+        };
+        const nowMs = now.getTime();
+        const upcoming = (events || []).find(e => {
+            const ms = eventStartMs(e);
+            return ms === null || ms >= nowMs;
+        }) || (events || [])[0];
         if (!upcoming) {
             panel.innerHTML = `
                 <div class="askhome-panel-header">
@@ -17358,13 +17368,12 @@
     }
 
     function formatMeetingWhen(event) {
+        // calendar_events stores start_time / end_time as "HH:MM" strings —
+        // not full ISO datetimes. Render them directly.
         if (event.all_day) return { dateLabel: prettyDate(event.event_date), timeLabel: 'All day' };
         if (!event.start_time) return { dateLabel: prettyDate(event.event_date), timeLabel: '' };
-        const start = new Date(event.start_time);
-        const end = event.end_time ? new Date(event.end_time) : null;
-        const timeFmt = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-        const timeLabel = end ? `${timeFmt(start)} – ${timeFmt(end)}` : timeFmt(start);
-        return { dateLabel: prettyDate(event.event_date || event.start_time.slice(0, 10)), timeLabel };
+        const timeLabel = event.end_time ? `${event.start_time} – ${event.end_time}` : event.start_time;
+        return { dateLabel: prettyDate(event.event_date), timeLabel };
     }
 
     function prettyDate(iso) {
