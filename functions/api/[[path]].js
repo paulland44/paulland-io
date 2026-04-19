@@ -88,6 +88,39 @@ export async function onRequest(ctx) {
     return handleResolveUsageError(id, env);
   }
 
+  // ─── Tasks routes ───────────────────────────────────────────
+  if (path.startsWith('tasks')) {
+    // POST /api/tasks/backfill-from-daily-notes
+    if (request.method === 'POST' && path === 'tasks/backfill-from-daily-notes') {
+      return handleTasksBackfill(request, env, ctx);
+    }
+    // POST /api/tasks/:id/complete
+    const completeMatch = path.match(/^tasks\/([0-9a-f-]+)\/complete$/);
+    if (request.method === 'POST' && completeMatch) {
+      return handleTaskComplete(completeMatch[1], env, ctx);
+    }
+    // PATCH /api/tasks/:id
+    const idMatch = path.match(/^tasks\/([0-9a-f-]+)$/);
+    if (request.method === 'PATCH' && idMatch) {
+      return handleTaskUpdate(idMatch[1], request, env, ctx);
+    }
+    // DELETE /api/tasks/:id
+    if (request.method === 'DELETE' && idMatch) {
+      return handleTaskDelete(idMatch[1], env);
+    }
+    // POST /api/tasks
+    if (request.method === 'POST' && path === 'tasks') {
+      return handleTaskCreate(request, env, ctx);
+    }
+    // GET /api/tasks or /api/tasks/:id
+    if (request.method === 'GET' && path === 'tasks') {
+      return handleTasksList(request, env);
+    }
+    if (request.method === 'GET' && idMatch) {
+      return handleTaskGet(idMatch[1], env);
+    }
+  }
+
   if (request.method === 'GET') {
     switch (path) {
       case 'calendar-events':
@@ -1220,7 +1253,7 @@ async function handleUpdateTags(request, env, ctx) {
 async function handleEntityUpdate(request, env, ctx) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items', 'prompts'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items', 'prompts', 'tasks'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -1258,7 +1291,7 @@ async function handleEntityUpdate(request, env, ctx) {
   }
 
   // Background embed (for embeddable entity tables)
-  const embeddableTables = ['people', 'products', 'projects', 'summaries', 'companies'];
+  const embeddableTables = ['people', 'products', 'projects', 'summaries', 'companies', 'tasks'];
   if (embeddableTables.includes(table) && id && (env.AI || env.CF_ACCOUNT_ID)) {
     ctx.waitUntil(embedItem(env, table, id).catch(() => {}));
   }
@@ -2526,6 +2559,16 @@ function buildEmbeddingText(sourceTable, row) {
       return `Decision (${row.note_date}): ${row.decision || ''}\nContext: ${row.context || ''}`;
     case 'reflections_log':
       return `Reflection (${row.note_date}, ${row.category || 'leadership'}): ${row.observation || ''}\nCoach: ${row.coach_perspective || ''}`;
+    case 'tasks': {
+      const parts = [`Task: ${row.title || '(untitled)'}`];
+      if (row.status) parts.push(`Status: ${row.status}`);
+      if (row.priority) parts.push(`Priority: ${row.priority}`);
+      if (row.due_date) parts.push(`Due: ${row.due_date}`);
+      if (row.description) parts.push(row.description);
+      if (row.source_ref) parts.push(`Source: ${row.source_ref}`);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
     default:
       return JSON.stringify(row);
   }
@@ -2583,6 +2626,12 @@ function buildEmbeddingMetadata(sourceTable, row) {
     case 'reflections_log':
       meta.title = `Reflection (${row.category || 'leadership'})`;
       meta.date = row.note_date;
+      break;
+    case 'tasks':
+      meta.title = row.title || 'Task';
+      meta.date = row.due_date || '';
+      if (row.status) meta.status = row.status;
+      if (row.priority) meta.priority = row.priority;
       break;
   }
   return meta;
@@ -2702,6 +2751,270 @@ function isAuthOrQuotaSignal(status, message) {
   if (status >= 500 && status < 600) return true;
   if (message && /quota|credit|rate.?limit|overloaded|invalid.?api.?key|authentication|neuron/i.test(message)) return true;
   return false;
+}
+
+// ─── Tasks handlers ──────────────────────────────────────────
+
+const TASK_ALLOWED_STATUS = new Set(['todo', 'doing', 'done', 'blocked']);
+const TASK_ALLOWED_PRIORITY = new Set(['high', 'medium', 'low']);
+const TASK_UPDATABLE_FIELDS = new Set(['title', 'description', 'status', 'priority', 'due_date', 'source_table', 'source_id', 'source_ref', 'tags', 'metadata']);
+
+function buildTaskPatch(input) {
+  const patch = {};
+  for (const [k, v] of Object.entries(input || {})) {
+    if (!TASK_UPDATABLE_FIELDS.has(k)) continue;
+    if (k === 'status' && v !== null && !TASK_ALLOWED_STATUS.has(v)) {
+      throw new Error(`Invalid status: ${v}. Must be one of ${[...TASK_ALLOWED_STATUS].join(', ')}`);
+    }
+    if (k === 'priority' && v !== null && !TASK_ALLOWED_PRIORITY.has(v)) {
+      throw new Error(`Invalid priority: ${v}. Must be one of ${[...TASK_ALLOWED_PRIORITY].join(', ')}`);
+    }
+    patch[k] = v;
+  }
+  return patch;
+}
+
+/**
+ * GET /api/tasks?status=open|todo|done|all&due=today|week|overdue&source_table=...&source_id=...&tag=...&limit=50
+ */
+async function handleTasksList(request, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) return json({ error: 'Server misconfigured' }, 500);
+
+  const url = new URL(request.url);
+  const status = url.searchParams.get('status') || 'open';    // open | todo | doing | blocked | done | all
+  const due = url.searchParams.get('due');                     // today | week | overdue | anytime
+  const sourceTable = url.searchParams.get('source_table');
+  const sourceId = url.searchParams.get('source_id');
+  const tag = url.searchParams.get('tag');
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 500);
+  const clientDate = /^\d{4}-\d{2}-\d{2}$/.test(url.searchParams.get('client_date') || '')
+    ? url.searchParams.get('client_date')
+    : new Date().toISOString().slice(0, 10);
+
+  const filters = [];
+  if (status === 'open') filters.push('status=neq.done');
+  else if (status !== 'all' && TASK_ALLOWED_STATUS.has(status)) filters.push(`status=eq.${status}`);
+
+  if (due === 'today') filters.push(`due_date=eq.${clientDate}`);
+  else if (due === 'week') {
+    const d = new Date(clientDate + 'T00:00:00Z');
+    const dow = d.getUTCDay();
+    const toMon = dow === 0 ? -6 : 1 - dow;
+    const monday = isoAddDays(clientDate, toMon);
+    const sunday = isoAddDays(monday, 6);
+    filters.push(`due_date=gte.${monday}`);
+    filters.push(`due_date=lte.${sunday}`);
+  } else if (due === 'overdue') {
+    filters.push(`due_date=lt.${clientDate}`);
+    filters.push('status=neq.done');
+  }
+
+  if (sourceTable) filters.push(`source_table=eq.${encodeURIComponent(sourceTable)}`);
+  if (sourceId) filters.push(`source_id=eq.${encodeURIComponent(sourceId)}`);
+  if (tag) filters.push(`tags=cs.{${encodeURIComponent(tag)}}`);
+
+  // Sort: open tasks by due_date nulls last then priority; all tasks by updated_at desc otherwise
+  const order = status === 'open' || due
+    ? 'due_date.asc.nullslast,priority.asc.nullslast,created_at.desc'
+    : 'updated_at.desc';
+  const query = `tasks?${filters.join('&')}${filters.length ? '&' : ''}order=${order}&limit=${limit}`;
+
+  try {
+    const rows = await supabaseGet(supabaseUrl, serviceKey, query);
+    return json({ ok: true, tasks: rows });
+  } catch (err) {
+    // Table missing → return empty list so the UI degrades gracefully pre-migration
+    if (/relation.*does not exist|Could not find the table/i.test(err.message || '')) {
+      return json({ ok: true, tasks: [], missing: true });
+    }
+    return json({ error: 'Failed to list tasks', detail: err.message }, 500);
+  }
+}
+
+async function handleTaskGet(id, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const rows = await supabaseGet(supabaseUrl, serviceKey, `tasks?id=eq.${id}&limit=1`);
+  return json({ ok: true, task: rows[0] || null });
+}
+
+async function handleTaskCreate(request, env, ctx) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  if (!body?.title || typeof body.title !== 'string') {
+    return json({ error: 'title is required' }, 400);
+  }
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  let patch;
+  try { patch = buildTaskPatch(body); } catch (err) { return json({ error: err.message }, 400); }
+  patch.title = body.title;
+  if (!patch.status) patch.status = 'todo';
+
+  const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
+    method: 'POST',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) return json({ error: 'Failed to create', detail: await res.text() }, res.status);
+  const rows = await res.json();
+  const task = rows[0] || null;
+  if (task?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+    ctx?.waitUntil(embedItem(env, 'tasks', task.id).catch(() => {}));
+  }
+  return json({ ok: true, task });
+}
+
+async function handleTaskUpdate(id, request, env, ctx) {
+  let body;
+  try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  let patch;
+  try { patch = buildTaskPatch(body); } catch (err) { return json({ error: err.message }, 400); }
+  if (!Object.keys(patch).length) return json({ error: 'No updatable fields supplied' }, 400);
+
+  const res = await fetch(`${supabaseUrl}/rest/v1/tasks?id=eq.${id}`, {
+    method: 'PATCH',
+    headers: {
+      'apikey': serviceKey,
+      'Authorization': `Bearer ${serviceKey}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation',
+    },
+    body: JSON.stringify(patch),
+  });
+  if (!res.ok) return json({ error: 'Failed to update', detail: await res.text() }, res.status);
+  const rows = await res.json();
+  const task = rows[0] || null;
+  // Re-embed if text fields changed (title/description/tags/etc)
+  if (task?.id && (env.AI || env.CF_ACCOUNT_ID) && ('title' in patch || 'description' in patch || 'tags' in patch || 'priority' in patch || 'due_date' in patch)) {
+    ctx?.waitUntil(embedItem(env, 'tasks', task.id).catch(() => {}));
+  }
+  return json({ ok: true, task });
+}
+
+async function handleTaskComplete(id, env, ctx) {
+  return handleTaskUpdate(id, new Request('http://x/', {
+    method: 'PATCH',
+    body: JSON.stringify({ status: 'done' }),
+  }), env, ctx);
+}
+
+async function handleTaskDelete(id, env) {
+  const res = await fetch(`${env.SUPABASE_URL}/rest/v1/tasks?id=eq.${id}`, {
+    method: 'DELETE',
+    headers: {
+      'apikey': env.SUPABASE_SERVICE_KEY,
+      'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+      'Prefer': 'return=minimal',
+    },
+  });
+  if (!res.ok) return json({ error: 'Failed to delete', detail: await res.text() }, res.status);
+  return json({ ok: true });
+}
+
+/**
+ * POST /api/tasks/backfill-from-daily-notes { dry_run?: boolean }
+ *
+ * One-shot parser: walks every daily_note with a non-empty `tasks` field and
+ * extracts `- [ ]` / `- [x]` / `- [X]` bullets, creating rows in the `tasks`
+ * table linked back to the daily note. Idempotent — skips lines that already
+ * have a matching task (same title + source_table + source_id).
+ */
+async function handleTasksBackfill(request, env, ctx) {
+  let body = {};
+  try { body = await request.json(); } catch {}
+  const dryRun = !!body.dry_run;
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+
+  // Load all daily notes that have any tasks markdown
+  const notes = await supabaseGet(supabaseUrl, serviceKey,
+    `daily_notes?tasks=neq.&select=id,note_date,tasks&order=note_date.asc&limit=2000`);
+
+  // What's already in tasks for these daily notes? Key by source_id+title.
+  const noteIds = notes.map(n => n.id).filter(Boolean);
+  const existingBySource = new Map();
+  if (noteIds.length) {
+    const existing = await supabaseGet(supabaseUrl, serviceKey,
+      `tasks?source_table=eq.daily_notes&source_id=in.(${noteIds.map(i => `"${i}"`).join(',')})&select=id,title,source_id`);
+    existing.forEach(t => existingBySource.set(`${t.source_id}|${(t.title || '').trim().toLowerCase()}`, t.id));
+  }
+
+  const toInsert = [];
+  let parsedBullets = 0;
+  const summary = [];
+
+  for (const note of notes) {
+    const lines = String(note.tasks || '').split('\n');
+    const perNote = { note_date: note.note_date, inserted: 0, skipped: 0, checked: 0, unchecked: 0 };
+    for (const rawLine of lines) {
+      // Match "- [ ] text", "- [x] text", "- [X] text" (and "* [ ]")
+      const m = rawLine.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/);
+      if (!m) continue;
+      parsedBullets++;
+      const isDone = m[1].toLowerCase() === 'x';
+      const title = m[2].trim();
+      if (!title) continue;
+      const key = `${note.id}|${title.toLowerCase()}`;
+      if (existingBySource.has(key)) { perNote.skipped++; continue; }
+      toInsert.push({
+        title,
+        status: isDone ? 'done' : 'todo',
+        completed_at: isDone ? new Date(note.note_date + 'T12:00:00Z').toISOString() : null,
+        source_table: 'daily_notes',
+        source_id: note.id,
+        source_ref: `Daily Note ${note.note_date}`,
+        due_date: null,
+        metadata: { backfilled_from: 'daily_notes.tasks', note_date: note.note_date },
+      });
+      perNote.inserted++;
+      if (isDone) perNote.checked++; else perNote.unchecked++;
+    }
+    if (perNote.inserted || perNote.skipped) summary.push(perNote);
+  }
+
+  if (dryRun) {
+    return json({ ok: true, dry_run: true, parsedBullets, wouldInsert: toInsert.length, summary });
+  }
+
+  // Insert in chunks of 100
+  let insertedTotal = 0;
+  for (let i = 0; i < toInsert.length; i += 100) {
+    const batch = toInsert.slice(i, i + 100);
+    const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=representation',
+      },
+      body: JSON.stringify(batch),
+    });
+    if (!res.ok) {
+      return json({ error: 'Insert failed', detail: await res.text(), insertedTotal }, 500);
+    }
+    const rows = await res.json();
+    insertedTotal += rows.length;
+    // Kick off embeddings in the background for newly-inserted tasks
+    if (env.AI || env.CF_ACCOUNT_ID) {
+      for (const row of rows) {
+        ctx?.waitUntil(embedItem(env, 'tasks', row.id).catch(() => {}));
+      }
+    }
+  }
+
+  return json({ ok: true, parsedBullets, inserted: insertedTotal, summary });
 }
 
 /**
@@ -2890,6 +3203,7 @@ async function handleEmbedBatch(request, env) {
     { table: 'product_evidence', idCol: 'id' },
     { table: 'product_decisions', idCol: 'id' },
     { table: 'reflections_log', idCol: 'id' },
+    { table: 'tasks', idCol: 'id' },
   ];
 
   const MAX_ITEMS = 6; // ~5 subrequests each = ~30 + overhead, stays under 50 limit
