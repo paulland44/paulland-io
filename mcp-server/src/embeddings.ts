@@ -79,6 +79,16 @@ export function buildEmbeddingText(sourceTable: string, row: any): string {
       return `Persona Update (${row.log_date}, ${row.section_updated || 'general'}): ${row.entry || ''}`;
     case 'research_log':
       return `Research Update (${row.log_date}, ${row.section_updated || 'general'}): ${row.entry || ''}`;
+    case 'tasks': {
+      const parts: string[] = [`Task: ${row.title || '(untitled)'}`];
+      if (row.status) parts.push(`Status: ${row.status}`);
+      if (row.priority) parts.push(`Priority: ${row.priority}`);
+      if (row.due_date) parts.push(`Due: ${row.due_date}`);
+      if (row.description) parts.push(row.description);
+      if (row.source_ref) parts.push(`Source: ${row.source_ref}`);
+      if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
+      return parts.join('\n');
+    }
     default:
       return JSON.stringify(row);
   }
@@ -133,6 +143,12 @@ export function buildEmbeddingMetadata(
     case 'reflections_log':
       meta.title = `Reflection (${row.category || 'leadership'})`;
       meta.date = row.note_date;
+      break;
+    case 'tasks':
+      meta.title = row.title || 'Task';
+      meta.date = row.due_date || '';
+      if (row.status) meta.status = row.status;
+      if (row.priority) meta.priority = row.priority;
       break;
   }
   return meta;
@@ -291,4 +307,5 @@ export const EMBEDDABLE_TABLES = [
   'reflections_log',
   'persona_log',
   'research_log',
+  'tasks',
 ];

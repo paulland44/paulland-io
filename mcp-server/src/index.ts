@@ -6119,6 +6119,148 @@ server.tool(
   }
 );
 
+// ─── Group 14: Tasks ──────────────────────────────────────
+
+server.tool(
+  'list_tasks',
+  'List tasks with filters. Defaults to open (not done). Filter by status, due window (today/week/overdue), source, tag, or priority. Returns count + task rows.',
+  {
+    status: z
+      .enum(['open', 'todo', 'doing', 'done', 'blocked', 'all'])
+      .optional()
+      .default('open')
+      .describe('"open" = not done; others filter to that status; "all" = no filter'),
+    due: z
+      .enum(['today', 'week', 'overdue', 'anytime'])
+      .optional()
+      .describe('Date window: today, current ISO week, overdue (< today & not done), or anytime'),
+    priority: z.enum(['high', 'medium', 'low']).optional(),
+    source_table: z.string().optional().describe('Filter to tasks linked to a source table'),
+    source_id: z.string().optional().describe('Filter to tasks linked to a specific source row'),
+    tag: z.string().optional(),
+    client_date: z
+      .string()
+      .optional()
+      .describe('YYYY-MM-DD reference date for due-window math; defaults to UTC today'),
+    limit: z.number().optional().default(100),
+  },
+  async ({ status, due, priority, source_table, source_id, tag, client_date, limit }) => {
+    const today = /^\d{4}-\d{2}-\d{2}$/.test(client_date || '')
+      ? client_date
+      : new Date().toISOString().slice(0, 10);
+    const filters: string[] = [];
+    if (status === 'open') filters.push('status=neq.done');
+    else if (status && status !== 'all') filters.push(`status=eq.${status}`);
+    if (priority) filters.push(`priority=eq.${priority}`);
+    if (source_table) filters.push(`source_table=eq.${encodeURIComponent(source_table)}`);
+    if (source_id) filters.push(`source_id=eq.${encodeURIComponent(source_id)}`);
+    if (tag) filters.push(`tags=cs.{${encodeURIComponent(tag)}}`);
+    if (due === 'today') filters.push(`due_date=eq.${today}`);
+    else if (due === 'overdue') {
+      filters.push(`due_date=lt.${today}`);
+      filters.push('status=neq.done');
+    } else if (due === 'week') {
+      const d = new Date(today + 'T00:00:00Z');
+      const dow = d.getUTCDay();
+      const toMon = dow === 0 ? -6 : 1 - dow;
+      const monday = new Date(d.getTime() + toMon * 86400000).toISOString().slice(0, 10);
+      const sunday = new Date(d.getTime() + (toMon + 6) * 86400000).toISOString().slice(0, 10);
+      filters.push(`due_date=gte.${monday}`);
+      filters.push(`due_date=lte.${sunday}`);
+    }
+    const cap = Math.min(limit || 100, 500);
+    const query = `tasks?${filters.join('&')}${filters.length ? '&' : ''}order=due_date.asc.nullslast,priority.asc.nullslast,created_at.desc&limit=${cap}`;
+    const rows = await supabaseGet(query);
+    return {
+      content: [
+        { type: 'text' as const, text: JSON.stringify({ count: rows.length, tasks: rows }, null, 2) },
+      ],
+    };
+  }
+);
+
+server.tool(
+  'get_task',
+  'Get a single task by id',
+  { id: z.string().describe('Task UUID') },
+  async ({ id }) => {
+    const rows = await supabaseGet(`tasks?id=eq.${id}&limit=1`);
+    if (!rows.length) {
+      return { content: [{ type: 'text' as const, text: 'Task not found' }] };
+    }
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(rows[0], null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'create_task',
+  'Create a new task. Optionally link to a source (source_table + source_id) such as a daily_note, content item, project, or problem.',
+  {
+    title: z.string().describe('Task title — required'),
+    description: z.string().optional(),
+    status: z.enum(['todo', 'doing', 'done', 'blocked']).optional().default('todo'),
+    priority: z.enum(['high', 'medium', 'low']).optional(),
+    due_date: z.string().optional().describe('YYYY-MM-DD'),
+    source_table: z.string().optional(),
+    source_id: z.string().optional(),
+    source_ref: z.string().optional().describe('Free-form back-ref like "Stand-up 2026-04-20"'),
+    tags: z.array(z.string()).optional(),
+  },
+  async (args) => {
+    const row: Record<string, any> = { ...args };
+    if (!row.status) row.status = 'todo';
+    const result = await supabasePost('tasks', row, true);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: `Failed: ${result.error}` }] };
+    }
+    const task = Array.isArray(result.data) ? result.data[0] : result.data;
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify(task, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'update_task',
+  'Update fields on a task. Setting status to "done" also sets completed_at automatically.',
+  {
+    id: z.string().describe('Task UUID'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    status: z.enum(['todo', 'doing', 'done', 'blocked']).optional(),
+    priority: z.enum(['high', 'medium', 'low']).optional(),
+    due_date: z.string().optional().describe('YYYY-MM-DD; pass empty string to clear'),
+    source_table: z.string().optional(),
+    source_id: z.string().optional(),
+    source_ref: z.string().optional(),
+    tags: z.array(z.string()).optional(),
+  },
+  async ({ id, ...patch }) => {
+    // Allow explicit null clearing via "" on optional fields
+    if (patch.due_date === '') (patch as any).due_date = null;
+    const result = await supabasePatch(`tasks?id=eq.${id}`, patch);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: `Failed: ${result.error}` }] };
+    }
+    return { content: [{ type: 'text' as const, text: 'OK' }] };
+  }
+);
+
+server.tool(
+  'complete_task',
+  'Mark a task done (sets status=done, completed_at=now).',
+  { id: z.string().describe('Task UUID') },
+  async ({ id }) => {
+    const result = await supabasePatch(`tasks?id=eq.${id}`, { status: 'done' });
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: `Failed: ${result.error}` }] };
+    }
+    return { content: [{ type: 'text' as const, text: 'Completed' }] };
+  }
+);
+
 } // end registerTools
 
 function registerResources(server: McpServer) {
