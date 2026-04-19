@@ -4423,6 +4423,94 @@
             gap: 0.35rem;
         }
 
+        /* ─── Tasks view ─── */
+        .tasks-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        .tasks-filter-group {
+            display: flex;
+            gap: 0.4rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .tasks-new-form {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+            padding: 0.75rem;
+            margin-bottom: 1rem;
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            flex-wrap: wrap;
+        }
+        .tasks-new-form .search-input { flex: 1; min-width: 200px; }
+        .task-row {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 0.75rem;
+            align-items: start;
+            padding: 0.75rem 1rem;
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-bottom: 0.5rem;
+            transition: opacity 0.15s, border-color 0.15s;
+        }
+        .task-row.is-done { opacity: 0.55; }
+        .task-row.is-done .task-row-title { text-decoration: line-through; }
+        .task-row.is-overdue { border-left: 3px solid var(--red); }
+        .task-row-check {
+            margin-top: 0.2rem;
+            width: 16px; height: 16px;
+            accent-color: var(--accent);
+            cursor: pointer;
+        }
+        .task-row-body { min-width: 0; }
+        .task-row-title {
+            color: var(--star);
+            font-size: 0.92rem;
+            line-height: 1.45;
+            outline: none;
+            padding: 0.1rem 0;
+        }
+        .task-row-title:focus {
+            background: var(--tint-subtle);
+            border-radius: var(--radius-sm);
+            padding: 0.1rem 0.4rem;
+            margin: 0 -0.4rem;
+        }
+        .task-row-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            margin-top: 0.35rem;
+        }
+        .task-priority--high { background: rgba(212, 99, 111, 0.15); color: var(--red); }
+        .task-priority--medium { background: rgba(196, 168, 80, 0.15); color: var(--yellow); }
+        .task-priority--low { background: var(--tint-subtle); color: var(--text-muted); }
+        .task-due { background: var(--accent-dim); color: var(--accent); }
+        .task-due.overdue { background: rgba(212, 99, 111, 0.15); color: var(--red); }
+        .task-source { background: var(--tint-subtle); color: var(--text-muted); }
+        .task-row-delete { opacity: 0.3; transition: opacity 0.15s, color 0.15s; }
+        .task-row:hover .task-row-delete { opacity: 1; }
+        .task-row-delete:hover { color: var(--red); }
+
+        /* Task widget inside Ask right panel */
+        .askhome-task-widget .task-row { padding: 0.55rem 0.7rem; margin-bottom: 0.4rem; }
+        .askhome-task-widget .task-row-title { font-size: 0.85rem; }
+        .askhome-task-add {
+            display: flex;
+            gap: 0.4rem;
+            margin-bottom: 0.75rem;
+        }
+        .askhome-task-add .askhome-input { flex: 1; min-height: auto; padding: 0.45rem 0.6rem; font-size: 0.85rem; }
+
         @media (max-width: 1100px) {
             .askhome-layout { grid-template-columns: 1fr !important; }
             .askhome-side {
@@ -4825,6 +4913,7 @@
         ]},
         knowledge: { tabs: [
             { view: 'problems', label: 'Problems', countKey: 'problems' },
+            { view: 'tasks', label: 'Tasks', countKey: 'tasks' },
             { view: 'people', label: 'People', countKey: 'people' },
             { view: 'companies', label: 'Companies', countKey: 'companies' },
             { view: 'products', label: 'Products', countKey: 'products' },
@@ -5085,7 +5174,7 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, referenceResult, summaries, feedItems, feeds, assets, people, companies, products, projects, vocCount] = await Promise.all([
+        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, referenceResult, summaries, feedItems, feeds, assets, people, companies, products, projects, vocCount, tasksCount] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
@@ -5102,6 +5191,7 @@
             db.from('products').select('id', { count: 'exact', head: true }),
             db.from('projects').select('id', { count: 'exact', head: true }),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'strategy').contains('tags', ['customer-feedback']),
+            db.from('tasks').select('id', { count: 'exact', head: true }).neq('status', 'done').then(r => r, () => ({ count: 0 })),
         ]);
 
         // Research sub-counts from reference type items
@@ -5148,6 +5238,7 @@
             companies: companies.count || 0,
             products: products.count || 0,
             projects: projects.count || 0,
+            tasks: tasksCount?.count || 0,
         };
 
         document.getElementById('lastRefresh').textContent = new Date().toLocaleTimeString();
@@ -5227,6 +5318,7 @@
                 break;
             case 'ask':         // legacy route — forward to ask-home
             case 'ask-home':    await loadAskHome(); break;
+            case 'tasks':       await loadTasks(); break;
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
             case 'mis-overview': await loadMisMonitor(); break; // redirected to Jobs
@@ -16824,6 +16916,236 @@
         });
     }
 
+    // ─── Tasks view (Knowledge → Tasks) ────────────────────────
+
+    const TASK_FILTERS = {
+        open: 'All outstanding',
+        today: 'Due today',
+        week: 'Due this week',
+        overdue: 'Overdue',
+        done: 'Completed',
+        all: 'All tasks',
+    };
+    let tasksState = { filter: 'open', priority: null, tasks: [], loading: false };
+
+    async function loadTasks() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Tasks</h2>
+                <div class="page-stats" id="tasksStats"></div>
+            </div>
+            <div class="tasks-toolbar">
+                <div class="tasks-filter-group" id="tasksFilterGroup">
+                    ${Object.entries(TASK_FILTERS).map(([k, label]) => `
+                        <button class="filter-btn${k === tasksState.filter ? ' active' : ''}" data-filter="${k}">${label}</button>
+                    `).join('')}
+                </div>
+                <div class="tasks-filter-group">
+                    <select id="tasksPriorityFilter" class="filter-select">
+                        <option value="">Any priority</option>
+                        <option value="high">High</option>
+                        <option value="medium">Medium</option>
+                        <option value="low">Low</option>
+                    </select>
+                    <button class="btn-action" id="tasksAddBtn" type="button">+ Add task</button>
+                    <button class="btn-ghost-sm" id="tasksBackfillBtn" type="button" title="Import - [ ] bullets from existing daily notes">Backfill from daily notes</button>
+                </div>
+            </div>
+            <form class="tasks-new-form" id="tasksNewForm" style="display:none">
+                <input type="text" class="search-input" id="tasksNewTitle" placeholder="New task title…" required>
+                <select class="filter-select" id="tasksNewPriority">
+                    <option value="">Priority</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+                <input type="date" class="filter-select" id="tasksNewDue">
+                <button type="submit" class="btn-action">Create</button>
+                <button type="button" class="btn-ghost-sm" id="tasksNewCancel">Cancel</button>
+            </form>
+            <div id="tasksList"></div>
+        `;
+
+        document.getElementById('tasksFilterGroup').addEventListener('click', (ev) => {
+            const btn = ev.target.closest('button[data-filter]');
+            if (!btn) return;
+            tasksState.filter = btn.dataset.filter;
+            document.querySelectorAll('#tasksFilterGroup .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === tasksState.filter));
+            refreshTasks();
+        });
+        document.getElementById('tasksPriorityFilter').addEventListener('change', (e) => {
+            tasksState.priority = e.target.value || null;
+            refreshTasks();
+        });
+        document.getElementById('tasksAddBtn').addEventListener('click', () => {
+            const form = document.getElementById('tasksNewForm');
+            form.style.display = form.style.display === 'none' ? 'flex' : 'none';
+            if (form.style.display !== 'none') document.getElementById('tasksNewTitle').focus();
+        });
+        document.getElementById('tasksNewCancel').addEventListener('click', () => {
+            document.getElementById('tasksNewForm').style.display = 'none';
+        });
+        document.getElementById('tasksNewForm').addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const title = document.getElementById('tasksNewTitle').value.trim();
+            if (!title) return;
+            const payload = {
+                title,
+                priority: document.getElementById('tasksNewPriority').value || undefined,
+                due_date: document.getElementById('tasksNewDue').value || undefined,
+            };
+            const res = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            if (!res.ok) { showToast('Create failed', 'error'); return; }
+            document.getElementById('tasksNewTitle').value = '';
+            document.getElementById('tasksNewPriority').value = '';
+            document.getElementById('tasksNewDue').value = '';
+            document.getElementById('tasksNewForm').style.display = 'none';
+            refreshTasks();
+            loadCounts();
+        });
+        document.getElementById('tasksBackfillBtn').addEventListener('click', runTasksBackfill);
+
+        refreshTasks();
+    }
+
+    async function refreshTasks() {
+        const list = document.getElementById('tasksList');
+        const stats = document.getElementById('tasksStats');
+        if (!list) return;
+        list.innerHTML = '<div class="loading">Loading tasks…</div>';
+        const params = new URLSearchParams();
+        if (tasksState.filter !== 'open' && tasksState.filter !== 'all') {
+            if (tasksState.filter === 'done') params.set('status', 'done');
+            else if (tasksState.filter === 'today') { params.set('status', 'open'); params.set('due', 'today'); }
+            else if (tasksState.filter === 'week') { params.set('status', 'open'); params.set('due', 'week'); }
+            else if (tasksState.filter === 'overdue') { params.set('status', 'open'); params.set('due', 'overdue'); }
+        } else if (tasksState.filter === 'open') {
+            params.set('status', 'open');
+        } else {
+            params.set('status', 'all');
+        }
+        if (tasksState.priority) params.set('priority', tasksState.priority);
+        params.set('client_date', new Date().toISOString().slice(0, 10));
+        try {
+            const res = await fetch(`/api/tasks?${params.toString()}`);
+            const data = await res.json();
+            tasksState.tasks = data.tasks || [];
+            if (data.missing) {
+                list.innerHTML = `<div class="empty" style="padding:2rem;text-align:center;color:var(--text-muted)">
+                    The <code>tasks</code> table is missing. Run <code>migrations/011_tasks.sql</code> in Supabase to enable this view.
+                </div>`;
+                return;
+            }
+            renderTasksList(tasksState.tasks);
+            if (stats) stats.innerHTML = `<span class="stat"><span class="stat-value">${tasksState.tasks.length}</span><span class="stat-label">${TASK_FILTERS[tasksState.filter] || 'tasks'}</span></span>`;
+        } catch (err) {
+            list.innerHTML = `<div class="empty">Error: ${esc(err.message)}</div>`;
+        }
+    }
+
+    function renderTasksList(tasks) {
+        const list = document.getElementById('tasksList');
+        if (!list) return;
+        if (!tasks.length) {
+            list.innerHTML = `<div class="empty" style="padding:2rem;text-align:center;color:var(--text-muted)">No tasks match this filter.</div>`;
+            return;
+        }
+        list.innerHTML = tasks.map(t => taskRowHTML(t)).join('');
+        list.querySelectorAll('.task-row-check').forEach(cb => {
+            cb.addEventListener('change', () => onTaskCheckToggle(cb.dataset.id, cb.checked));
+        });
+        list.querySelectorAll('.task-row-delete').forEach(btn => {
+            btn.addEventListener('click', () => onTaskDelete(btn.dataset.id));
+        });
+        list.querySelectorAll('[data-task-edit]').forEach(el => {
+            el.addEventListener('blur', () => onTaskEdit(el.dataset.id, el.dataset.taskEdit, el));
+        });
+    }
+
+    function taskRowHTML(t) {
+        const isDone = t.status === 'done';
+        const overdue = !isDone && t.due_date && t.due_date < new Date().toISOString().slice(0, 10);
+        const priorityClass = t.priority ? `task-priority task-priority--${t.priority}` : '';
+        return `
+            <div class="task-row${isDone ? ' is-done' : ''}${overdue ? ' is-overdue' : ''}">
+                <input type="checkbox" class="task-row-check" data-id="${esc(t.id)}" ${isDone ? 'checked' : ''}>
+                <div class="task-row-body">
+                    <div class="task-row-title" contenteditable="true" data-task-edit="title" data-id="${esc(t.id)}">${esc(t.title)}</div>
+                    <div class="task-row-meta">
+                        ${t.priority ? `<span class="chip ${priorityClass}">${esc(t.priority)}</span>` : ''}
+                        ${t.due_date ? `<span class="chip task-due${overdue ? ' overdue' : ''}">${esc(prettyDate(t.due_date))}</span>` : ''}
+                        ${t.source_ref ? `<span class="chip task-source">${esc(t.source_ref)}</span>` : ''}
+                        ${Array.isArray(t.tags) ? t.tags.map(tag => `<span class="chip">${esc(tag)}</span>`).join('') : ''}
+                    </div>
+                </div>
+                <button class="icon-btn task-row-delete" data-id="${esc(t.id)}" title="Delete"><i class="icon" data-lucide="trash-2"></i></button>
+            </div>
+        `;
+    }
+
+    async function onTaskCheckToggle(id, checked) {
+        const url = checked ? `/api/tasks/${id}/complete` : `/api/tasks/${id}`;
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: checked ? undefined : JSON.stringify({ status: 'todo' }),
+        });
+        if (!res.ok) { showToast('Update failed', 'error'); refreshTasks(); return; }
+        refreshTasks();
+        loadCounts();
+    }
+
+    async function onTaskDelete(id) {
+        if (!confirm('Delete this task?')) return;
+        const res = await fetch(`/api/tasks/${id}`, { method: 'DELETE' });
+        if (!res.ok) { showToast('Delete failed', 'error'); return; }
+        refreshTasks();
+        loadCounts();
+    }
+
+    async function onTaskEdit(id, field, el) {
+        const value = el.textContent.trim();
+        const res = await fetch(`/api/tasks/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ [field]: value }),
+        });
+        if (!res.ok) { showToast('Edit failed', 'error'); refreshTasks(); }
+    }
+
+    async function runTasksBackfill() {
+        if (!confirm('Parse all daily notes for "- [ ]" bullets and create task rows? Run a dry-run preview first?')) return;
+        const dry = confirm('Click OK for dry-run preview, Cancel to actually insert.');
+        const btn = document.getElementById('tasksBackfillBtn');
+        btn.textContent = 'Running…'; btn.disabled = true;
+        try {
+            const res = await fetch('/api/tasks/backfill-from-daily-notes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ dry_run: dry }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Backfill failed');
+            if (dry) {
+                alert(`Dry run: would insert ${data.wouldInsert} tasks from ${data.parsedBullets} parsed bullets.\n\nRun again without dry-run to commit.`);
+            } else {
+                alert(`Backfill complete: inserted ${data.inserted} tasks from ${data.parsedBullets} parsed bullets.`);
+                refreshTasks();
+                loadCounts();
+            }
+        } catch (err) {
+            alert(`Error: ${err.message}`);
+        } finally {
+            btn.textContent = 'Backfill from daily notes';
+            btn.disabled = false;
+        }
+    }
+
     // ─── Ask Home (conversational RAG) ─────────────────────────
 
     const ASK_HOME_SOURCE_LABELS = {
@@ -17858,82 +18180,89 @@
     }
 
     async function askHomeRenderTasksWidget(panel, intent) {
+        // Now backed by the first-class tasks table. The widget is a live
+        // checklist: check a row to complete, click the title to edit, use
+        // the add-task input at the top to create, all linked to this
+        // widget's resolved date window.
         const today = askHomeTodayISO();
-        const from = intent?.from || today;
-        const to = intent?.to || from;
+        const params = new URLSearchParams();
+        params.set('client_date', today);
+        let due = 'open';
+        if (intent?.from && intent?.to) {
+            if (intent.from === today && intent.to === today) due = 'today';
+            else if (intent.from < today) due = 'overdue';
+            else due = 'week';
+        }
+        params.set('status', 'open');
+        if (due !== 'open') params.set('due', due);
 
-        // Build ascending list of dates in [from..to] — bounded to keep payload sensible.
-        const dates = [];
-        let cur = from;
-        while (cur <= to && dates.length < 14) { dates.push(cur); cur = isoDateAddDays(cur, 1); }
+        const res = await fetch(`/api/tasks?${params.toString()}`);
+        const data = await res.json();
+        const tasks = data.tasks || [];
+        const missing = !!data.missing;
 
-        const { data: existing, error } = await db.from('daily_notes').select('id,note_date,tasks,notes,meetings,metadata').in('note_date', dates);
-        if (error) throw new Error(error.message);
-        const byDate = {};
-        (existing || []).forEach(r => { byDate[r.note_date] = r; });
-
-        const rangeLabel = from === to ? prettyDate(from) : `${prettyDate(from)} → ${prettyDate(to)}`;
+        const rangeLabel = intent?.label || (due === 'today' ? 'today' : due === 'overdue' ? 'overdue' : due === 'week' ? 'this week' : 'outstanding');
         const header = `
             <div class="askhome-panel-header">
                 <div>
                     <div class="askhome-panel-kicker">Tasks · ${esc(rangeLabel)}</div>
-                    <div class="askhome-panel-title">${dates.length === 1 ? 'Today' : `${dates.length} days`}${intent?.label ? ` · ${esc(intent.label)}` : ''}</div>
+                    <div class="askhome-panel-title">${tasks.length} ${tasks.length === 1 ? 'task' : 'tasks'}</div>
                 </div>
                 <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close"><i class="icon" data-lucide="x"></i></button>
             </div>
         `;
 
-        const cards = dates.map(d => {
-            const row = byDate[d] || { tasks: '', notes: '', meetings: '', metadata: {} };
-            return `
-                <div class="askhome-meeting-card" data-date="${esc(d)}">
-                    <div class="askhome-meeting-card-head">
-                        <div class="askhome-meeting-title">${esc(prettyDate(d))}</div>
-                        <div class="askhome-meeting-when">${esc(d)}</div>
-                    </div>
-                    <textarea class="askhome-input askhome-task-input" data-date="${esc(d)}" rows="${dates.length === 1 ? 10 : 4}" placeholder="Tasks for this day…">${esc(row.tasks || '')}</textarea>
-                    <div class="askhome-panel-actions">
-                        <span class="askhome-panel-status" data-status-for="${esc(d)}"></span>
-                        <button class="btn-ghost-sm askhome-task-save" type="button" data-date="${esc(d)}">Save</button>
-                    </div>
+        const body = missing
+            ? `<div class="askhome-panel-body"><div class="askhome-panel-empty">The <code>tasks</code> table is missing. Run <code>migrations/011_tasks.sql</code> in Supabase to enable this widget.</div></div>`
+            : `
+                <div class="askhome-panel-body askhome-task-widget">
+                    <form class="askhome-task-add" id="askHomeTaskAdd">
+                        <input type="text" class="askhome-input" id="askHomeTaskAddTitle" placeholder="Add task…" required>
+                        <button class="btn-action" type="submit">Add</button>
+                    </form>
+                    ${tasks.length ? tasks.map(t => taskRowHTML(t)).join('') : '<div class="askhome-panel-empty">No open tasks for this window.</div>'}
                 </div>
             `;
-        }).join('');
-
-        panel.innerHTML = `${header}<div class="askhome-panel-body askhome-meeting-list">${cards}</div>`;
+        panel.innerHTML = `${header}${body}`;
         refreshIcons();
         panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
-        panel.querySelectorAll('.askhome-task-save').forEach(btn => {
-            btn.addEventListener('click', async () => {
-                const d = btn.dataset.date;
-                const textarea = panel.querySelector(`textarea[data-date="${d}"]`);
-                const status = panel.querySelector(`span[data-status-for="${d}"]`);
-                const val = textarea.value;
-                const row = byDate[d] || { tasks: '', notes: '', meetings: '', metadata: {} };
-                status.textContent = 'Saving…';
-                btn.disabled = true;
-                try {
-                    const payload = {
-                        note_date: d,
-                        tasks: val,
-                        notes: row.notes || '',
-                        meetings: row.meetings || '',
-                        metadata: row.metadata || {},
-                    };
-                    const res = await fetch('/api/daily-notes', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload),
-                    });
-                    if (!res.ok) throw new Error(await res.text());
-                    status.textContent = 'Saved ✓';
-                } catch (err) {
-                    status.textContent = `Error: ${err.message}`;
-                } finally {
-                    btn.disabled = false;
-                    setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
-                }
+
+        if (missing) return;
+
+        // Wire: checkbox, delete, title edit
+        panel.querySelectorAll('.task-row-check').forEach(cb => {
+            cb.addEventListener('change', async () => {
+                await onTaskCheckToggle(cb.dataset.id, cb.checked);
+                askHomeRenderTasksWidget(panel, intent);
             });
+        });
+        panel.querySelectorAll('.task-row-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await onTaskDelete(btn.dataset.id);
+                askHomeRenderTasksWidget(panel, intent);
+            });
+        });
+        panel.querySelectorAll('[data-task-edit]').forEach(el => {
+            el.addEventListener('blur', () => onTaskEdit(el.dataset.id, el.dataset.taskEdit, el));
+        });
+
+        const addForm = panel.querySelector('#askHomeTaskAdd');
+        addForm?.addEventListener('submit', async (ev) => {
+            ev.preventDefault();
+            const input = panel.querySelector('#askHomeTaskAddTitle');
+            const title = input.value.trim();
+            if (!title) return;
+            const payload = { title };
+            // Default the due date from intent when it's a single-day window
+            if (intent?.from && intent?.from === intent?.to) payload.due_date = intent.from;
+            await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            });
+            input.value = '';
+            askHomeRenderTasksWidget(panel, intent);
+            loadCounts();
         });
     }
 
