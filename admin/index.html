@@ -4444,6 +4444,13 @@
         });
 
         loadCounts();
+        // Background: drain any unembedded rows so Ask + Search stay fresh.
+        // Runs quietly — no UI, no blocking. Stops itself when nothing is left.
+        if (typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(() => { drainEmbeddingsInBackground(); }, { timeout: 4000 });
+        } else {
+            setTimeout(drainEmbeddingsInBackground, 2000);
+        }
         // Restore last section/view or default to dashboard
         let savedSection = sessionStorage.getItem('paulland_section');
         let savedView = sessionStorage.getItem('paulland_view');
@@ -4603,6 +4610,38 @@
             currentView = targetView;
             sessionStorage.setItem('paulland_view', currentView);
             loadView(currentView);
+        }
+    }
+
+    // ─── Background embedding drain ───────────────────────────
+    // Repeatedly hits /api/embed-batch until nothing is left unembedded.
+    // Stops itself, runs silently, and guards against concurrent drains.
+    let embeddingDrainRunning = false;
+    async function drainEmbeddingsInBackground() {
+        if (embeddingDrainRunning) return;
+        embeddingDrainRunning = true;
+        const MAX_ITERS = 50;          // safety cap ≈ 300 rows per page load
+        const DELAY_BETWEEN_MS = 600;  // yield so the UI stays responsive
+        try {
+            for (let i = 0; i < MAX_ITERS; i++) {
+                let res;
+                try {
+                    res = await fetch('/api/embed-batch', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: '{}',
+                    });
+                } catch {
+                    return; // offline / network error — give up quietly
+                }
+                if (!res.ok) return;
+                let data;
+                try { data = await res.json(); } catch { return; }
+                if (!data.remaining) return;
+                await new Promise(r => setTimeout(r, DELAY_BETWEEN_MS));
+            }
+        } finally {
+            embeddingDrainRunning = false;
         }
     }
 

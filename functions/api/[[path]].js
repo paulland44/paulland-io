@@ -1456,6 +1456,16 @@ async function handleEntityLog(request, env, ctx) {
     return json({ error: 'Server misconfigured' }, 500);
   }
 
+  // Tables where we want fresh rows to be embedded immediately — junction
+  // tables (product_content, product_assets, company_content) are not included
+  // since they have no standalone text to embed.
+  const embeddableLogTables = ['people_log', 'persona_log', 'research_log', 'content', 'summaries', 'companies'];
+  const wantsEmbed = embeddableLogTables.includes(table) && (env.AI || env.CF_ACCOUNT_ID);
+
+  // Always ask for representation when we need the new row's id for embedding,
+  // even if the caller didn't request it.
+  const needRow = returnRow || wantsEmbed;
+
   const res = await fetch(
     `${supabaseUrl}/rest/v1/${table}`,
     {
@@ -1464,7 +1474,7 @@ async function handleEntityLog(request, env, ctx) {
         'apikey': serviceKey,
         'Authorization': `Bearer ${serviceKey}`,
         'Content-Type': 'application/json',
-        'Prefer': returnRow ? 'return=representation' : 'return=minimal',
+        'Prefer': needRow ? 'return=representation' : 'return=minimal',
       },
       body: JSON.stringify(data),
     }
@@ -1475,9 +1485,18 @@ async function handleEntityLog(request, env, ctx) {
     return json({ error: 'Supabase error', detail: text }, res.status);
   }
 
-  if (returnRow) {
+  let insertedRow = null;
+  if (needRow) {
     const rows = await res.json();
-    return json({ ok: true, row: rows[0] || null });
+    insertedRow = rows[0] || null;
+  }
+
+  if (wantsEmbed && insertedRow?.id && ctx) {
+    ctx.waitUntil(embedItem(env, table, insertedRow.id).catch(() => {}));
+  }
+
+  if (returnRow) {
+    return json({ ok: true, row: insertedRow });
   }
 
   return json({ ok: true });
@@ -2477,8 +2496,20 @@ function buildEmbeddingText(sourceTable, row) {
       if (row.tags?.length) parts.push(`Tags: ${row.tags.join(', ')}`);
       return parts.join('\n');
     }
-    case 'people_log':
-      return `People Note (${row.note_date}): ${row.entry || ''}`;
+    case 'people_log': {
+      const p = row.person || {};
+      const parts = [];
+      if (p.name) {
+        const bits = [p.name];
+        if (p.role) bits.push(p.role);
+        if (p.organization) bits.push(p.organization);
+        parts.push(`Note about ${bits.join(', ')}`);
+      } else {
+        parts.push(`People Note`);
+      }
+      parts.push(`(${row.note_date}): ${row.entry || ''}`);
+      return parts.join(' ');
+    }
     case 'product_evidence':
       return `Product Evidence (${row.note_date}, ${row.evidence_type || 'observation'}): ${row.evidence || ''}`;
     case 'product_decisions':
@@ -2525,8 +2556,11 @@ function buildEmbeddingMetadata(sourceTable, row) {
       meta.status = row.status || '';
       break;
     case 'people_log':
-      meta.title = `People Note`;
+      meta.title = row.person?.name
+        ? `Note about ${row.person.name}`
+        : `People Note`;
       meta.date = row.note_date;
+      if (row.person?.name) meta.person_name = row.person.name;
       break;
     case 'product_evidence':
       meta.title = `Product Evidence (${row.evidence_type || 'observation'})`;
@@ -2627,9 +2661,14 @@ async function embedItem(env, sourceTable, sourceId) {
   const supabaseUrl = env.SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_KEY;
 
-  // Fetch the source row
+  // Fetch the source row. For log tables, expand the related entity so
+  // the embedded text can include the subject's name (e.g. people_log needs
+  // the person's name for semantic matching on "Who is X?" queries).
+  const selectExpr = sourceTable === 'people_log'
+    ? '*,person:person_id(name,role,organization,tags)'
+    : '*';
   const rows = await supabaseGet(supabaseUrl, serviceKey,
-    `${sourceTable}?id=eq.${sourceId}&limit=1`);
+    `${sourceTable}?id=eq.${sourceId}&select=${encodeURIComponent(selectExpr)}&limit=1`);
   if (!rows.length) return { ok: false, error: 'Row not found' };
   const row = rows[0];
 
