@@ -4106,6 +4106,168 @@
             .msg-user { max-width: 92%; }
             .msg-footer { flex-direction: column; align-items: flex-start; }
         }
+
+        /* ─── Ask Home 3-column layout ─── */
+        .askhome-layout {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            gap: 1rem;
+            align-items: stretch;
+            transition: grid-template-columns 0.2s ease;
+        }
+        .askhome-layout[data-source-open="true"][data-context-open="false"] {
+            grid-template-columns: minmax(280px, 360px) minmax(0, 1fr);
+        }
+        .askhome-layout[data-source-open="false"][data-context-open="true"] {
+            grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+        }
+        .askhome-layout[data-source-open="true"][data-context-open="true"] {
+            grid-template-columns: minmax(260px, 320px) minmax(0, 1fr) minmax(260px, 320px);
+        }
+        .askhome-layout .askhome-side { display: none; }
+        .askhome-layout[data-source-open="true"] .askhome-side--left { display: flex; }
+        .askhome-layout[data-context-open="true"] .askhome-side--right { display: flex; }
+        .askhome-layout .askhome-center {
+            margin: 0 auto;
+            width: 100%;
+        }
+        /* Center column keeps its comfortable prose width when panels are closed */
+        .askhome-layout[data-source-open="false"][data-context-open="false"] .askhome-center { max-width: 900px; }
+
+        .askhome-side {
+            flex-direction: column;
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-sm);
+            overflow: hidden;
+            max-height: calc(100vh - 120px);
+            position: sticky;
+            top: 1rem;
+            align-self: flex-start;
+        }
+        .askhome-panel-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 0.5rem;
+            padding: 0.9rem 1rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .askhome-panel-kicker {
+            font-size: 0.68rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 0.2rem;
+        }
+        .askhome-panel-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: var(--star);
+            line-height: 1.35;
+        }
+        .askhome-panel-close { flex-shrink: 0; }
+        .askhome-panel-meta {
+            padding: 0.55rem 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            align-items: center;
+            font-size: 0.78rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border);
+        }
+        .askhome-panel-meta a { color: var(--accent); }
+        .askhome-panel-meta .chip,
+        .askhome-panel-attendees .chip {
+            display: inline-flex; align-items: center; gap: 0.25rem;
+            font-size: 0.72rem;
+            background: var(--tint-subtle);
+            color: var(--text-body);
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-pill);
+        }
+        .askhome-panel-attendees {
+            padding: 0.5rem 1rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.3rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .askhome-panel-body {
+            padding: 0.9rem 1rem 1rem;
+            overflow-y: auto;
+            font-size: 0.88rem;
+            line-height: 1.55;
+        }
+        .askhome-panel-body.ask-answer h3 { font-size: 0.85rem; margin-top: 0.9rem; }
+        .askhome-panel-loading,
+        .askhome-panel-empty,
+        .askhome-panel-error {
+            color: var(--text-muted);
+            font-size: 0.85rem;
+            padding: 0.5rem 0;
+        }
+        .askhome-panel-error { color: var(--red); }
+        .askhome-panel-label {
+            display: block;
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin: 0.25rem 0 0.4rem;
+        }
+        .askhome-panel-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 0.65rem;
+            gap: 0.5rem;
+        }
+        .askhome-panel-status {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-family: var(--mono);
+        }
+
+        /* Clickable source items highlight when active */
+        .ask-source-item.is-active {
+            border-color: var(--accent);
+            background: var(--tint-medium);
+        }
+
+        /* Scroll-to-latest floating button */
+        .askhome-scroll-tail {
+            position: fixed;
+            right: 2rem;
+            bottom: 8.5rem;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 1px solid var(--border-hover);
+            background: var(--void-light);
+            color: var(--text-body);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: var(--shadow-md);
+            z-index: 10;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .askhome-scroll-tail:hover { border-color: var(--accent); color: var(--accent); }
+        .askhome-scroll-tail .icon svg { width: 16px; height: 16px; }
+
+        @media (max-width: 1100px) {
+            .askhome-layout { grid-template-columns: 1fr !important; }
+            .askhome-side {
+                position: static;
+                max-height: 60vh;
+                order: -1;
+            }
+        }
+
         .embed-progress { margin-top: 1rem; padding: 1rem; border: 1px solid var(--border-hover); border-radius: var(--radius-md); background: var(--void-light); }
         .embed-progress .count { font-family: var(--mono); color: var(--accent); }
 
@@ -16422,50 +16584,57 @@
     async function loadAskHome() {
         const main = document.getElementById('mainContent');
         askHomeState.preferredModel = getStoredAskHomeModel();
+        askHomeState.sourcePanelOpen = false;
+        askHomeState.contextPanelOpen = false;
 
         main.innerHTML = `
-            <div class="askhome">
-                <div class="askhome-header">
-                    <h2 class="page-title">Ask</h2>
-                    <button id="askHomeNewBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><i class="icon" data-lucide="plus"></i></button>
-                </div>
-                <div class="askhome-thread" id="askHomeThread"></div>
-                <div class="askhome-input-bar">
-                    <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask anything about your knowledge base…"></textarea>
-                    <div class="askhome-input-actions">
-                        <details class="askhome-filters" id="askHomeFiltersDetails">
-                            <summary class="askhome-filter-summary">Filters</summary>
-                            <div class="askhome-filters-body">
-                                <div class="askhome-filter-group">
-                                    <div class="askhome-filter-label">Source types</div>
-                                    <div class="askhome-filter-checks">
-                                        ${Object.entries(ASK_HOME_SOURCE_LABELS).map(([key, label]) => `
-                                            <label><input type="checkbox" value="${key}" checked> ${label}</label>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                                <div class="askhome-filter-row">
-                                    <div>
-                                        <div class="askhome-filter-label">Date range</div>
-                                        <div class="askhome-date-range">
-                                            <input type="date" id="askHomeDateFrom" class="filter-select">
-                                            <span class="askhome-date-sep">to</span>
-                                            <input type="date" id="askHomeDateTo" class="filter-select">
+            <div class="askhome-layout" id="askHomeLayout" data-source-open="false" data-context-open="false">
+                <aside class="askhome-side askhome-side--left" id="askHomeSourcePanel" aria-label="Source detail"></aside>
+                <section class="askhome askhome-center">
+                    <div class="askhome-header">
+                        <h2 class="page-title">Ask</h2>
+                        <button id="askHomeNewBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><i class="icon" data-lucide="plus"></i></button>
+                    </div>
+                    <div class="askhome-thread" id="askHomeThread"></div>
+                    <button class="askhome-scroll-tail" id="askHomeScrollTail" type="button" aria-label="Scroll to latest" title="Scroll to latest" style="display:none"><i class="icon" data-lucide="arrow-down"></i></button>
+                    <div class="askhome-input-bar">
+                        <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask anything about your knowledge base…"></textarea>
+                        <div class="askhome-input-actions">
+                            <details class="askhome-filters" id="askHomeFiltersDetails">
+                                <summary class="askhome-filter-summary">Filters</summary>
+                                <div class="askhome-filters-body">
+                                    <div class="askhome-filter-group">
+                                        <div class="askhome-filter-label">Source types</div>
+                                        <div class="askhome-filter-checks">
+                                            ${Object.entries(ASK_HOME_SOURCE_LABELS).map(([key, label]) => `
+                                                <label><input type="checkbox" value="${key}" checked> ${label}</label>
+                                            `).join('')}
                                         </div>
                                     </div>
-                                    <div>
-                                        <div class="askhome-filter-label">Tags</div>
-                                        <input type="text" id="askHomeTagFilter" class="filter-select" placeholder="comma-separated">
+                                    <div class="askhome-filter-row">
+                                        <div>
+                                            <div class="askhome-filter-label">Date range</div>
+                                            <div class="askhome-date-range">
+                                                <input type="date" id="askHomeDateFrom" class="filter-select">
+                                                <span class="askhome-date-sep">to</span>
+                                                <input type="date" id="askHomeDateTo" class="filter-select">
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <div class="askhome-filter-label">Tags</div>
+                                            <input type="text" id="askHomeTagFilter" class="filter-select" placeholder="comma-separated">
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                        </details>
-                        <select id="askHomeModel" class="askhome-model-picker filter-select" title="Preferred model (Claude recommended)">
-                            ${SYNTHESIS_MODELS.map(m => `<option value="${esc(m.id)}" ${m.id === askHomeState.preferredModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}
-                        </select>
-                        <button id="askHomeSend" class="btn-action" title="Send (Enter)">Send</button>
+                            </details>
+                            <select id="askHomeModel" class="askhome-model-picker filter-select" title="Preferred model (Claude recommended)">
+                                ${SYNTHESIS_MODELS.map(m => `<option value="${esc(m.id)}" ${m.id === askHomeState.preferredModel ? 'selected' : ''}>${esc(m.label)}</option>`).join('')}
+                            </select>
+                            <button id="askHomeSend" class="btn-action" title="Send (Enter)">Send</button>
+                        </div>
                     </div>
-                </div>
+                </section>
+                <aside class="askhome-side askhome-side--right" id="askHomeContextPanel" aria-label="Context widget"></aside>
             </div>
         `;
 
@@ -16476,6 +16645,7 @@
         const sendBtn = document.getElementById('askHomeSend');
         const newBtn = document.getElementById('askHomeNewBtn');
         const modelSel = document.getElementById('askHomeModel');
+        const scrollBtn = document.getElementById('askHomeScrollTail');
 
         input.focus();
 
@@ -16489,6 +16659,8 @@
         newBtn.addEventListener('click', () => {
             if (askHomeState.streaming) return;
             askHomeState.messages = [];
+            askHomeCloseSourcePanel();
+            askHomeCloseContextPanel();
             renderAskHomeThread();
             input.focus();
         });
@@ -16496,6 +16668,23 @@
             askHomeState.preferredModel = modelSel.value;
             setStoredAskHomeModel(modelSel.value);
         });
+        scrollBtn.addEventListener('click', () => askHomeScrollToTail());
+
+        // Toggle scroll-to-tail button visibility on scroll
+        askHomeUpdateScrollButton();
+        window.addEventListener('scroll', askHomeUpdateScrollButton, { passive: true });
+    }
+
+    function askHomeUpdateScrollButton() {
+        const btn = document.getElementById('askHomeScrollTail');
+        const thread = document.getElementById('askHomeThread');
+        if (!btn || !thread) return;
+        const last = thread.lastElementChild;
+        // Hide if no messages, or empty-state placeholder
+        if (!last || last.classList.contains('askhome-empty')) { btn.style.display = 'none'; return; }
+        const r = last.getBoundingClientRect();
+        const tailVisible = r.bottom <= window.innerHeight + 60 && r.bottom > 0;
+        btn.style.display = tailVisible ? 'none' : 'flex';
     }
 
     function askHomeGetFilters() {
@@ -16578,6 +16767,7 @@
                     <div class="askhome-empty-hint">Questions are answered with citations from your articles, daily notes, summaries, people, and more. Every answer is grounded in what you've captured.</div>
                 </div>
             `;
+            askHomeUpdateScrollButton();
             return;
         }
         thread.innerHTML = askHomeState.messages.map(renderAskHomeMessage).join('');
@@ -16585,8 +16775,16 @@
         thread.querySelectorAll('button[data-action="save"]').forEach(btn => {
             btn.addEventListener('click', () => askHomeSaveMessage(btn.dataset.id, btn.dataset.kind, btn));
         });
+        // Wire source-item clicks → open left panel
+        thread.querySelectorAll('.ask-source-item[data-table][data-id]').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                askHomeOpenSourcePanel(item.dataset.table, item.dataset.id, item);
+            });
+        });
         refreshIcons();
         askHomeScrollToTail();
+        askHomeUpdateScrollButton();
     }
 
     function askHomeScrollToTail() {
@@ -16623,9 +16821,17 @@
             if (sourcesHTML) {
                 const footer = el.querySelector('.msg-footer');
                 footer.insertAdjacentHTML('beforebegin', sourcesHTML);
+                // Wire clicks on the newly added sources
+                el.querySelectorAll('.ask-source-item[data-table][data-id]').forEach(item => {
+                    item.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        askHomeOpenSourcePanel(item.dataset.table, item.dataset.id, item);
+                    });
+                });
             }
         }
         askHomeScrollToTail();
+        askHomeUpdateScrollButton();
     }
 
     async function askHomeSend() {
@@ -16652,6 +16858,11 @@
         askHomeState.streaming = true;
         input.value = '';
         renderAskHomeThread();
+
+        // Intent detection — open the right-hand context widget in parallel
+        // with the streaming answer. Does not block or alter the RAG call.
+        const intent = askHomeDetectIntent(question);
+        if (intent) askHomeOpenContextPanel(intent).catch(() => {});
 
         const sendBtn = document.getElementById('askHomeSend');
         if (sendBtn) { sendBtn.disabled = true; sendBtn.textContent = 'Thinking…'; }
@@ -16811,6 +17022,389 @@
             btn.textContent = originalText;
             btn.disabled = false;
         }
+    }
+
+    // ─── Ask Home: Source panel (left) ─────────────────────────
+    async function askHomeOpenSourcePanel(table, id, triggerEl) {
+        const layout = document.getElementById('askHomeLayout');
+        const panel = document.getElementById('askHomeSourcePanel');
+        if (!layout || !panel) return;
+        // Highlight the source item that triggered this open
+        document.querySelectorAll('.ask-source-item.is-active').forEach(el => el.classList.remove('is-active'));
+        triggerEl?.classList.add('is-active');
+
+        panel.innerHTML = `
+            <div class="askhome-panel-header">
+                <div class="askhome-panel-title">Loading…</div>
+                <button class="icon-btn askhome-panel-close" id="askHomeSourceClose" title="Close" aria-label="Close source"><i class="icon" data-lucide="x"></i></button>
+            </div>
+            <div class="askhome-panel-body"><div class="askhome-panel-loading">Fetching source…</div></div>
+        `;
+        layout.dataset.sourceOpen = 'true';
+        askHomeState.sourcePanelOpen = true;
+        refreshIcons();
+        panel.querySelector('#askHomeSourceClose').addEventListener('click', askHomeCloseSourcePanel);
+
+        try {
+            const row = await askHomeFetchSourceRow(table, id);
+            if (!row) { askHomeRenderSourceBody(panel, table, id, null, 'Not found'); return; }
+            askHomeRenderSourceBody(panel, table, id, row, null);
+        } catch (err) {
+            askHomeRenderSourceBody(panel, table, id, null, err.message || 'Failed to load');
+        }
+    }
+
+    function askHomeCloseSourcePanel() {
+        const layout = document.getElementById('askHomeLayout');
+        if (!layout) return;
+        layout.dataset.sourceOpen = 'false';
+        askHomeState.sourcePanelOpen = false;
+        document.querySelectorAll('.ask-source-item.is-active').forEach(el => el.classList.remove('is-active'));
+    }
+
+    async function askHomeFetchSourceRow(table, id) {
+        const readable = ['content', 'daily_notes', 'summaries', 'people', 'companies', 'products', 'projects', 'people_log', 'product_evidence', 'product_decisions', 'reflections_log', 'persona_log', 'research_log'];
+        if (!readable.includes(table)) throw new Error(`Unsupported source table: ${table}`);
+        // Expand person for people_log so we can title with the person's name
+        let query = db.from(table).select('*').eq('id', id).limit(1);
+        if (table === 'people_log') {
+            query = db.from(table).select('*, person:people(name, role, organization)').eq('id', id).limit(1);
+        }
+        const { data, error } = await query;
+        if (error) throw new Error(error.message);
+        return (data && data[0]) || null;
+    }
+
+    function askHomeRenderSourceBody(panel, table, id, row, errorMessage) {
+        if (errorMessage || !row) {
+            panel.innerHTML = `
+                <div class="askhome-panel-header">
+                    <div class="askhome-panel-title">Source unavailable</div>
+                    <button class="icon-btn askhome-panel-close" id="askHomeSourceClose" title="Close"><i class="icon" data-lucide="x"></i></button>
+                </div>
+                <div class="askhome-panel-body"><div class="askhome-panel-error">${esc(errorMessage || 'Not found')}</div></div>
+            `;
+            refreshIcons();
+            panel.querySelector('#askHomeSourceClose').addEventListener('click', askHomeCloseSourcePanel);
+            return;
+        }
+
+        const { title, date, meta, body } = askHomeSourceSummary(table, row);
+        panel.innerHTML = `
+            <div class="askhome-panel-header">
+                <div>
+                    <div class="askhome-panel-kicker">${esc(askHomeSourceTableLabel(table))}${date ? ' · ' + esc(date) : ''}</div>
+                    <div class="askhome-panel-title">${esc(title)}</div>
+                </div>
+                <button class="icon-btn askhome-panel-close" id="askHomeSourceClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+            </div>
+            ${meta ? `<div class="askhome-panel-meta">${meta}</div>` : ''}
+            <div class="askhome-panel-body ask-answer">${body}</div>
+        `;
+        refreshIcons();
+        panel.querySelector('#askHomeSourceClose').addEventListener('click', askHomeCloseSourcePanel);
+    }
+
+    function askHomeSourceTableLabel(table) {
+        const labels = { content: 'Content', daily_notes: 'Daily Note', summaries: 'Summary', people: 'Person', companies: 'Company', products: 'Product', projects: 'Project', people_log: 'Note about a person', product_evidence: 'Product evidence', product_decisions: 'Decision', reflections_log: 'Reflection', persona_log: 'Persona log', research_log: 'Research log' };
+        return labels[table] || table;
+    }
+
+    function askHomeSourceSummary(table, row) {
+        const md = (s) => (s ? marked.parse(String(s)) : '');
+        switch (table) {
+            case 'content':
+                return {
+                    title: row.title || '(untitled)',
+                    date: row.captured_at ? row.captured_at.slice(0, 10) : '',
+                    meta: [row.type && `<span class="type-badge type-${esc(row.type)}">${esc(row.type)}</span>`, row.url && `<a href="${esc(row.url)}" target="_blank" rel="noopener">Open source</a>`, row.tags?.length && `<span class="askhome-panel-tags">${row.tags.map(t => `<span class="chip">${esc(t)}</span>`).join('')}</span>`].filter(Boolean).join(' · '),
+                    body: md(row.body),
+                };
+            case 'daily_notes':
+                return {
+                    title: `Daily Note ${row.note_date}`,
+                    date: row.note_date,
+                    meta: '',
+                    body: `<h3>Tasks</h3>${md(row.tasks) || '<em>(none)</em>'}<h3>Notes</h3>${md(row.notes) || '<em>(none)</em>'}<h3>Meetings</h3>${md(row.meetings) || '<em>(none)</em>'}`,
+                };
+            case 'summaries':
+                return {
+                    title: `${row.type} Summary`,
+                    date: row.period_start,
+                    meta: row.period_end && row.period_end !== row.period_start ? `${row.period_start} → ${row.period_end}` : '',
+                    body: md(row.content),
+                };
+            case 'people':
+                return {
+                    title: row.name || 'Person',
+                    date: '',
+                    meta: [row.role, row.organization].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join(' '),
+                    body: md(row.notes || ''),
+                };
+            case 'companies':
+                return {
+                    title: row.name || 'Company',
+                    date: '',
+                    meta: [row.type, row.industry].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join(' '),
+                    body: md(row.notes || row.description || ''),
+                };
+            case 'products':
+                return { title: row.name || 'Product', date: '', meta: '', body: md(row.overview || row.description || '') };
+            case 'projects':
+                return { title: row.name || 'Project', date: '', meta: row.status ? `<span class="chip">${esc(row.status)}</span>` : '', body: md(row.description || '') };
+            case 'people_log':
+                return {
+                    title: row.person?.name ? `Note about ${row.person.name}` : 'People note',
+                    date: row.note_date,
+                    meta: row.person ? [row.person.role, row.person.organization].filter(Boolean).map(x => `<span class="chip">${esc(x)}</span>`).join(' ') : '',
+                    body: md(row.entry || ''),
+                };
+            case 'product_evidence':
+                return { title: row.evidence_type || 'Product evidence', date: row.note_date, meta: '', body: md(row.evidence || '') };
+            case 'product_decisions':
+                return { title: 'Decision', date: row.note_date, meta: '', body: `${md(row.decision || '')}${row.context ? '<h3>Context</h3>' + md(row.context) : ''}` };
+            case 'reflections_log':
+                return { title: `Reflection — ${row.category || 'leadership'}`, date: row.note_date, meta: '', body: `${md(row.observation || '')}${row.coach_perspective ? '<h3>Coach perspective</h3>' + md(row.coach_perspective) : ''}` };
+            default:
+                return { title: row.title || row.name || 'Source', date: '', meta: '', body: `<pre>${esc(JSON.stringify(row, null, 2))}</pre>` };
+        }
+    }
+
+    // ─── Ask Home: Context panel (right) ───────────────────────
+    function askHomeDetectIntent(question) {
+        const q = String(question || '').toLowerCase();
+        if (/\b(next|upcoming|today'?s?)\s+(meeting|call|event|1:1|one\s*on\s*one)\b/.test(q) ||
+            /\bwhen(?:'s| is)?\s+my\s+(next\s+)?meeting\b/.test(q) ||
+            /\bmeeting\s+(today|next)\b/.test(q)) {
+            return 'meeting';
+        }
+        if (/\b(tasks?|to[- ]?do|todos?|priorit(?:y|ies)|what (?:do|have) i (?:need to )?do|what'?s on my plate|plate today|agenda)\b/.test(q)) {
+            return 'tasks';
+        }
+        return null;
+    }
+
+    async function askHomeOpenContextPanel(intent) {
+        const layout = document.getElementById('askHomeLayout');
+        const panel = document.getElementById('askHomeContextPanel');
+        if (!layout || !panel) return;
+        panel.innerHTML = `
+            <div class="askhome-panel-header">
+                <div>
+                    <div class="askhome-panel-kicker">${intent === 'meeting' ? 'Next meeting' : "Today's tasks"}</div>
+                    <div class="askhome-panel-title">Loading…</div>
+                </div>
+                <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+            </div>
+            <div class="askhome-panel-body"><div class="askhome-panel-loading">Fetching…</div></div>
+        `;
+        layout.dataset.contextOpen = 'true';
+        askHomeState.contextPanelOpen = true;
+        refreshIcons();
+        panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
+
+        try {
+            if (intent === 'meeting') {
+                await askHomeRenderMeetingWidget(panel);
+            } else if (intent === 'tasks') {
+                await askHomeRenderTasksWidget(panel);
+            }
+        } catch (err) {
+            const body = panel.querySelector('.askhome-panel-body');
+            if (body) body.innerHTML = `<div class="askhome-panel-error">${esc(err.message || 'Failed to load')}</div>`;
+        }
+    }
+
+    function askHomeCloseContextPanel() {
+        const layout = document.getElementById('askHomeLayout');
+        if (!layout) return;
+        layout.dataset.contextOpen = 'false';
+        askHomeState.contextPanelOpen = false;
+    }
+
+    function askHomeTodayISO() {
+        return new Date().toISOString().slice(0, 10);
+    }
+
+    async function askHomeRenderMeetingWidget(panel) {
+        const today = askHomeTodayISO();
+        // Grab next upcoming event (today or later, nearest start_time)
+        const now = new Date();
+        const nowDate = now.toISOString().slice(0, 10);
+        const nowIso = now.toISOString();
+        const { data: events, error } = await db
+            .from('calendar_events')
+            .select('uid, title, start_time, end_time, all_day, location, organizer, attendees, event_date')
+            .gte('event_date', nowDate)
+            .order('event_date', { ascending: true })
+            .order('start_time', { ascending: true })
+            .limit(12);
+        if (error) throw new Error(error.message);
+
+        // Prefer events whose start is after now; fall back to the earliest today
+        const upcoming = (events || []).find(e => !e.start_time || new Date(e.start_time) >= now) || (events || [])[0];
+        if (!upcoming) {
+            panel.innerHTML = `
+                <div class="askhome-panel-header">
+                    <div>
+                        <div class="askhome-panel-kicker">Next meeting</div>
+                        <div class="askhome-panel-title">No upcoming meetings</div>
+                    </div>
+                    <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close"><i class="icon" data-lucide="x"></i></button>
+                </div>
+                <div class="askhome-panel-body"><div class="askhome-panel-empty">Nothing on the calendar.</div></div>
+            `;
+            refreshIcons();
+            panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
+            return;
+        }
+
+        const when = formatMeetingWhen(upcoming);
+        const attendees = (upcoming.attendees || []).slice(0, 8);
+        panel.innerHTML = `
+            <div class="askhome-panel-header">
+                <div>
+                    <div class="askhome-panel-kicker">Next meeting · ${esc(when.dateLabel)}</div>
+                    <div class="askhome-panel-title">${esc(upcoming.title || '(untitled meeting)')}</div>
+                </div>
+                <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+            </div>
+            <div class="askhome-panel-meta">
+                ${when.timeLabel ? `<span class="chip"><i class="icon" data-lucide="clock" style="width:11px;height:11px"></i> ${esc(when.timeLabel)}</span>` : ''}
+                ${upcoming.location ? `<span class="chip"><i class="icon" data-lucide="map-pin" style="width:11px;height:11px"></i> ${esc(upcoming.location)}</span>` : ''}
+                ${upcoming.organizer ? `<span class="chip"><i class="icon" data-lucide="user" style="width:11px;height:11px"></i> ${esc(upcoming.organizer)}</span>` : ''}
+            </div>
+            ${attendees.length ? `<div class="askhome-panel-attendees">${attendees.map(a => `<span class="chip">${esc(typeof a === 'string' ? a : (a.name || a.email || ''))}</span>`).join('')}${upcoming.attendees.length > 8 ? `<span class="chip">+${upcoming.attendees.length - 8} more</span>` : ''}</div>` : ''}
+            <div class="askhome-panel-body">
+                <label class="askhome-panel-label">Notes (append to today's daily note · meetings)</label>
+                <textarea id="askHomeMeetingNote" class="askhome-input" rows="6" placeholder="Capture what you want to discuss, decisions, follow-ups…"></textarea>
+                <div class="askhome-panel-actions">
+                    <span class="askhome-panel-status" id="askHomeMeetingStatus"></span>
+                    <button class="btn-action" id="askHomeMeetingSave" type="button">Save to today's note</button>
+                </div>
+            </div>
+        `;
+        refreshIcons();
+        panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
+        panel.querySelector('#askHomeMeetingSave').addEventListener('click', async () => {
+            const textarea = document.getElementById('askHomeMeetingNote');
+            const text = textarea.value.trim();
+            if (!text) return;
+            const status = document.getElementById('askHomeMeetingStatus');
+            const btn = document.getElementById('askHomeMeetingSave');
+            status.textContent = 'Saving…';
+            btn.disabled = true;
+            try {
+                await askHomeAppendMeetingNote(upcoming, text, today);
+                status.textContent = 'Saved ✓';
+                textarea.value = '';
+            } catch (err) {
+                status.textContent = `Error: ${err.message}`;
+            } finally {
+                btn.disabled = false;
+                setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+            }
+        });
+    }
+
+    function formatMeetingWhen(event) {
+        if (event.all_day) return { dateLabel: prettyDate(event.event_date), timeLabel: 'All day' };
+        if (!event.start_time) return { dateLabel: prettyDate(event.event_date), timeLabel: '' };
+        const start = new Date(event.start_time);
+        const end = event.end_time ? new Date(event.end_time) : null;
+        const timeFmt = (d) => d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        const timeLabel = end ? `${timeFmt(start)} – ${timeFmt(end)}` : timeFmt(start);
+        return { dateLabel: prettyDate(event.event_date || event.start_time.slice(0, 10)), timeLabel };
+    }
+
+    function prettyDate(iso) {
+        if (!iso) return '';
+        const today = new Date().toISOString().slice(0, 10);
+        const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+        if (iso === today) return 'Today';
+        if (iso === tomorrow) return 'Tomorrow';
+        try { return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' }); }
+        catch { return iso; }
+    }
+
+    async function askHomeAppendMeetingNote(event, note, today) {
+        // Fetch today's daily note (if any) so we don't overwrite tasks/notes
+        const { data: existing } = await db.from('daily_notes').select('*').eq('note_date', today).limit(1);
+        const row = (existing && existing[0]) || {};
+        const timeLabel = formatMeetingWhen(event).timeLabel;
+        const header = `### ${event.title || 'Untitled meeting'}${timeLabel ? ' — ' + timeLabel : ''}`;
+        const existingMeetings = (row.meetings || '').trim();
+        const nextMeetings = existingMeetings
+            ? `${existingMeetings}\n\n${header}\n${note}`
+            : `${header}\n${note}`;
+        const payload = {
+            note_date: today,
+            tasks: row.tasks || '',
+            notes: row.notes || '',
+            meetings: nextMeetings,
+            metadata: row.metadata || {},
+        };
+        const res = await fetch('/api/daily-notes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        });
+        if (!res.ok) throw new Error(await res.text());
+    }
+
+    async function askHomeRenderTasksWidget(panel) {
+        const today = askHomeTodayISO();
+        const { data: existing, error } = await db.from('daily_notes').select('*').eq('note_date', today).limit(1);
+        if (error) throw new Error(error.message);
+        const row = (existing && existing[0]) || { tasks: '', notes: '', meetings: '', metadata: {} };
+
+        panel.innerHTML = `
+            <div class="askhome-panel-header">
+                <div>
+                    <div class="askhome-panel-kicker">Today · ${esc(prettyDate(today))}</div>
+                    <div class="askhome-panel-title">Tasks</div>
+                </div>
+                <button class="icon-btn askhome-panel-close" id="askHomeContextClose" title="Close"><i class="icon" data-lucide="x"></i></button>
+            </div>
+            <div class="askhome-panel-body">
+                <textarea id="askHomeTasksInput" class="askhome-input" rows="14" placeholder="Capture today's tasks…"></textarea>
+                <div class="askhome-panel-actions">
+                    <span class="askhome-panel-status" id="askHomeTasksStatus"></span>
+                    <button class="btn-action" id="askHomeTasksSave" type="button">Save tasks</button>
+                </div>
+            </div>
+        `;
+        document.getElementById('askHomeTasksInput').value = row.tasks || '';
+        refreshIcons();
+        panel.querySelector('#askHomeContextClose').addEventListener('click', askHomeCloseContextPanel);
+        panel.querySelector('#askHomeTasksSave').addEventListener('click', async () => {
+            const status = document.getElementById('askHomeTasksStatus');
+            const btn = document.getElementById('askHomeTasksSave');
+            const val = document.getElementById('askHomeTasksInput').value;
+            status.textContent = 'Saving…';
+            btn.disabled = true;
+            try {
+                const payload = {
+                    note_date: today,
+                    tasks: val,
+                    notes: row.notes || '',
+                    meetings: row.meetings || '',
+                    metadata: row.metadata || {},
+                };
+                const res = await fetch('/api/daily-notes', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) throw new Error(await res.text());
+                status.textContent = 'Saved ✓';
+            } catch (err) {
+                status.textContent = `Error: ${err.message}`;
+            } finally {
+                btn.disabled = false;
+                setTimeout(() => { if (status.textContent === 'Saved ✓') status.textContent = ''; }, 2500);
+            }
+        });
     }
 
     // ─── MIS Placeholder Views ──────────────────────────────────
