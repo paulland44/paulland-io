@@ -4500,6 +4500,94 @@
         .task-row-delete { opacity: 0.3; transition: opacity 0.15s, color 0.15s; }
         .task-row:hover .task-row-delete { opacity: 1; }
         .task-row-delete:hover { color: var(--red); }
+        .task-row-actions { display: flex; gap: 0.15rem; }
+        .task-row-edit,
+        .task-row-delete { opacity: 0.3; transition: opacity 0.15s, color 0.15s; }
+        .task-row:hover .task-row-edit,
+        .task-row:hover .task-row-delete { opacity: 1; }
+        .task-row-edit:hover { color: var(--accent); }
+
+        /* Source chip → navigates to its daily note when clickable */
+        .task-source-link {
+            cursor: pointer;
+            border: 1px dashed var(--border-hover);
+            background: transparent;
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.72rem;
+            padding: 0.15rem 0.5rem;
+        }
+        .task-source-link:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-dim); }
+
+        /* Status pill (non-todo states) */
+        .task-status {
+            background: var(--tint-subtle);
+            color: var(--text-muted);
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            padding: 0.15rem 0.5rem;
+            border-radius: var(--radius-pill);
+        }
+        .task-status--doing { background: var(--accent-dim); color: var(--accent); }
+        .task-status--blocked { background: rgba(212, 99, 111, 0.15); color: var(--red); }
+        .task-status--done { background: var(--tint-medium); color: var(--text-muted); }
+
+        /* Task detail modal (reuses .usage-modal chrome) */
+        .task-detail-modal { width: min(520px, 92vw); }
+        .task-detail-body {
+            padding: 1rem 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.9rem;
+        }
+        .task-detail-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 0.1rem;
+        }
+        .task-detail-seg {
+            display: flex;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+        }
+        .task-detail-seg .filter-btn { text-transform: capitalize; }
+        .task-detail-source {
+            font-size: 0.82rem;
+            color: var(--text-muted);
+            padding: 0.35rem 0.5rem;
+            background: var(--tint-subtle);
+            border-radius: var(--radius-sm);
+            font-family: var(--mono);
+        }
+
+        /* Daily-note: new tasks section */
+        .daily-tasks-add {
+            padding: 0.65rem;
+            margin-bottom: 0.75rem;
+        }
+        .daily-tasks-archive {
+            margin-top: 1rem;
+            border-top: 1px dashed var(--border);
+            padding-top: 0.75rem;
+        }
+        .daily-tasks-archive > summary {
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            cursor: pointer;
+            padding: 0.25rem 0;
+        }
+        .daily-tasks-archive[open] > summary { margin-bottom: 0.5rem; }
+        #dailyTasksArchiveBody {
+            font-size: 0.85rem;
+            background: var(--void-light);
+            padding: 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            max-height: 240px;
+            overflow-y: auto;
+        }
 
         /* Task widget inside Ask right panel */
         .askhome-task-widget .task-row { padding: 0.55rem 0.7rem; margin-bottom: 0.4rem; }
@@ -4823,6 +4911,7 @@
     let dailyIsDirty = false;
     let sessionExpired = false;
     let dailyEditors = { tasks: null, notes: null };
+    let dailyNoteArchivedTasks = '';    // frozen markdown from the old daily_notes.tasks column
     let meetingCards = []; // Array of { id, title, editor }
 
     function init() {
@@ -6465,8 +6554,21 @@
                             <span>Tasks</span>
                         </div>
                         <div class="daily-section-content">
-                            <div class="daily-toolbar" id="toolbarTasks"></div>
-                            <div class="daily-editor-wrap" id="editorTasks"></div>
+                            <form class="tasks-new-form daily-tasks-add" id="dailyTasksAddForm">
+                                <input type="text" class="search-input" id="dailyTasksAddTitle" placeholder="Add a task for this day…" required>
+                                <select class="filter-select" id="dailyTasksAddPriority">
+                                    <option value="">Priority</option>
+                                    <option value="high">High</option>
+                                    <option value="medium">Medium</option>
+                                    <option value="low">Low</option>
+                                </select>
+                                <button type="submit" class="btn-action">Add</button>
+                            </form>
+                            <div id="dailyTasksList"><div class="loading">Loading tasks\u2026</div></div>
+                            <details class="daily-tasks-archive" id="dailyTasksArchive" style="display:none">
+                                <summary>Archived task markdown (frozen)</summary>
+                                <div class="ask-answer" id="dailyTasksArchiveBody"></div>
+                            </details>
                         </div>
                     </div>
                 </div>
@@ -6585,19 +6687,14 @@
         }
 
         // Clear loading and create editors with staggered init to avoid ProseMirror race condition
-        document.getElementById('editorTasks').innerHTML = '';
         document.getElementById('editorNotes').innerHTML = '';
 
         destroyDailyEditors();
 
-        dailyEditors.tasks = createEditor(
-            document.getElementById('editorTasks'),
-            'Add tasks... (try typing "- [ ] " for a checkbox)',
-            taskContent
-        );
-
-        // Stagger second editor to avoid ProseMirror init race
-        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+        // Tasks are no longer edited as free-form markdown — they live in the
+        // first-class `tasks` table. Preserve the original markdown so save
+        // passes it back unchanged (as a frozen archive).
+        dailyNoteArchivedTasks = taskContent || '';
 
         dailyEditors.notes = createEditor(
             document.getElementById('editorNotes'),
@@ -6606,12 +6703,38 @@
             { allowImages: true }
         );
 
-        // Build toolbars
-        buildToolbar('toolbarTasks', dailyEditors.tasks, 'tasks');
-
-        await new Promise(r => requestAnimationFrame(r));
-
         buildToolbar('toolbarNotes', dailyEditors.notes);
+
+        // Live tasks checklist for this date (replaces the tiptap editor)
+        await refreshDailyTasksList();
+        renderDailyTasksArchive(dailyNoteArchivedTasks);
+        const addForm = document.getElementById('dailyTasksAddForm');
+        if (addForm) {
+            addForm.addEventListener('submit', async (ev) => {
+                ev.preventDefault();
+                const titleEl = document.getElementById('dailyTasksAddTitle');
+                const title = titleEl.value.trim();
+                if (!title) return;
+                const payload = {
+                    title,
+                    due_date: dailyNoteDate,
+                    priority: document.getElementById('dailyTasksAddPriority').value || undefined,
+                    source_table: 'daily_notes',
+                    source_id: dailyNoteId || null,
+                    source_ref: `Daily Note ${dailyNoteDate}`,
+                };
+                const res = await fetch('/api/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) { showToast('Add failed', 'error'); return; }
+                titleEl.value = '';
+                document.getElementById('dailyTasksAddPriority').value = '';
+                refreshDailyTasksList();
+                if (typeof loadCounts === 'function') loadCounts();
+            });
+        }
 
         // Load meetings: first from saved data, then merge with calendar events
         await loadMeetingsWithCalendar(data);
@@ -7045,7 +7168,9 @@
 
         const payload = {
             note_date: dailyNoteDate,
-            tasks: getEditorMarkdown(dailyEditors.tasks),
+            // tasks column is frozen — pass the archived markdown back unchanged
+            // so the upsert preserves it. Live tasks live in the `tasks` table.
+            tasks: dailyNoteArchivedTasks,
             notes: getEditorMarkdown(dailyEditors.notes),
             meetings: meetingsData.markdown,
             metadata: {
@@ -7085,6 +7210,64 @@
             // Auto-retry once after 5 seconds
             setTimeout(() => { if (dailyIsDirty) saveDailyNote(); }, 5000);
         }
+    }
+
+    // ─── Live tasks inside the daily-note view ────────────────────
+    async function refreshDailyTasksList() {
+        const list = document.getElementById('dailyTasksList');
+        if (!list || !dailyNoteDate) return;
+        list.innerHTML = '<div class="loading">Loading tasks…</div>';
+
+        // Show tasks whose due_date matches this note's date OR whose source
+        // links back to this daily_note. Union is done client-side via two
+        // fetches because /api/tasks only accepts one filter at a time.
+        const byDueRes = await fetch(`/api/tasks?status=all&client_date=${encodeURIComponent(dailyNoteDate)}&due=today`, { headers: {} })
+            .then(r => r.ok ? r.json() : { tasks: [] }).catch(() => ({ tasks: [] }));
+        // Override due=today semantics by calling with no filter and doing client-side match:
+        // simpler — fetch by source_id when we have it, always fetch by due_date=note_date
+        const byDue = (byDueRes.tasks || []).filter(t => t.due_date === dailyNoteDate);
+
+        let bySource = [];
+        if (dailyNoteId) {
+            const res = await fetch(`/api/tasks?status=all&source_table=daily_notes&source_id=${encodeURIComponent(dailyNoteId)}&limit=200`)
+                .then(r => r.ok ? r.json() : { tasks: [] }).catch(() => ({ tasks: [] }));
+            bySource = res.tasks || [];
+        }
+
+        // Union by id; prefer ordering by due_date then created_at
+        const seen = new Set();
+        const combined = [];
+        for (const t of [...byDue, ...bySource]) {
+            if (seen.has(t.id)) continue;
+            seen.add(t.id);
+            combined.push(t);
+        }
+        combined.sort((a, b) => {
+            if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+            const p = { high: 0, medium: 1, low: 2 };
+            const pa = p[a.priority] ?? 3, pb = p[b.priority] ?? 3;
+            if (pa !== pb) return pa - pb;
+            return (a.created_at || '').localeCompare(b.created_at || '');
+        });
+
+        if (!combined.length) {
+            list.innerHTML = `<div class="empty" style="padding:1rem; color:var(--text-muted); font-size:0.85rem">No tasks for this day yet. Add one above or set the due date on an existing task.</div>`;
+            return;
+        }
+
+        list.innerHTML = combined.map(t => taskRowHTML(t)).join('');
+        wireTaskRowEvents(list, combined, () => refreshDailyTasksList());
+        refreshIcons();
+    }
+
+    function renderDailyTasksArchive(markdown) {
+        const wrap = document.getElementById('dailyTasksArchive');
+        const body = document.getElementById('dailyTasksArchiveBody');
+        if (!wrap || !body) return;
+        const trimmed = String(markdown || '').trim();
+        if (!trimmed) { wrap.style.display = 'none'; return; }
+        wrap.style.display = '';
+        try { body.innerHTML = marked.parse(trimmed); } catch { body.textContent = trimmed; }
     }
 
     async function runDailyReview() {
@@ -17096,14 +17279,49 @@
             return;
         }
         list.innerHTML = tasks.map(t => taskRowHTML(t)).join('');
-        list.querySelectorAll('.task-row-check').forEach(cb => {
-            cb.addEventListener('change', () => onTaskCheckToggle(cb.dataset.id, cb.checked));
+        wireTaskRowEvents(list, tasks, () => refreshTasks());
+        refreshIcons();
+    }
+
+    // Attach event handlers to any container full of .task-row elements. Lets
+    // us reuse the same wiring in the Tasks view, the Ask-panel widget, and
+    // the daily-note tasks section.
+    function wireTaskRowEvents(container, tasks, onChanged) {
+        const byId = new Map((tasks || []).map(t => [t.id, t]));
+        container.querySelectorAll('.task-row-check').forEach(cb => {
+            cb.addEventListener('change', async () => {
+                await onTaskCheckToggle(cb.dataset.id, cb.checked);
+                onChanged?.();
+            });
         });
-        list.querySelectorAll('.task-row-delete').forEach(btn => {
-            btn.addEventListener('click', () => onTaskDelete(btn.dataset.id));
+        container.querySelectorAll('.task-row-delete').forEach(btn => {
+            btn.addEventListener('click', async () => {
+                await onTaskDelete(btn.dataset.id);
+                onChanged?.();
+            });
         });
-        list.querySelectorAll('[data-task-edit]').forEach(el => {
+        container.querySelectorAll('[data-task-edit]').forEach(el => {
             el.addEventListener('blur', () => onTaskEdit(el.dataset.id, el.dataset.taskEdit, el));
+        });
+        container.querySelectorAll('.task-row-edit').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const t = byId.get(btn.dataset.id);
+                if (t) openTaskDetailModal(t, onChanged);
+            });
+        });
+        container.querySelectorAll('.task-source-link').forEach(chip => {
+            chip.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                const date = chip.dataset.dailyDate;
+                if (!date) return;
+                // Navigate straight to Today view, then load the target date.
+                sessionStorage.setItem('paulland_section', '');
+                sessionStorage.setItem('paulland_view', 'daily-note');
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                document.getElementById('subTabs').innerHTML = '';
+                currentView = 'daily-note';
+                loadDailyNote(date).catch(() => {});
+            });
         });
     }
 
@@ -17111,19 +17329,32 @@
         const isDone = t.status === 'done';
         const overdue = !isDone && t.due_date && t.due_date < new Date().toISOString().slice(0, 10);
         const priorityClass = t.priority ? `task-priority task-priority--${t.priority}` : '';
+        const statusPill = t.status && t.status !== 'todo' ? `<span class="chip task-status task-status--${esc(t.status)}">${esc(t.status)}</span>` : '';
+        // Source chip: if it's a daily_notes source, carry the date so the
+        // click handler can navigate there.
+        const sourceDate = t.source_table === 'daily_notes' && t.metadata?.latest_date ? t.metadata.latest_date : null;
+        const sourceChip = t.source_ref
+            ? sourceDate
+                ? `<button type="button" class="chip task-source task-source-link" data-daily-date="${esc(sourceDate)}" title="Open daily note ${esc(sourceDate)}">${esc(t.source_ref)}</button>`
+                : `<span class="chip task-source">${esc(t.source_ref)}</span>`
+            : '';
         return `
-            <div class="task-row${isDone ? ' is-done' : ''}${overdue ? ' is-overdue' : ''}">
+            <div class="task-row${isDone ? ' is-done' : ''}${overdue ? ' is-overdue' : ''}" data-id="${esc(t.id)}">
                 <input type="checkbox" class="task-row-check" data-id="${esc(t.id)}" ${isDone ? 'checked' : ''}>
                 <div class="task-row-body">
                     <div class="task-row-title" contenteditable="true" data-task-edit="title" data-id="${esc(t.id)}">${esc(t.title)}</div>
                     <div class="task-row-meta">
+                        ${statusPill}
                         ${t.priority ? `<span class="chip ${priorityClass}">${esc(t.priority)}</span>` : ''}
                         ${t.due_date ? `<span class="chip task-due${overdue ? ' overdue' : ''}">${esc(prettyDate(t.due_date))}</span>` : ''}
-                        ${t.source_ref ? `<span class="chip task-source">${esc(t.source_ref)}</span>` : ''}
+                        ${sourceChip}
                         ${Array.isArray(t.tags) ? t.tags.map(tag => `<span class="chip">${esc(tag)}</span>`).join('') : ''}
                     </div>
                 </div>
-                <button class="icon-btn task-row-delete" data-id="${esc(t.id)}" title="Delete"><i class="icon" data-lucide="trash-2"></i></button>
+                <div class="task-row-actions">
+                    <button class="icon-btn task-row-edit" data-id="${esc(t.id)}" title="Edit"><i class="icon" data-lucide="pencil"></i></button>
+                    <button class="icon-btn task-row-delete" data-id="${esc(t.id)}" title="Delete"><i class="icon" data-lucide="trash-2"></i></button>
+                </div>
             </div>
         `;
     }
@@ -17156,6 +17387,112 @@
             body: JSON.stringify({ [field]: value }),
         });
         if (!res.ok) { showToast('Edit failed', 'error'); refreshTasks(); }
+    }
+
+    // ─── Task detail modal ───────────────────────────────────
+    // Opens a full-fledged editor for a task: title, status, priority, due,
+    // description, tags. Save PATCHes the row; Cancel discards changes.
+    function openTaskDetailModal(task, onChanged) {
+        const existing = document.getElementById('taskDetailOverlay');
+        if (existing) existing.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'taskDetailOverlay';
+        overlay.className = 'usage-modal-overlay open';
+        const statuses = ['todo', 'doing', 'done', 'blocked'];
+        const priorities = [{v: '', label: 'None'}, {v: 'high', label: 'High'}, {v: 'medium', label: 'Medium'}, {v: 'low', label: 'Low'}];
+        const tagsStr = Array.isArray(task.tags) ? task.tags.join(', ') : '';
+        overlay.innerHTML = `
+            <div class="usage-modal task-detail-modal">
+                <div class="usage-modal-header">
+                    <h3>Edit task</h3>
+                    <button class="icon-btn" id="taskDetailClose" aria-label="Close"><i class="icon" data-lucide="x"></i></button>
+                </div>
+                <div class="usage-modal-body task-detail-body">
+                    <label class="task-detail-label">Title</label>
+                    <input type="text" class="search-input" id="tdTitle" value="${esc(task.title || '')}">
+
+                    <label class="task-detail-label">Status</label>
+                    <div class="task-detail-seg" id="tdStatus">
+                        ${statuses.map(s => `<button type="button" class="filter-btn${task.status === s ? ' active' : ''}" data-status="${s}">${s}</button>`).join('')}
+                    </div>
+
+                    <label class="task-detail-label">Priority</label>
+                    <div class="task-detail-seg" id="tdPriority">
+                        ${priorities.map(p => `<button type="button" class="filter-btn${(task.priority || '') === p.v ? ' active' : ''}" data-priority="${p.v}">${p.label}</button>`).join('')}
+                    </div>
+
+                    <label class="task-detail-label">Due date</label>
+                    <input type="date" class="filter-select" id="tdDue" value="${esc(task.due_date || '')}">
+
+                    <label class="task-detail-label">Description</label>
+                    <textarea class="search-input" id="tdDescription" rows="4" placeholder="Optional detail or context…">${esc(task.description || '')}</textarea>
+
+                    <label class="task-detail-label">Tags</label>
+                    <input type="text" class="search-input" id="tdTags" value="${esc(tagsStr)}" placeholder="comma, separated">
+
+                    ${task.source_ref ? `
+                        <label class="task-detail-label">Source</label>
+                        <div class="task-detail-source">${esc(task.source_ref)}</div>
+                    ` : ''}
+                </div>
+                <div class="usage-modal-header" style="border-top:1px solid var(--border); border-bottom:none; justify-content:flex-end; gap:0.5rem">
+                    <button class="btn-ghost-sm" id="taskDetailCancel" type="button">Cancel</button>
+                    <button class="btn-action" id="taskDetailSave" type="button">Save</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        refreshIcons();
+
+        // Active-state toggling for status / priority segmented groups
+        const selected = { status: task.status || 'todo', priority: task.priority || '' };
+        const wireSeg = (containerId, key) => {
+            const group = overlay.querySelector(`#${containerId}`);
+            group.querySelectorAll('button').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    selected[key] = btn.dataset[key] ?? '';
+                    group.querySelectorAll('button').forEach(b => b.classList.toggle('active', b === btn));
+                });
+            });
+        };
+        wireSeg('tdStatus', 'status');
+        wireSeg('tdPriority', 'priority');
+
+        const close = () => overlay.remove();
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+        overlay.querySelector('#taskDetailClose').addEventListener('click', close);
+        overlay.querySelector('#taskDetailCancel').addEventListener('click', close);
+        overlay.querySelector('#taskDetailSave').addEventListener('click', async () => {
+            const btn = overlay.querySelector('#taskDetailSave');
+            btn.textContent = 'Saving…'; btn.disabled = true;
+            const title = overlay.querySelector('#tdTitle').value.trim();
+            if (!title) { btn.textContent = 'Save'; btn.disabled = false; showToast('Title is required', 'error'); return; }
+            const payload = {
+                title,
+                status: selected.status,
+                priority: selected.priority || null,
+                due_date: overlay.querySelector('#tdDue').value || '',
+                description: overlay.querySelector('#tdDescription').value,
+                tags: overlay.querySelector('#tdTags').value.split(',').map(s => s.trim()).filter(Boolean),
+            };
+            try {
+                const res = await fetch(`/api/tasks/${task.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                if (!res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    throw new Error(data.error || 'Save failed');
+                }
+                close();
+                onChanged?.();
+                if (typeof loadCounts === 'function') loadCounts();
+            } catch (err) {
+                btn.textContent = 'Save'; btn.disabled = false;
+                showToast(err.message, 'error');
+            }
+        });
     }
 
     async function runTasksBackfill() {
