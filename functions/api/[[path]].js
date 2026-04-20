@@ -3330,11 +3330,15 @@ async function handleEmbedBatch(request, env) {
   ];
 
   const MAX_ITEMS = 6; // ~5 subrequests each = ~30 + overhead, stays under 50 limit
+  const CONSECUTIVE_FAILURE_LIMIT = 3; // halt early when provider is down/out of quota
   const results = {};
   let remaining = false;
   let totalProcessed = 0;
+  let consecutiveFailures = 0;
+  let halted = false;
+  let haltReason = null;
 
-  for (const config of tableConfigs) {
+  outer: for (const config of tableConfigs) {
     if (requestedTables && !requestedTables.includes(config.table)) continue;
     if (totalProcessed >= MAX_ITEMS) { remaining = true; break; }
 
@@ -3361,11 +3365,28 @@ async function handleEmbedBatch(request, env) {
         break;
       }
 
+      let result;
       try {
-        const result = await embedItem(env, config.table, row.id);
-        if (result.ok) { count++; totalProcessed++; }
+        result = await embedItem(env, config.table, row.id);
       } catch (e) {
-        // Skip failures, continue with next
+        result = { ok: false, error: e?.message || 'threw' };
+      }
+
+      if (result.ok) {
+        count++;
+        totalProcessed++;
+        consecutiveFailures = 0;
+      } else {
+        consecutiveFailures++;
+        // If several items in a row can't be embedded, it's almost certainly
+        // the provider (quota / auth / outage), not the individual row.
+        // Stop and tell the caller to back off.
+        if (consecutiveFailures >= CONSECUTIVE_FAILURE_LIMIT) {
+          halted = true;
+          haltReason = result.error || 'embedItem returned !ok';
+          remaining = true;
+          break outer;
+        }
       }
     }
 
@@ -3384,7 +3405,7 @@ async function handleEmbedBatch(request, env) {
     }
   }
 
-  return json({ ok: true, embedded: results, remaining, totalProcessed });
+  return json({ ok: true, embedded: results, remaining, totalProcessed, halted, haltReason });
   } catch (err) {
     return json({ error: 'Embed batch failed: ' + err.message }, 500);
   }

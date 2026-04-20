@@ -5037,11 +5037,41 @@
     }
 
     // ─── Background embedding drain ───────────────────────────
-    // Repeatedly hits /api/embed-batch until nothing is left unembedded.
-    // Stops itself, runs silently, and guards against concurrent drains.
+    // Repeatedly hits /api/embed-batch until nothing is left unembedded —
+    // but bails hard on any recent AI provider failure, and only retries
+    // once per hour per browser. Was previously hammering the Workers AI
+    // free-tier quota on every page load.
     let embeddingDrainRunning = false;
+    const DRAIN_COOLDOWN_KEY = 'embed_drain_cooldown_until';
+    const DRAIN_LAST_RUN_KEY = 'embed_drain_last_run_at';
+    const DRAIN_MIN_INTERVAL_MS = 60 * 60 * 1000;  // 1h between voluntary runs
+    const DRAIN_ERROR_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6h after a provider error
+
     async function drainEmbeddingsInBackground() {
         if (embeddingDrainRunning) return;
+
+        // Respect cooldown set by a previous provider error (quota / auth).
+        const cooldownUntil = Number(localStorage.getItem(DRAIN_COOLDOWN_KEY) || 0);
+        if (Date.now() < cooldownUntil) return;
+
+        // Voluntary throttle: don't re-run on every page load.
+        const lastRun = Number(localStorage.getItem(DRAIN_LAST_RUN_KEY) || 0);
+        if (Date.now() - lastRun < DRAIN_MIN_INTERVAL_MS) return;
+
+        // Short-circuit if the server already has fresh AI errors logged —
+        // no point burning more quota while a token is expired or the
+        // neuron budget is exhausted.
+        try {
+            const recent = await fetch('/api/usage-errors?window=1h');
+            if (recent.ok) {
+                const data = await recent.json();
+                if (data && (data.count || 0) > 0) {
+                    localStorage.setItem(DRAIN_COOLDOWN_KEY, String(Date.now() + DRAIN_ERROR_COOLDOWN_MS));
+                    return;
+                }
+            }
+        } catch { /* non-blocking */ }
+
         embeddingDrainRunning = true;
         const MAX_ITERS = 50;          // safety cap ≈ 300 rows per page load
         const DELAY_BETWEEN_MS = 600;  // yield so the UI stays responsive
@@ -5057,14 +5087,24 @@
                 } catch {
                     return; // offline / network error — give up quietly
                 }
-                if (!res.ok) return;
+                if (!res.ok) {
+                    // Batch endpoint itself failed (likely 5xx). Back off.
+                    localStorage.setItem(DRAIN_COOLDOWN_KEY, String(Date.now() + DRAIN_ERROR_COOLDOWN_MS));
+                    return;
+                }
                 let data;
                 try { data = await res.json(); } catch { return; }
+                // If the batch halted itself due to provider failure, respect it.
+                if (data.halted) {
+                    localStorage.setItem(DRAIN_COOLDOWN_KEY, String(Date.now() + DRAIN_ERROR_COOLDOWN_MS));
+                    return;
+                }
                 if (!data.remaining) return;
                 await new Promise(r => setTimeout(r, DELAY_BETWEEN_MS));
             }
         } finally {
             embeddingDrainRunning = false;
+            localStorage.setItem(DRAIN_LAST_RUN_KEY, String(Date.now()));
         }
     }
 
