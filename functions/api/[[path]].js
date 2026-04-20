@@ -1243,7 +1243,7 @@ async function handleUpdateTags(request, env, ctx) {
   }
 
   // Background embed
-  if (id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (id && env.AI) {
     ctx.waitUntil(embedItem(env, 'content', id).catch(() => {}));
   }
 
@@ -1292,7 +1292,7 @@ async function handleEntityUpdate(request, env, ctx) {
 
   // Background embed (for embeddable entity tables)
   const embeddableTables = ['people', 'products', 'projects', 'summaries', 'companies', 'tasks'];
-  if (embeddableTables.includes(table) && id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (embeddableTables.includes(table) && id && env.AI) {
     ctx.waitUntil(embedItem(env, table, id).catch(() => {}));
   }
 
@@ -1503,7 +1503,7 @@ async function handleEntityLog(request, env, ctx) {
   // tables (product_content, product_assets, company_content) are not included
   // since they have no standalone text to embed.
   const embeddableLogTables = ['people_log', 'persona_log', 'research_log', 'content', 'summaries', 'companies'];
-  const wantsEmbed = embeddableLogTables.includes(table) && (env.AI || env.CF_ACCOUNT_ID);
+  const wantsEmbed = embeddableLogTables.includes(table) && env.AI;
 
   // Always ask for representation when we need the new row's id for embedding,
   // even if the caller didn't request it.
@@ -1630,7 +1630,7 @@ async function handleUpsertDailyNote(request, env, ctx) {
   const data = await res.json();
 
   // Background embed
-  if (data[0]?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (data[0]?.id && env.AI) {
     ctx.waitUntil(embedItem(env, 'daily_notes', data[0].id).catch(() => {}));
   }
 
@@ -1723,7 +1723,7 @@ async function handleGenerateSummary(request, env, ctx) {
   } catch (e) { /* audit is non-critical */ }
 
   // Background embed the new summary
-  if (saved[0]?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (saved[0]?.id && env.AI) {
     ctx.waitUntil(embedItem(env, 'summaries', saved[0].id).catch(() => {}));
   }
 
@@ -2002,7 +2002,7 @@ async function handleDailyReview(request, env, ctx) {
   );
 
   // Background re-embed the daily note (now has review_summary)
-  if (dailyNote.id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (dailyNote.id && env.AI) {
     ctx.waitUntil(embedItem(env, 'daily_notes', dailyNote.id).catch(() => {}));
   }
 
@@ -2685,7 +2685,20 @@ function chunkText(text, maxChars = 2000) {
   const titlePrefix = firstNewline > 0 && firstNewline < 200 ? text.substring(0, firstNewline) : '';
   const body = titlePrefix ? text.substring(firstNewline + 1) : text;
 
-  const paragraphs = body.split(/\n\n+/);
+  // Hard-split any paragraph bigger than maxChars so no single chunk can exceed
+  // the embedding model's per-input token cap (BGE-base: 512 tokens ≈ 2 KB).
+  const rawParagraphs = body.split(/\n\n+/);
+  const paragraphs = [];
+  for (const para of rawParagraphs) {
+    if (para.length <= maxChars) {
+      paragraphs.push(para);
+    } else {
+      for (let i = 0; i < para.length; i += maxChars) {
+        paragraphs.push(para.substring(i, i + maxChars));
+      }
+    }
+  }
+
   const chunks = [];
   let current = titlePrefix;
   let idx = 0;
@@ -2706,51 +2719,49 @@ function chunkText(text, maxChars = 2000) {
 }
 
 /**
- * Generate embeddings for an array of texts.
- * Tries Workers AI binding first, falls back to REST API.
+ * Generate embeddings for an array of texts via the Workers AI binding.
+ *
+ * Sub-batches the call to stay under the model's per-request limits:
+ * @cf/baai/bge-base-en-v1.5 caps each input at 512 tokens and each batch at
+ * ~153,600 tokens. A conservative ceiling (80 inputs / ~90k est-tokens) keeps
+ * us well clear of the 5021 "context window exceeded" error that fires when
+ * one fat item produces 300+ chunks.
  */
 async function generateEmbeddings(env, texts) {
-  // Try the AI binding first
-  if (env.AI) {
+  if (!env.AI) {
+    await logAiError(env, { provider: 'cloudflare_ai', model: '@cf/baai/bge-base-en-v1.5', endpoint: 'embed', status: null, message: 'AI binding not available' });
+    throw new Error('Workers AI binding not configured on this Pages project');
+  }
+
+  const MAX_SUB_INPUTS = 80;
+  const MAX_SUB_CHARS = 360_000; // ≈ 90,000 est-tokens @ 4 chars/token
+  const out = [];
+
+  let i = 0;
+  while (i < texts.length) {
+    const subBatch = [];
+    let subChars = 0;
+    while (
+      i < texts.length &&
+      subBatch.length < MAX_SUB_INPUTS &&
+      (subBatch.length === 0 || subChars + texts[i].length <= MAX_SUB_CHARS)
+    ) {
+      subBatch.push(texts[i]);
+      subChars += texts[i].length;
+      i++;
+    }
+
     try {
-      const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: texts });
-      if (result?.data) return result.data;
+      const result = await env.AI.run('@cf/baai/bge-base-en-v1.5', { text: subBatch });
+      if (!result?.data) throw new Error('Unexpected AI binding response: no data');
+      out.push(...result.data);
     } catch (e) {
-      // Binding failed, try REST API fallback. Log it so the admin badge
-      // fires even when the REST fallback recovers the call.
       await logAiError(env, { provider: 'cloudflare_ai', model: '@cf/baai/bge-base-en-v1.5', endpoint: 'embed', status: null, message: e?.message || 'AI binding threw' });
+      throw e;
     }
   }
 
-  // REST API fallback
-  const accountId = env.CF_ACCOUNT_ID;
-  const apiToken = env.CF_API_TOKEN;
-  if (!accountId || !apiToken) {
-    await logAiError(env, { provider: 'cloudflare_ai_rest', endpoint: 'embed', status: null, message: 'CF_ACCOUNT_ID or CF_API_TOKEN not set' });
-    throw new Error('Workers AI not available. Set CF_ACCOUNT_ID and CF_API_TOKEN env vars, or configure [ai] binding.');
-  }
-
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-base-en-v1.5`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text: texts }),
-    }
-  );
-
-  if (!res.ok) {
-    const err = await res.text();
-    await logAiError(env, { provider: 'cloudflare_ai_rest', model: '@cf/baai/bge-base-en-v1.5', endpoint: 'embed', status: res.status, message: err.slice(0, 500) });
-    throw new Error(`Workers AI REST API error (${res.status}): ${err}`);
-  }
-
-  const data = await res.json();
-  if (!data.result?.data) throw new Error('Unexpected Workers AI response format');
-  return data.result.data;
+  return out;
 }
 
 // ─── AI usage error logging ──────────────────────────────────
@@ -2902,7 +2913,7 @@ async function handleTaskCreate(request, env, ctx) {
   if (!res.ok) return json({ error: 'Failed to create', detail: await res.text() }, res.status);
   const rows = await res.json();
   const task = rows[0] || null;
-  if (task?.id && (env.AI || env.CF_ACCOUNT_ID)) {
+  if (task?.id && env.AI) {
     ctx?.waitUntil(embedItem(env, 'tasks', task.id).catch(() => {}));
   }
   return json({ ok: true, task });
@@ -2931,7 +2942,7 @@ async function handleTaskUpdate(id, request, env, ctx) {
   const rows = await res.json();
   const task = rows[0] || null;
   // Re-embed if text fields changed (title/description/tags/etc)
-  if (task?.id && (env.AI || env.CF_ACCOUNT_ID) && ('title' in patch || 'description' in patch || 'tags' in patch || 'priority' in patch || 'due_date' in patch)) {
+  if (task?.id && env.AI && ('title' in patch || 'description' in patch || 'tags' in patch || 'priority' in patch || 'due_date' in patch)) {
     ctx?.waitUntil(embedItem(env, 'tasks', task.id).catch(() => {}));
   }
   return json({ ok: true, task });
@@ -3257,8 +3268,14 @@ async function embedItem(env, sourceTable, sourceId) {
   const row = rows[0];
 
   // Build text to embed
-  const fullText = buildEmbeddingText(sourceTable, row);
-  if (!fullText || fullText.length < 10) return { ok: false, error: 'Insufficient text' };
+  const rawText = buildEmbeddingText(sourceTable, row);
+  if (!rawText || rawText.length < 10) return { ok: false, error: 'Insufficient text' };
+
+  // Cap runaway rows: an 80 KB ceiling keeps one item under ~40 chunks / 10k
+  // neurons. Anything larger is almost certainly a PDF dump or bulk import
+  // where marginal recall doesn't justify the embed cost.
+  const MAX_EMBED_CHARS = 80_000;
+  const fullText = rawText.length > MAX_EMBED_CHARS ? rawText.substring(0, MAX_EMBED_CHARS) : rawText;
 
   // Chunk if necessary
   const chunks = chunkText(fullText);

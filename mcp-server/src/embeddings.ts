@@ -169,7 +169,20 @@ export function chunkText(
       : '';
   const body = titlePrefix ? text.substring(firstNewline + 1) : text;
 
-  const paragraphs = body.split(/\n\n+/);
+  // Hard-split any paragraph bigger than maxChars so no single chunk can exceed
+  // the embedding model's per-input token cap (BGE-base: 512 tokens ≈ 2 KB).
+  const rawParagraphs = body.split(/\n\n+/);
+  const paragraphs: string[] = [];
+  for (const para of rawParagraphs) {
+    if (para.length <= maxChars) {
+      paragraphs.push(para);
+    } else {
+      for (let i = 0; i < para.length; i += maxChars) {
+        paragraphs.push(para.substring(i, i + maxChars));
+      }
+    }
+  }
+
   const chunks: { chunkIndex: number; text: string }[] = [];
   let current = titlePrefix;
   let idx = 0;
@@ -212,27 +225,50 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
     );
   }
 
-  const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-base-en-v1.5`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ text: texts }),
-    }
-  );
+  // Sub-batch to stay under @cf/baai/bge-base-en-v1.5 limits
+  // (512 tokens/input, ~153,600 tokens/batch).
+  const MAX_SUB_INPUTS = 80;
+  const MAX_SUB_CHARS = 360_000; // ≈ 90,000 est-tokens @ 4 chars/token
+  const out: number[][] = [];
 
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Workers AI REST API error (${res.status}): ${err}`);
+  let i = 0;
+  while (i < texts.length) {
+    const subBatch: string[] = [];
+    let subChars = 0;
+    while (
+      i < texts.length &&
+      subBatch.length < MAX_SUB_INPUTS &&
+      (subBatch.length === 0 || subChars + texts[i].length <= MAX_SUB_CHARS)
+    ) {
+      subBatch.push(texts[i]);
+      subChars += texts[i].length;
+      i++;
+    }
+
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/baai/bge-base-en-v1.5`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ text: subBatch }),
+      }
+    );
+
+    if (!res.ok) {
+      const err = await res.text();
+      throw new Error(`Workers AI REST API error (${res.status}): ${err}`);
+    }
+
+    const data = (await res.json()) as any;
+    if (!data.result?.data)
+      throw new Error('Unexpected Workers AI response format');
+    out.push(...data.result.data);
   }
 
-  const data = await res.json() as any;
-  if (!data.result?.data)
-    throw new Error('Unexpected Workers AI response format');
-  return data.result.data;
+  return out;
 }
 
 // ─── Embed a single item ────────────────────────────────────
@@ -247,9 +283,17 @@ export async function embedItem(
   if (!rows.length) return { ok: false, error: 'Row not found' };
   const row = rows[0];
 
-  const fullText = buildEmbeddingText(sourceTable, row);
-  if (!fullText || fullText.length < 10)
+  const rawText = buildEmbeddingText(sourceTable, row);
+  if (!rawText || rawText.length < 10)
     return { ok: false, error: 'Insufficient text' };
+
+  // Cap runaway rows at 80 KB. Anything larger is almost certainly a PDF dump
+  // or bulk import where marginal recall doesn't justify the embed cost.
+  const MAX_EMBED_CHARS = 80_000;
+  const fullText =
+    rawText.length > MAX_EMBED_CHARS
+      ? rawText.substring(0, MAX_EMBED_CHARS)
+      : rawText;
 
   const chunks = chunkText(fullText);
   const metadata = buildEmbeddingMetadata(sourceTable, row);
