@@ -15901,8 +15901,10 @@
         overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove(); });
         document.getElementById('bulkTagCancel').addEventListener('click', () => overlay.remove());
 
-        // Wire tag editor
-        wireTagEditor('bulk');
+        // Wire tag editor. Pass a no-op onSave so tags the user types stage
+        // locally (pills render, Apply reads from DOM). Without it, addTag
+        // falls through to the content-modal path and nothing stages.
+        wireTagEditor('bulk', async () => {});
 
         document.getElementById('bulkTagApply').addEventListener('click', async () => {
             const action = document.getElementById('bulkTagAction').value;
@@ -22174,8 +22176,7 @@
             }
         }
 
-        document.querySelectorAll(`.${pfx}tag-remove, ${pfx ? '' : '.tag-remove'}`).forEach(btn => {
-            if (!btn.classList.contains(pfx + 'tag-remove') && pfx) return;
+        document.querySelectorAll(`.${pfx}tag-remove`).forEach(btn => {
             btn.addEventListener('click', async e => {
                 e.stopPropagation();
                 const tag = btn.dataset.tag;
