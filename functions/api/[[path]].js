@@ -2930,13 +2930,18 @@ async function handleTaskDelete(id, env) {
  * have a matching task (same title + source_table + source_id).
  */
 async function handleTasksBackfill(request, env, ctx) {
-  // Wrap everything in a single try so we never bubble up an unhandled error
-  // (Cloudflare would otherwise substitute an HTML error page, which the
-  // admin UI tries to JSON.parse — confusing "Unexpected token '<'" error).
+  // Defaults are tuned to keep the imported set manageable: skip historical
+  // done tasks, dedupe open tasks across days (keeping the latest mention),
+  // and ignore anything older than 90 days. Override via flags.
   try {
     let body = {};
     try { body = await request.json(); } catch {}
-    const dryRun = !!body.dry_run;
+    const dryRun      = !!body.dry_run;
+    const includeDone = body.include_done === true;        // default false
+    const dedupeOpen  = body.dedupe_open !== false;        // default true
+    const daysBack    = Number.isFinite(body.days_back) && body.days_back > 0
+      ? Math.min(Math.floor(body.days_back), 3650)
+      : 90;
 
     const supabaseUrl = env.SUPABASE_URL;
     const serviceKey = env.SUPABASE_SERVICE_KEY;
@@ -2944,12 +2949,13 @@ async function handleTasksBackfill(request, env, ctx) {
       return json({ error: 'Server misconfigured (Supabase)' }, 500);
     }
 
-    // 1. Load all daily notes that have any tasks markdown (no supabaseGet —
-    //    we want to surface REST errors as JSON, not throw them).
+    const cutoffDate = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
+
+    // 1. Load daily notes within the cutoff window.
     let notes = [];
     try {
       const notesRes = await fetch(
-        `${supabaseUrl}/rest/v1/daily_notes?tasks=not.is.null&tasks=neq.&select=id,note_date,tasks&order=note_date.asc&limit=2000`,
+        `${supabaseUrl}/rest/v1/daily_notes?tasks=not.is.null&tasks=neq.&note_date=gte.${cutoffDate}&select=id,note_date,tasks&order=note_date.asc&limit=2000`,
         { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
       );
       if (!notesRes.ok) {
@@ -2960,75 +2966,154 @@ async function handleTasksBackfill(request, env, ctx) {
       return json({ error: 'daily_notes fetch failed', detail: err?.message || String(err) }, 500);
     }
 
-    // 2. What's already in tasks for these daily notes? Chunk the in.(...)
-    //    lookup so the URL never exceeds Worker URL-length limits on large
-    //    backfills.
-    const noteIds = notes.map(n => n.id).filter(Boolean);
-    const existingBySource = new Map();
-    const CHUNK = 150; // ~150 uuids keeps the URL under ~6 kB
-    for (let i = 0; i < noteIds.length; i += CHUNK) {
-      const slice = noteIds.slice(i, i + CHUNK);
-      try {
-        const res = await fetch(
-          `${supabaseUrl}/rest/v1/tasks?source_table=eq.daily_notes&source_id=in.(${slice.join(',')})&select=id,title,source_id`,
-          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
-        );
-        if (!res.ok) {
-          const txt = await res.text();
-          // If the tasks table doesn't exist we just skip dedupe entirely.
-          if (!/relation.*does not exist|Could not find the table/i.test(txt)) {
-            return json({ error: 'Existing-tasks lookup failed', detail: txt }, res.status);
-          }
-        } else {
-          const existing = await res.json();
-          existing.forEach(t => existingBySource.set(`${t.source_id}|${(t.title || '').trim().toLowerCase()}`, t.id));
+    // 2. Fetch ALL existing tasks that came from daily_notes so we can dedupe
+    //    both ways (by source_id+title OR by title-only for cross-day dedupe).
+    //    No chunking needed — we only need id/title/source_id so the payload
+    //    is small even with thousands of rows.
+    const existingByKey = new Map();  // "sourceId|title" → existing task id
+    const existingByTitle = new Set(); // title.lowercase() → exists
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/tasks?source_table=eq.daily_notes&select=id,title,source_id&limit=5000`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+      );
+      if (res.ok) {
+        const rows = await res.json();
+        for (const t of rows) {
+          const titleKey = (t.title || '').trim().toLowerCase();
+          existingByKey.set(`${t.source_id}|${titleKey}`, t.id);
+          existingByTitle.add(titleKey);
         }
-      } catch (err) {
-        return json({ error: 'Existing-tasks lookup threw', detail: err?.message || String(err) }, 500);
+      } else {
+        const txt = await res.text();
+        if (!/relation.*does not exist|Could not find the table/i.test(txt)) {
+          return json({ error: 'Existing-tasks lookup failed', detail: txt }, res.status);
+        }
       }
+    } catch (err) {
+      return json({ error: 'Existing-tasks lookup threw', detail: err?.message || String(err) }, 500);
     }
 
-    const toInsert = [];
+    // 3. Parse bullets, track counts, and bucket into candidates.
+    //    openByTitle:  titleKey → {title, latestDate, latestNoteId, mentions[]}
+    //    doneLines:    full list when includeDone=true (kept as-is, no dedupe)
+    const openByTitle = new Map();
+    const doneLines = [];
     let parsedBullets = 0;
-    const summary = [];
+    let doneSkipped = 0;
 
     for (const note of notes) {
       const lines = String(note.tasks || '').split('\n');
-      const perNote = { note_date: note.note_date, inserted: 0, skipped: 0, checked: 0, unchecked: 0 };
       for (const rawLine of lines) {
-        // Match "- [ ] text", "- [x] text", "- [X] text" (and "* [ ]")
         const m = rawLine.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/);
         if (!m) continue;
         parsedBullets++;
         const isDone = m[1].toLowerCase() === 'x';
         const title = m[2].trim();
         if (!title) continue;
-        const key = `${note.id}|${title.toLowerCase()}`;
-        if (existingBySource.has(key)) { perNote.skipped++; continue; }
-        toInsert.push({
-          title,
-          status: isDone ? 'done' : 'todo',
-          completed_at: isDone ? new Date(note.note_date + 'T12:00:00Z').toISOString() : null,
-          source_table: 'daily_notes',
-          source_id: note.id,
-          source_ref: `Daily Note ${note.note_date}`,
-          due_date: null,
-          metadata: { backfilled_from: 'daily_notes.tasks', note_date: note.note_date },
-        });
-        perNote.inserted++;
-        if (isDone) perNote.checked++; else perNote.unchecked++;
+
+        if (isDone) {
+          if (!includeDone) { doneSkipped++; continue; }
+          doneLines.push({ title, note });
+          continue;
+        }
+
+        const titleKey = title.toLowerCase();
+        if (!dedupeOpen) {
+          // No dedupe — one entry per (note, title).
+          const key = `${note.id}|${titleKey}`;
+          if (openByTitle.has(key)) continue;
+          openByTitle.set(key, { title, latestDate: note.note_date, latestNoteId: note.id, mentions: [note.note_date] });
+        } else {
+          // Dedupe by title across all notes; keep latest date.
+          const prev = openByTitle.get(titleKey);
+          if (!prev) {
+            openByTitle.set(titleKey, { title, latestDate: note.note_date, latestNoteId: note.id, mentions: [note.note_date] });
+          } else {
+            prev.mentions.push(note.note_date);
+            if (note.note_date > prev.latestDate) {
+              prev.latestDate = note.note_date;
+              prev.latestNoteId = note.id;
+              // Keep the casing of the latest mention's title too
+              prev.title = title;
+            }
+          }
+        }
       }
-      if (perNote.inserted || perNote.skipped) summary.push(perNote);
     }
+
+    // 4. Build insert list. Skip rows whose title already exists (cross-day
+    //    dedupe uses title-only; non-dedupe mode uses source_id+title).
+    const toInsert = [];
+    let dedupeSkipped = 0;
+    let alreadyImportedSkipped = 0;
+
+    for (const cand of openByTitle.values()) {
+      const titleKey = cand.title.toLowerCase();
+      if (dedupeOpen && existingByTitle.has(titleKey)) { alreadyImportedSkipped++; continue; }
+      if (!dedupeOpen && existingByKey.has(`${cand.latestNoteId}|${titleKey}`)) { alreadyImportedSkipped++; continue; }
+
+      const mentionCount = Math.max(0, cand.mentions.length - 1);
+      if (mentionCount > 0) dedupeSkipped += mentionCount;
+      const sourceRef = mentionCount > 0
+        ? `Daily Note ${cand.latestDate} (+${mentionCount} earlier mention${mentionCount === 1 ? '' : 's'})`
+        : `Daily Note ${cand.latestDate}`;
+
+      toInsert.push({
+        title: cand.title,
+        status: 'todo',
+        completed_at: null,
+        source_table: 'daily_notes',
+        source_id: cand.latestNoteId,
+        source_ref: sourceRef,
+        due_date: null,
+        metadata: {
+          backfilled_from: 'daily_notes.tasks',
+          latest_date: cand.latestDate,
+          mentions: cand.mentions,
+        },
+      });
+    }
+
+    // Done lines go through only if includeDone=true. No cross-day dedupe —
+    // each historical completion is a separate event.
+    if (includeDone) {
+      for (const d of doneLines) {
+        const titleKey = d.title.toLowerCase();
+        if (existingByKey.has(`${d.note.id}|${titleKey}`)) { alreadyImportedSkipped++; continue; }
+        toInsert.push({
+          title: d.title,
+          status: 'done',
+          completed_at: new Date(d.note.note_date + 'T12:00:00Z').toISOString(),
+          source_table: 'daily_notes',
+          source_id: d.note.id,
+          source_ref: `Daily Note ${d.note.note_date}`,
+          due_date: null,
+          metadata: { backfilled_from: 'daily_notes.tasks', note_date: d.note.note_date },
+        });
+      }
+    }
+
+    const stats = {
+      parsed_bullets: parsedBullets,
+      done_skipped_outside_cutoff: null, // set below if cutoff trimmed anything
+      done_skipped_by_default: doneSkipped,
+      open_deduped: dedupeSkipped,
+      already_imported_skipped: alreadyImportedSkipped,
+      would_insert: toInsert.length,
+      cutoff_date: cutoffDate,
+      days_back: daysBack,
+      include_done: includeDone,
+      dedupe_open: dedupeOpen,
+    };
 
     if (dryRun) {
-      return json({ ok: true, dry_run: true, parsedBullets, wouldInsert: toInsert.length, summary });
+      return json({ ok: true, dry_run: true, stats, wouldInsert: toInsert.length });
     }
 
-    // 3. Insert in chunks of 100. Skip embed-kickoff from the backfill path —
-    //    the admin's background drain will pick up the rows with embedded_at
-    //    IS NULL the next time the user opens the admin. Avoids blowing the
-    //    Worker's subrequest budget on a large backfill.
+    // 5. Insert in chunks of 100. Embeddings happen lazily via the admin's
+    //    background drain on next page load — avoids blowing the subrequest
+    //    budget on a bulk import.
     let insertedTotal = 0;
     for (let i = 0; i < toInsert.length; i += 100) {
       const batch = toInsert.slice(i, i + 100);
@@ -3043,13 +3128,13 @@ async function handleTasksBackfill(request, env, ctx) {
         body: JSON.stringify(batch),
       });
       if (!res.ok) {
-        return json({ error: 'Insert failed', detail: await res.text(), insertedTotal }, 500);
+        return json({ error: 'Insert failed', detail: await res.text(), insertedTotal, stats }, 500);
       }
       const rows = await res.json();
       insertedTotal += rows.length;
     }
 
-    return json({ ok: true, parsedBullets, inserted: insertedTotal, summary });
+    return json({ ok: true, stats, inserted: insertedTotal });
   } catch (err) {
     return json({ error: 'Backfill crashed', detail: err?.message || String(err), stack: err?.stack }, 500);
   }
