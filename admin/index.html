@@ -7375,6 +7375,29 @@
         if (writes.reflections) html += `<span class="review-stat"><strong>${writes.reflections}</strong> reflections</span>`;
         html += `</div>`;
 
+        // Task actions (close / migrate / cancel / create)
+        const a = writes.actions_summary || {};
+        const hasTaskActions = (a.closed || a.migrated || a.cancelled || a.created || (a.errors && a.errors.length));
+        if (hasTaskActions) {
+            html += `<div class="review-section">
+                <div class="review-section-title">Task actions</div>
+                <div class="review-stats">`;
+            if (a.closed)    html += `<span class="review-stat"><strong>${a.closed}</strong> closed</span>`;
+            if (a.migrated)  html += `<span class="review-stat"><strong>${a.migrated}</strong> migrated</span>`;
+            if (a.cancelled) html += `<span class="review-stat"><strong>${a.cancelled}</strong> cancelled</span>`;
+            if (a.created)   html += `<span class="review-stat"><strong>${a.created}</strong> created</span>`;
+            if (a.errors && a.errors.length) html += `<span class="review-stat" style="color: var(--red)"><strong>${a.errors.length}</strong> errors</span>`;
+            html += `</div>`;
+            if (a.errors && a.errors.length) {
+                html += `<details style="margin-top:0.5rem; font-size:0.8rem; color:var(--text-muted)"><summary>Error details</summary><ul>`;
+                for (const err of a.errors) {
+                    html += `<li><code>${esc(err.action?.action || '?')}</code> ${err.action?.id ? `<code>${esc(err.action.id)}</code>` : ''} — ${esc(err.detail || '')}</li>`;
+                }
+                html += `</ul></details>`;
+            }
+            html += `</div>`;
+        }
+
         // People entries
         if (review.people_entries?.length) {
             html += `<div class="review-section">
@@ -7436,6 +7459,13 @@
         if (sections) {
             sections.parentNode.insertBefore(container, sections.nextSibling);
         }
+
+        // Refresh the live-tasks checklist so closed/migrated/created rows
+        // show up without a page reload, and re-fetch the sidebar count.
+        if (typeof refreshDailyTasksList === 'function') {
+            refreshDailyTasksList().catch(() => {});
+        }
+        if (typeof loadCounts === 'function') loadCounts();
     }
 
     function navigateDailyNote(offset) {
@@ -17147,6 +17177,7 @@
         week: 'Due this week',
         overdue: 'Overdue',
         done: 'Completed',
+        cancelled: 'Cancelled',
         all: 'All tasks',
     };
     let tasksState = { filter: 'open', priority: null, tasks: [], loading: false };
@@ -17244,6 +17275,7 @@
         const params = new URLSearchParams();
         if (tasksState.filter !== 'open' && tasksState.filter !== 'all') {
             if (tasksState.filter === 'done') params.set('status', 'done');
+            else if (tasksState.filter === 'cancelled') params.set('status', 'cancelled');
             else if (tasksState.filter === 'today') { params.set('status', 'open'); params.set('due', 'today'); }
             else if (tasksState.filter === 'week') { params.set('status', 'open'); params.set('due', 'week'); }
             else if (tasksState.filter === 'overdue') { params.set('status', 'open'); params.set('due', 'overdue'); }

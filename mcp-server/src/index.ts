@@ -1012,9 +1012,24 @@ server.tool(
         .replace('{{problems_list}}', problemsList || '(none loaded)');
     }
 
+    // Fetch today's open tasks from the first-class tasks table. The review
+    // prompt consumes these as structured JSON and returns task_actions.
+    let todaysTasks: any[] = [];
+    try {
+      const orFilter = `or=(due_date.eq.${date},and(source_table.eq.daily_notes,source_id.eq.${dailyNote.id}))`;
+      todaysTasks = await supabaseGet(
+        `tasks?${orFilter}&status=in.(todo,doing,blocked)&select=id,title,priority,due_date,source_ref&limit=200&order=priority.asc.nullslast,created_at.asc`
+      );
+    } catch {
+      todaysTasks = [];
+    }
+
     // Build the user prompt (same as API version)
     let userPrompt = `## Daily Note for ${date}\n\n`;
-    if (dailyNote.tasks) userPrompt += `### Tasks\n${dailyNote.tasks}\n\n`;
+    userPrompt += `### Tasks for today (JSON)\n`;
+    userPrompt += todaysTasks.length
+      ? '```json\n' + JSON.stringify(todaysTasks, null, 2) + '\n```\n\n'
+      : '(no open tasks for this day)\n\n';
     if (dailyNote.notes)
       userPrompt += `### Notes & Thoughts\n${dailyNote.notes}\n\n`;
     if (dailyNote.meetings)
@@ -1049,7 +1064,7 @@ server.tool(
     }
 
     const baseInstructions =
-      'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.';
+      'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, task_actions (close/migrate/cancel existing tasks by id, optionally create new tasks), context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.';
     const imageInstructions = includedImages.length
       ? ` The ${includedImages.length} image block(s) that follow this text are photos/screenshots attached to the daily note. Read any visible text (handwriting, chat screenshots, whiteboards, diagrams, receipts) and treat it as first-class source material alongside the typed notes. When an image materially contributes to an entry, cite it as [image: filename] in the relevant field.`
       : '';
@@ -1065,6 +1080,7 @@ server.tool(
               known_products: productNames,
               known_projects: projectNames,
               known_problems: problemsList,
+              todays_tasks: todaysTasks,
               system_prompt: systemPrompt,
               user_prompt_template: prompt?.user_prompt_template || null,
               prompt_version: prompt?.version || null,
@@ -1138,7 +1154,18 @@ server.tool(
           )
           .optional()
           .default([]),
-        migrated_tasks: z.array(z.string()).optional().default([]),
+        task_actions: z
+          .array(
+            z.object({
+              id: z.string().optional().describe('Task UUID (required for close/migrate/cancel)'),
+              action: z.enum(['close', 'migrate', 'cancel', 'create']).describe('Action to take'),
+              title: z.string().optional().describe('Title (required for create)'),
+              priority: z.enum(['high', 'medium', 'low']).optional(),
+              due_date: z.string().optional().describe('YYYY-MM-DD — defaults to tomorrow for migrate, null for create'),
+            })
+          )
+          .optional()
+          .default([]),
         context_notes: z
           .array(
             z.object({
@@ -1414,86 +1441,74 @@ server.tool(
           ...existingMeta,
           last_reviewed: new Date().toISOString(),
           review_summary: review_data.review_summary,
-          migrated_tasks: review_data.migrated_tasks,
+          task_actions: (review_data as any).task_actions || [],
           context_notes: review_data.context_notes,
           review_data,
           review_writes: results,
         },
       });
 
-      // Migrate tasks to next day
-      let tasksMigrated = 0;
-      const migratedTasks = review_data.migrated_tasks;
-      if (migratedTasks.length > 0) {
+      // Execute task_actions against the first-class tasks table
+      const actionsSummary = { closed: 0, migrated: 0, cancelled: 0, created: 0, errors: [] as any[] };
+      const taskActions = (review_data as any).task_actions || [];
+      if (Array.isArray(taskActions) && taskActions.length) {
         const d = new Date(date + 'T12:00:00Z');
         d.setDate(d.getDate() + 1);
         const nextDate = d.toISOString().split('T')[0];
+        const isoRe = /^\d{4}-\d{2}-\d{2}$/;
 
-        const nextNotes = await supabaseGet(
-          `daily_notes?note_date=eq.${nextDate}&limit=1`
-        );
-        const nextNote = nextNotes.length ? nextNotes[0] : null;
-
-        const migratedMd = migratedTasks
-          .map((t: string) => `- [ ] ${t}`)
-          .join('\n');
-        const header = `## Tasks (migrated from ${date})\n`;
-
-        let newTasks = '';
-        if (nextNote?.tasks?.trim()) {
-          const existingLower = nextNote.tasks.toLowerCase();
-          const uniqueTasks = migratedTasks.filter(
-            (t: string) =>
-              !existingLower.includes(t.toLowerCase().substring(0, 30))
-          );
-          if (uniqueTasks.length > 0) {
-            const uniqueMd = uniqueTasks
-              .map((t: string) => `- [ ] ${t}`)
-              .join('\n');
-            newTasks = nextNote.tasks + '\n\n' + header + uniqueMd;
-            tasksMigrated = uniqueTasks.length;
-          }
-        } else {
-          newTasks = header + migratedMd;
-          tasksMigrated = migratedTasks.length;
-        }
-
-        if (tasksMigrated > 0) {
-          await supabaseUpsert(
-            'daily_notes',
-            {
-              note_date: nextDate,
-              tasks: newTasks,
-              notes: nextNote?.notes || '',
-              meetings: nextNote?.meetings || '',
-            },
-            'note_date'
-          );
-        }
-
-        // Mark migrated tasks as [>] on source day
-        let updatedTasks = dailyNote.tasks || '';
-        for (const task of migratedTasks) {
-          const searchText = task
-            .substring(0, Math.min(40, task.length))
-            .toLowerCase();
-          const lines = updatedTasks.split('\n');
-          for (let i = 0; i < lines.length; i++) {
-            if (
-              lines[i].includes('- [ ]') &&
-              lines[i].toLowerCase().includes(searchText)
-            ) {
-              lines[i] = lines[i].replace('- [ ]', '- [>]');
-              break;
+        for (const action of taskActions) {
+          try {
+            switch (action?.action) {
+              case 'close': {
+                if (!action.id) throw new Error('close requires id');
+                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { status: 'done' });
+                if (!r.ok) throw new Error(r.error || 'patch failed');
+                actionsSummary.closed++;
+                break;
+              }
+              case 'migrate': {
+                if (!action.id) throw new Error('migrate requires id');
+                const due = isoRe.test(action.due_date || '') ? action.due_date : nextDate;
+                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { due_date: due });
+                if (!r.ok) throw new Error(r.error || 'patch failed');
+                actionsSummary.migrated++;
+                break;
+              }
+              case 'cancel': {
+                if (!action.id) throw new Error('cancel requires id');
+                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { status: 'cancelled' });
+                if (!r.ok) throw new Error(r.error || 'patch failed');
+                actionsSummary.cancelled++;
+                break;
+              }
+              case 'create': {
+                const title = (action.title || '').trim();
+                if (!title) throw new Error('create requires title');
+                const r = await supabasePost(
+                  'tasks',
+                  {
+                    title,
+                    status: 'todo',
+                    priority: ['high', 'medium', 'low'].includes(action.priority) ? action.priority : null,
+                    due_date: isoRe.test(action.due_date || '') ? action.due_date : null,
+                    source_table: 'daily_notes',
+                    source_id: dailyNote.id,
+                    source_ref: `Daily Note ${date}`,
+                    metadata: { created_by: 'daily_review', note_date: date },
+                  },
+                  false
+                );
+                if (!r.ok) throw new Error(r.error || 'post failed');
+                actionsSummary.created++;
+                break;
+              }
+              default:
+                throw new Error(`unknown action: ${action?.action}`);
             }
+          } catch (err: any) {
+            actionsSummary.errors.push({ action, detail: (err?.message || String(err)).slice(0, 300) });
           }
-          updatedTasks = lines.join('\n');
-        }
-
-        if (updatedTasks !== dailyNote.tasks) {
-          await supabasePatch(`daily_notes?note_date=eq.${date}`, {
-            tasks: updatedTasks,
-          });
         }
       }
 
@@ -1507,7 +1522,7 @@ server.tool(
           {
             type: 'text' as const,
             text: JSON.stringify(
-              { ok: true, writes: results, tasks_migrated: tasksMigrated },
+              { ok: true, writes: results, actions_summary: actionsSummary },
               null,
               2
             ),

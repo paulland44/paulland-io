@@ -1911,9 +1911,23 @@ async function handleDailyReview(request, env, ctx) {
     }
   }
 
+  // 2c. Fetch today's open tasks from the first-class tasks table. These
+  //     are passed as a JSON block to the prompt; the LLM then returns
+  //     task_actions (close / migrate / cancel / create) rather than
+  //     parsing markdown bullets.
+  let todaysTasks = [];
+  try {
+    const orFilter = `or=(due_date.eq.${note_date},and(source_table.eq.daily_notes,source_id.eq.${dailyNote.id}))`;
+    todaysTasks = await supabaseGet(supabaseUrl, serviceKey,
+      `tasks?${orFilter}&status=in.(todo,doing,blocked)&select=id,title,priority,due_date,source_ref&limit=200&order=priority.asc.nullslast,created_at.asc`);
+  } catch (err) {
+    // Non-fatal — proceed with an empty list if the tasks table is missing
+    todaysTasks = [];
+  }
+
   // 3. Build the prompt
   const systemPrompt = buildReviewSystemPrompt(peopleNames, productNames, projectNames);
-  const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages);
+  const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages, todaysTasks);
 
   // 4. Call LLM — send text + any image blocks (with fallback)
   const userContent = imageBlocks.length
@@ -1979,91 +1993,13 @@ async function handleDailyReview(request, env, ctx) {
       },
     });
 
-  // 8. Migrate tasks to next day
-  let tasksMigrated = 0;
-  const migratedTasks = aiResult.migrated_tasks || [];
-  if (migratedTasks.length > 0) {
-    // Calculate next day
-    const d = new Date(note_date + 'T12:00:00Z');
-    d.setDate(d.getDate() + 1);
-    const nextDate = d.toISOString().split('T')[0];
-
-    // Fetch existing next-day note (if any)
-    const nextNotes = await supabaseGet(supabaseUrl, serviceKey,
-      `daily_notes?note_date=eq.${nextDate}&limit=1`);
-    const nextNote = nextNotes.length ? nextNotes[0] : null;
-
-    // Build migrated tasks markdown
-    const migratedMd = migratedTasks.map(t => `- [ ] ${t}`).join('\n');
-    const header = `## Tasks (migrated from ${note_date})\n`;
-
-    let newTasks = '';
-    if (nextNote && nextNote.tasks && nextNote.tasks.trim()) {
-      // Append migrated tasks to existing tasks (avoid duplicates)
-      const existingLower = nextNote.tasks.toLowerCase();
-      const uniqueTasks = migratedTasks.filter(t =>
-        !existingLower.includes(t.toLowerCase().substring(0, 30))
-      );
-      if (uniqueTasks.length > 0) {
-        const uniqueMd = uniqueTasks.map(t => `- [ ] ${t}`).join('\n');
-        newTasks = nextNote.tasks + '\n\n' + header + uniqueMd;
-        tasksMigrated = uniqueTasks.length;
-      }
-    } else {
-      // Create new tasks section
-      newTasks = header + migratedMd;
-      tasksMigrated = migratedTasks.length;
-    }
-
-    if (tasksMigrated > 0) {
-      // Upsert next day's note with migrated tasks
-      const upsertBody = {
-        note_date: nextDate,
-        tasks: newTasks,
-        notes: nextNote?.notes || '',
-        meetings: nextNote?.meetings || '',
-      };
-
-      await fetch(
-        `${supabaseUrl}/rest/v1/daily_notes?on_conflict=note_date`,
-        {
-          method: 'POST',
-          headers: {
-            'apikey': serviceKey,
-            'Authorization': `Bearer ${serviceKey}`,
-            'Content-Type': 'application/json',
-            'Prefer': 'resolution=merge-duplicates,return=minimal',
-          },
-          body: JSON.stringify(upsertBody),
-        }
-      );
-    }
-
-    // 9. Mark migrated tasks as [>] on the source day
-    let updatedTasks = dailyNote.tasks || '';
-    for (const task of migratedTasks) {
-      // Find the task line with [ ] and change to [>]
-      // Match on the first 40 chars of the task text to handle slight variations
-      const searchText = task.substring(0, Math.min(40, task.length)).toLowerCase();
-      const lines = updatedTasks.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (line.includes('- [ ]') && line.toLowerCase().includes(searchText)) {
-          lines[i] = line.replace('- [ ]', '- [>]');
-          break;
-        }
-      }
-      updatedTasks = lines.join('\n');
-    }
-
-    // Update the source day's tasks
-    if (updatedTasks !== dailyNote.tasks) {
-      await supabasePatch(supabaseUrl, serviceKey,
-        `daily_notes?note_date=eq.${note_date}`, {
-          tasks: updatedTasks,
-        });
-    }
-  }
+  // 8. Execute task_actions against the tasks table. Close/migrate/cancel
+  //    existing rows; create new rows linked to this daily note.
+  const actionsSummary = await executeTaskActions(
+    supabaseUrl, serviceKey,
+    aiResult.task_actions || [],
+    { dailyNote, note_date }
+  );
 
   // Background re-embed the daily note (now has review_summary)
   if (dailyNote.id && (env.AI || env.CF_ACCOUNT_ID)) {
@@ -2073,8 +2009,95 @@ async function handleDailyReview(request, env, ctx) {
   return json({
     ok: true,
     review: aiResult,
-    writes: { ...writeResults, tasks_migrated: tasksMigrated },
+    writes: { ...writeResults, actions_summary: actionsSummary },
+    todays_tasks: todaysTasks,
   });
+}
+
+/**
+ * Execute task_actions returned by the end-of-day review against the tasks
+ * table. Returns a summary `{closed, migrated, cancelled, created, errors}`.
+ */
+async function executeTaskActions(supabaseUrl, serviceKey, actions, { dailyNote, note_date }) {
+  const summary = { closed: 0, migrated: 0, cancelled: 0, created: 0, errors: [] };
+  if (!Array.isArray(actions) || !actions.length) return summary;
+
+  // Tomorrow as the default migrate target
+  const nextDate = (() => {
+    const d = new Date(note_date + 'T12:00:00Z');
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().slice(0, 10);
+  })();
+
+  const patch = async (id, body) => {
+    const res = await fetch(`${supabaseUrl}/rest/v1/tasks?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(await res.text());
+  };
+
+  for (const action of actions) {
+    try {
+      switch (action?.action) {
+        case 'close':
+          if (!action.id) throw new Error('close requires id');
+          await patch(action.id, { status: 'done' });
+          summary.closed++;
+          break;
+        case 'migrate': {
+          if (!action.id) throw new Error('migrate requires id');
+          const due = /^\d{4}-\d{2}-\d{2}$/.test(action.due_date || '') ? action.due_date : nextDate;
+          await patch(action.id, { due_date: due });
+          summary.migrated++;
+          break;
+        }
+        case 'cancel':
+          if (!action.id) throw new Error('cancel requires id');
+          await patch(action.id, { status: 'cancelled' });
+          summary.cancelled++;
+          break;
+        case 'create': {
+          const title = (action.title || '').trim();
+          if (!title) throw new Error('create requires title');
+          const body = {
+            title,
+            status: 'todo',
+            priority: ['high', 'medium', 'low'].includes(action.priority) ? action.priority : null,
+            due_date: /^\d{4}-\d{2}-\d{2}$/.test(action.due_date || '') ? action.due_date : null,
+            source_table: 'daily_notes',
+            source_id: dailyNote.id,
+            source_ref: `Daily Note ${note_date}`,
+            metadata: { created_by: 'daily_review', note_date },
+          };
+          const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
+            method: 'POST',
+            headers: {
+              'apikey': serviceKey,
+              'Authorization': `Bearer ${serviceKey}`,
+              'Content-Type': 'application/json',
+              'Prefer': 'return=minimal',
+            },
+            body: JSON.stringify(body),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          summary.created++;
+          break;
+        }
+        default:
+          throw new Error(`unknown action: ${action?.action}`);
+      }
+    } catch (err) {
+      summary.errors.push({ action, detail: (err?.message || String(err)).slice(0, 300) });
+    }
+  }
+  return summary;
 }
 
 function buildReviewSystemPrompt(peopleNames, productNames, projectNames) {
@@ -2087,7 +2110,7 @@ Your job is to process his daily note and extract structured information into a 
 3. **Product decisions**: Decisions made about products (strategic, not tactical).
 4. **Project updates**: Updates about specific projects.
 5. **Reflections**: Leadership observations, coaching insights, self-awareness moments.
-6. **Migrated tasks**: Tasks marked [>] or still open [ ] that should carry forward to tomorrow.
+6. **Task actions**: For each task in \`tasks_for_today\`, decide what should happen to it — and optionally propose new tasks from action items mentioned in notes/meetings.
 7. **Context notes**: Key context from today that would help prepare for tomorrow's meetings.
 
 ## Known People
@@ -2099,11 +2122,16 @@ ${productNames.join(', ')}
 ## Known Projects
 ${projectNames.join(', ')}
 
-## Task Notation
-- \`[ ]\` = open (not done)
-- \`[x]\` = done
-- \`[>]\` = migrated (carry forward)
-- \`[-]\` = cancelled
+## Task Actions
+Tasks for this day are provided as a JSON array under \`tasks_for_today\`. Each task has \`id\`, \`title\`, \`priority\`, \`due_date\`, \`source_ref\`. For each task, decide whether to:
+- \`close\` — notes/meetings clearly indicate the task was completed today
+- \`migrate\` — it wasn't done and should carry forward (optionally specify \`due_date\` as YYYY-MM-DD; default is tomorrow)
+- \`cancel\` — it was abandoned or is no longer relevant
+- Leave untouched — omit from task_actions entirely if the task is still actively in progress or there's no clear signal
+
+Be conservative with \`close\` — only when completion is explicit. Be liberal with \`migrate\` — if unsure, carry it forward rather than silently abandoning.
+
+You may also propose \`create\` actions for clearly actionable new items mentioned in the notes/meetings — e.g. "I said I'd send Geert the timeline" or "Need to draft the Q3 plan by Friday". Only create when the action is unambiguous; don't invent tasks from vague intent.
 
 ## Reflection Detection
 Look for reflective language: "I noticed", "I should have", "lesson learned", "in hindsight", "next time", coaching observations about team members, leadership moments, and self-awareness. Paul writes naturally without tags — you must identify reflective content by reading comprehension.
@@ -2129,8 +2157,11 @@ Respond with ONLY a JSON object (no markdown wrapping, no explanation) with this
   "reflections": [
     { "observation": "The reflection/insight", "coach_perspective": "Brief coaching response", "category": "leadership|coaching|personal" }
   ],
-  "migrated_tasks": [
-    "Task text to carry forward"
+  "task_actions": [
+    { "id": "<uuid-from-tasks_for_today>", "action": "close" },
+    { "id": "<uuid-from-tasks_for_today>", "action": "migrate", "due_date": "YYYY-MM-DD" },
+    { "id": "<uuid-from-tasks_for_today>", "action": "cancel" },
+    { "action": "create", "title": "New task title", "priority": "high|medium|low", "due_date": "YYYY-MM-DD" }
   ],
   "context_notes": [
     { "meeting_title": "Meeting name", "context": "Key context for tomorrow" }
@@ -2140,19 +2171,24 @@ Respond with ONLY a JSON object (no markdown wrapping, no explanation) with this
 
 IMPORTANT:
 - Only include entries where there is genuine content to extract. Empty arrays are fine.
+- For task_actions, use the exact \`id\` from \`tasks_for_today\` — copy it verbatim. Do not invent ids.
 - Match person/product/project names EXACTLY to the known lists above. If unsure, use the closest match.
-- For people entries, focus on actionable notes: decisions, action items, observations about the person's work.
 - Keep entries concise but complete. Each entry should stand on its own without needing the daily note for context.
 - The review_summary should capture the day's themes, not list every meeting.
 - CRITICAL: Do NOT create people entries from tasks. Tasks like "Follow up with X" or "Speak to Y about Z" are action items, not observations. People entries should ONLY come from actual meeting notes, conversations, or written observations.`;
 }
 
-function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = []) {
+function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = [], todaysTasks = []) {
   let prompt = `## Daily Note for ${noteDate}\n\n`;
 
-  if (dailyNote.tasks) {
-    prompt += `### Tasks\n${dailyNote.tasks}\n\n`;
-  }
+  // Tasks come from the first-class `tasks` table now, not the deprecated
+  // daily_notes.tasks markdown column. Render as a JSON array so the model
+  // can cite ids verbatim in task_actions.
+  prompt += `### Tasks for today (JSON)\n`;
+  prompt += Array.isArray(todaysTasks) && todaysTasks.length
+    ? '```json\n' + JSON.stringify(todaysTasks, null, 2) + '\n```\n\n'
+    : '(no open tasks for this day)\n\n';
+
   if (dailyNote.notes) {
     prompt += `### Notes & Thoughts\n${dailyNote.notes}\n\n`;
   }
@@ -2755,7 +2791,7 @@ function isAuthOrQuotaSignal(status, message) {
 
 // ─── Tasks handlers ──────────────────────────────────────────
 
-const TASK_ALLOWED_STATUS = new Set(['todo', 'doing', 'done', 'blocked']);
+const TASK_ALLOWED_STATUS = new Set(['todo', 'doing', 'done', 'blocked', 'cancelled']);
 const TASK_ALLOWED_PRIORITY = new Set(['high', 'medium', 'low']);
 const TASK_UPDATABLE_FIELDS = new Set(['title', 'description', 'status', 'priority', 'due_date', 'source_table', 'source_id', 'source_ref', 'tags', 'metadata']);
 
@@ -2794,7 +2830,7 @@ async function handleTasksList(request, env) {
     : new Date().toISOString().slice(0, 10);
 
   const filters = [];
-  if (status === 'open') filters.push('status=neq.done');
+  if (status === 'open') filters.push('status=not.in.(done,cancelled)');
   else if (status !== 'all' && TASK_ALLOWED_STATUS.has(status)) filters.push(`status=eq.${status}`);
 
   if (due === 'today') filters.push(`due_date=eq.${clientDate}`);
@@ -2808,7 +2844,7 @@ async function handleTasksList(request, env) {
     filters.push(`due_date=lte.${sunday}`);
   } else if (due === 'overdue') {
     filters.push(`due_date=lt.${clientDate}`);
-    filters.push('status=neq.done');
+    filters.push('status=not.in.(done,cancelled)');
   }
 
   if (sourceTable) filters.push(`source_table=eq.${encodeURIComponent(sourceTable)}`);
