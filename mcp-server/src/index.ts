@@ -3350,6 +3350,38 @@ server.tool(
               }
             }
 
+            // Detect flat-pivot format (input for import_bookings, not this tool).
+            // Signature: first sheet header row contains the order-line columns
+            // (Week, Order Number, Purpose Code + Description) and none of the
+            // analysis-report sheets are present.
+            if (!sheets['Product analysis'] && !sheets['Source Qview']) {
+              const firstSheetName = workbook.SheetNames[0];
+              const firstWs = firstSheetName ? workbook.Sheets[firstSheetName] : null;
+              const firstRowCsv = firstWs ? XLSX.utils.sheet_to_csv(firstWs).split('\n')[0] || '' : '';
+              const isFlatPivot =
+                firstRowCsv.includes('Week') &&
+                firstRowCsv.includes('Purpose Code + Description') &&
+                firstRowCsv.includes('Order Number');
+
+              if (isFlatPivot) {
+                return {
+                  content: [{
+                    type: 'text' as const,
+                    text: JSON.stringify({
+                      error: 'wrong_tool',
+                      message: 'This asset is the flat pivot-table format (one row per order-line). Call import_bookings with this asset_id to load it into the bookings table. bookings_report_extract expects the multi-sheet analysis workbook (Product analysis, Source Qview, Segment analysis, Source Weekly Tracker, Source Tilia).',
+                      use_tool: 'import_bookings',
+                      asset_id: asset.id,
+                      file_name: asset.filename,
+                      detected_sheets: workbook.SheetNames,
+                    }, null, 2),
+                  }],
+                };
+              }
+
+              parseError = 'Key sheets not found. Available: ' + workbook.SheetNames.join(', ');
+            }
+
             // Parse Source Qview for report context (Year/Month at top)
             if (sheets['Source Qview']) {
               const lines = sheets['Source Qview'].split('\n');
@@ -3365,10 +3397,6 @@ server.tool(
             // Try to get week from filename (e.g. "week 02")
             const weekMatch = asset.filename?.match(/week\s*(\d+)/i);
             if (weekMatch) reportContext.week = weekMatch[1];
-
-            if (!sheets['Product analysis'] && !sheets['Source Qview']) {
-              parseError = 'Key sheets not found. Available: ' + workbook.SheetNames.join(', ');
-            }
           } catch (xlsErr: any) {
             parseError = `Parse error: ${xlsErr.message}`;
           }
