@@ -2930,91 +2930,129 @@ async function handleTaskDelete(id, env) {
  * have a matching task (same title + source_table + source_id).
  */
 async function handleTasksBackfill(request, env, ctx) {
-  let body = {};
-  try { body = await request.json(); } catch {}
-  const dryRun = !!body.dry_run;
+  // Wrap everything in a single try so we never bubble up an unhandled error
+  // (Cloudflare would otherwise substitute an HTML error page, which the
+  // admin UI tries to JSON.parse — confusing "Unexpected token '<'" error).
+  try {
+    let body = {};
+    try { body = await request.json(); } catch {}
+    const dryRun = !!body.dry_run;
 
-  const supabaseUrl = env.SUPABASE_URL;
-  const serviceKey = env.SUPABASE_SERVICE_KEY;
-
-  // Load all daily notes that have any tasks markdown
-  const notes = await supabaseGet(supabaseUrl, serviceKey,
-    `daily_notes?tasks=neq.&select=id,note_date,tasks&order=note_date.asc&limit=2000`);
-
-  // What's already in tasks for these daily notes? Key by source_id+title.
-  const noteIds = notes.map(n => n.id).filter(Boolean);
-  const existingBySource = new Map();
-  if (noteIds.length) {
-    const existing = await supabaseGet(supabaseUrl, serviceKey,
-      `tasks?source_table=eq.daily_notes&source_id=in.(${noteIds.map(i => `"${i}"`).join(',')})&select=id,title,source_id`);
-    existing.forEach(t => existingBySource.set(`${t.source_id}|${(t.title || '').trim().toLowerCase()}`, t.id));
-  }
-
-  const toInsert = [];
-  let parsedBullets = 0;
-  const summary = [];
-
-  for (const note of notes) {
-    const lines = String(note.tasks || '').split('\n');
-    const perNote = { note_date: note.note_date, inserted: 0, skipped: 0, checked: 0, unchecked: 0 };
-    for (const rawLine of lines) {
-      // Match "- [ ] text", "- [x] text", "- [X] text" (and "* [ ]")
-      const m = rawLine.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/);
-      if (!m) continue;
-      parsedBullets++;
-      const isDone = m[1].toLowerCase() === 'x';
-      const title = m[2].trim();
-      if (!title) continue;
-      const key = `${note.id}|${title.toLowerCase()}`;
-      if (existingBySource.has(key)) { perNote.skipped++; continue; }
-      toInsert.push({
-        title,
-        status: isDone ? 'done' : 'todo',
-        completed_at: isDone ? new Date(note.note_date + 'T12:00:00Z').toISOString() : null,
-        source_table: 'daily_notes',
-        source_id: note.id,
-        source_ref: `Daily Note ${note.note_date}`,
-        due_date: null,
-        metadata: { backfilled_from: 'daily_notes.tasks', note_date: note.note_date },
-      });
-      perNote.inserted++;
-      if (isDone) perNote.checked++; else perNote.unchecked++;
+    const supabaseUrl = env.SUPABASE_URL;
+    const serviceKey = env.SUPABASE_SERVICE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      return json({ error: 'Server misconfigured (Supabase)' }, 500);
     }
-    if (perNote.inserted || perNote.skipped) summary.push(perNote);
-  }
 
-  if (dryRun) {
-    return json({ ok: true, dry_run: true, parsedBullets, wouldInsert: toInsert.length, summary });
-  }
-
-  // Insert in chunks of 100
-  let insertedTotal = 0;
-  for (let i = 0; i < toInsert.length; i += 100) {
-    const batch = toInsert.slice(i, i + 100);
-    const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
-      method: 'POST',
-      headers: {
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify(batch),
-    });
-    if (!res.ok) {
-      return json({ error: 'Insert failed', detail: await res.text(), insertedTotal }, 500);
+    // 1. Load all daily notes that have any tasks markdown (no supabaseGet —
+    //    we want to surface REST errors as JSON, not throw them).
+    let notes = [];
+    try {
+      const notesRes = await fetch(
+        `${supabaseUrl}/rest/v1/daily_notes?tasks=not.is.null&tasks=neq.&select=id,note_date,tasks&order=note_date.asc&limit=2000`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+      );
+      if (!notesRes.ok) {
+        return json({ error: 'Failed to load daily_notes', detail: await notesRes.text() }, notesRes.status);
+      }
+      notes = await notesRes.json();
+    } catch (err) {
+      return json({ error: 'daily_notes fetch failed', detail: err?.message || String(err) }, 500);
     }
-    const rows = await res.json();
-    insertedTotal += rows.length;
-    // Kick off embeddings in the background for newly-inserted tasks
-    if (env.AI || env.CF_ACCOUNT_ID) {
-      for (const row of rows) {
-        ctx?.waitUntil(embedItem(env, 'tasks', row.id).catch(() => {}));
+
+    // 2. What's already in tasks for these daily notes? Chunk the in.(...)
+    //    lookup so the URL never exceeds Worker URL-length limits on large
+    //    backfills.
+    const noteIds = notes.map(n => n.id).filter(Boolean);
+    const existingBySource = new Map();
+    const CHUNK = 150; // ~150 uuids keeps the URL under ~6 kB
+    for (let i = 0; i < noteIds.length; i += CHUNK) {
+      const slice = noteIds.slice(i, i + CHUNK);
+      try {
+        const res = await fetch(
+          `${supabaseUrl}/rest/v1/tasks?source_table=eq.daily_notes&source_id=in.(${slice.join(',')})&select=id,title,source_id`,
+          { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+        );
+        if (!res.ok) {
+          const txt = await res.text();
+          // If the tasks table doesn't exist we just skip dedupe entirely.
+          if (!/relation.*does not exist|Could not find the table/i.test(txt)) {
+            return json({ error: 'Existing-tasks lookup failed', detail: txt }, res.status);
+          }
+        } else {
+          const existing = await res.json();
+          existing.forEach(t => existingBySource.set(`${t.source_id}|${(t.title || '').trim().toLowerCase()}`, t.id));
+        }
+      } catch (err) {
+        return json({ error: 'Existing-tasks lookup threw', detail: err?.message || String(err) }, 500);
       }
     }
-  }
 
-  return json({ ok: true, parsedBullets, inserted: insertedTotal, summary });
+    const toInsert = [];
+    let parsedBullets = 0;
+    const summary = [];
+
+    for (const note of notes) {
+      const lines = String(note.tasks || '').split('\n');
+      const perNote = { note_date: note.note_date, inserted: 0, skipped: 0, checked: 0, unchecked: 0 };
+      for (const rawLine of lines) {
+        // Match "- [ ] text", "- [x] text", "- [X] text" (and "* [ ]")
+        const m = rawLine.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/);
+        if (!m) continue;
+        parsedBullets++;
+        const isDone = m[1].toLowerCase() === 'x';
+        const title = m[2].trim();
+        if (!title) continue;
+        const key = `${note.id}|${title.toLowerCase()}`;
+        if (existingBySource.has(key)) { perNote.skipped++; continue; }
+        toInsert.push({
+          title,
+          status: isDone ? 'done' : 'todo',
+          completed_at: isDone ? new Date(note.note_date + 'T12:00:00Z').toISOString() : null,
+          source_table: 'daily_notes',
+          source_id: note.id,
+          source_ref: `Daily Note ${note.note_date}`,
+          due_date: null,
+          metadata: { backfilled_from: 'daily_notes.tasks', note_date: note.note_date },
+        });
+        perNote.inserted++;
+        if (isDone) perNote.checked++; else perNote.unchecked++;
+      }
+      if (perNote.inserted || perNote.skipped) summary.push(perNote);
+    }
+
+    if (dryRun) {
+      return json({ ok: true, dry_run: true, parsedBullets, wouldInsert: toInsert.length, summary });
+    }
+
+    // 3. Insert in chunks of 100. Skip embed-kickoff from the backfill path —
+    //    the admin's background drain will pick up the rows with embedded_at
+    //    IS NULL the next time the user opens the admin. Avoids blowing the
+    //    Worker's subrequest budget on a large backfill.
+    let insertedTotal = 0;
+    for (let i = 0; i < toInsert.length; i += 100) {
+      const batch = toInsert.slice(i, i + 100);
+      const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
+        method: 'POST',
+        headers: {
+          'apikey': serviceKey,
+          'Authorization': `Bearer ${serviceKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation',
+        },
+        body: JSON.stringify(batch),
+      });
+      if (!res.ok) {
+        return json({ error: 'Insert failed', detail: await res.text(), insertedTotal }, 500);
+      }
+      const rows = await res.json();
+      insertedTotal += rows.length;
+    }
+
+    return json({ ok: true, parsedBullets, inserted: insertedTotal, summary });
+  } catch (err) {
+    return json({ error: 'Backfill crashed', detail: err?.message || String(err), stack: err?.stack }, 500);
+  }
 }
 
 /**
