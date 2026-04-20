@@ -18258,7 +18258,7 @@
     // meta frame then refines the resolved date range.
     function askHomeDetectIntent(question) {
         const q = String(question || '').toLowerCase();
-        if (/\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar)\b/.test(q)) {
+        if (/\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar|interview|interviews|workshop|workshops|demo|demos|session|sessions)\b/.test(q)) {
             return 'meeting';
         }
         if (/\b(tasks?|to[- ]?dos?|todos?|priorit(?:y|ies)|plate|agenda)\b/.test(q) ||

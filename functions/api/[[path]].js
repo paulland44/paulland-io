@@ -3889,8 +3889,8 @@ function resolveTimeRange(q, today) {
 
 function resolveTimeIntent(question, today) {
   const q = String(question || '').toLowerCase();
-  const meetingHit = /\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar)\b/.test(q)
-    || /\bwhen(?:'s| is)?\s+my\s+(?:next\s+)?(?:meeting|call|event|1:1|one\s*on\s*one)\b/.test(q);
+  const meetingHit = /\b(meeting|meetings|call|calls|event|events|1:1|one\s*on\s*one|standup|sync|catchup|catch[- ]?up|webinar|interview|interviews|workshop|workshops|demo|demos|session|sessions)\b/.test(q)
+    || /\bwhen(?:'s| is)?\s+my\s+(?:next\s+)?(?:meeting|call|event|interview|1:1|one\s*on\s*one)\b/.test(q);
   const taskHit = /\b(tasks?|to[- ]?dos?|todos?|priorit(?:y|ies)|plate|agenda)\b/.test(q)
     || /\bwhat (?:do|have) i (?:need to |got to )?do\b/.test(q);
 
