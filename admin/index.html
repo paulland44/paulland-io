@@ -2984,6 +2984,57 @@
             display: none;
         }
 
+        .task-bucket {
+            background: transparent;
+            box-shadow: none;
+            margin-top: 0.5rem;
+        }
+        .task-bucket:first-child {
+            margin-top: 0;
+        }
+        .task-bucket > .task-bucket-header {
+            padding: 0.45rem 0.75rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.72rem;
+            background: var(--void);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+        }
+        .task-bucket-count {
+            margin-left: auto;
+            padding: 0.1rem 0.45rem;
+            border-radius: var(--radius-pill);
+            background: var(--border);
+            color: var(--text-muted);
+            font-size: 0.68rem;
+            font-weight: 500;
+            letter-spacing: 0;
+        }
+        .task-bucket.is-empty > .task-bucket-header .task-bucket-count {
+            opacity: 0.5;
+        }
+        .task-bucket.is-empty .daily-section-content {
+            display: none;
+        }
+        .daily-tasks-undated-link {
+            display: block;
+            width: 100%;
+            margin-top: 0.75rem;
+            padding: 0.5rem 0.75rem;
+            background: none;
+            border: 1px dashed var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            font-size: 0.78rem;
+            text-align: left;
+            cursor: pointer;
+            font-family: var(--sans);
+        }
+        .daily-tasks-undated-link:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+
         .review-entity-link {
             color: var(--accent);
             cursor: pointer;
@@ -6564,7 +6615,41 @@
                                 </select>
                                 <button type="submit" class="btn-action">Add</button>
                             </form>
-                            <div id="dailyTasksList"><div class="loading">Loading tasks\u2026</div></div>
+                            <div id="dailyTasksBuckets">
+                                <div class="task-bucket daily-section expanded" id="dailyTasksOverdue">
+                                    <div class="daily-section-header task-bucket-header" onclick="toggleDailySection('dailyTasksOverdue')">
+                                        <span class="section-chevron">&#x25BE;</span>
+                                        <span>Overdue</span>
+                                        <span class="task-bucket-count" id="dailyTasksOverdueCount">0</span>
+                                    </div>
+                                    <div class="daily-section-content">
+                                        <div id="dailyTasksOverdueList"></div>
+                                    </div>
+                                </div>
+                                <div class="task-bucket daily-section expanded" id="dailyTasksToday">
+                                    <div class="daily-section-header task-bucket-header" onclick="toggleDailySection('dailyTasksToday')">
+                                        <span class="section-chevron">&#x25BE;</span>
+                                        <span>Due Today</span>
+                                        <span class="task-bucket-count" id="dailyTasksTodayCount">0</span>
+                                    </div>
+                                    <div class="daily-section-content">
+                                        <div id="dailyTasksTodayList"><div class="loading">Loading tasks\u2026</div></div>
+                                    </div>
+                                </div>
+                                <div class="task-bucket daily-section" id="dailyTasksUpcoming">
+                                    <div class="daily-section-header task-bucket-header" onclick="toggleDailySection('dailyTasksUpcoming')">
+                                        <span class="section-chevron">&#x25BE;</span>
+                                        <span>Upcoming (14 days)</span>
+                                        <span class="task-bucket-count" id="dailyTasksUpcomingCount">0</span>
+                                    </div>
+                                    <div class="daily-section-content">
+                                        <div id="dailyTasksUpcomingList"></div>
+                                    </div>
+                                </div>
+                                <button type="button" class="daily-tasks-undated-link" id="dailyTasksUndatedBtn" style="display:none">
+                                    <span id="dailyTasksUndatedCount">0</span> undated task<span id="dailyTasksUndatedPlural">s</span> &rarr; manage in Tasks view
+                                </button>
+                            </div>
                             <details class="daily-tasks-archive" id="dailyTasksArchive" style="display:none">
                                 <summary>Archived task markdown (frozen)</summary>
                                 <div class="ask-answer" id="dailyTasksArchiveBody"></div>
@@ -7214,49 +7299,94 @@
 
     // ─── Live tasks inside the daily-note view ────────────────────
     async function refreshDailyTasksList() {
-        const list = document.getElementById('dailyTasksList');
-        if (!list || !dailyNoteDate) return;
-        list.innerHTML = '<div class="loading">Loading tasks…</div>';
+        if (!dailyNoteDate) return;
+        const overdueList = document.getElementById('dailyTasksOverdueList');
+        const todayList = document.getElementById('dailyTasksTodayList');
+        const upcomingList = document.getElementById('dailyTasksUpcomingList');
+        if (!overdueList || !todayList || !upcomingList) return;
 
-        // Show tasks whose due_date matches this note's date OR whose source
-        // links back to this daily_note. Union is done client-side via two
-        // fetches because /api/tasks only accepts one filter at a time.
-        const byDueRes = await fetch(`/api/tasks?status=all&client_date=${encodeURIComponent(dailyNoteDate)}&due=today`, { headers: {} })
-            .then(r => r.ok ? r.json() : { tasks: [] }).catch(() => ({ tasks: [] }));
-        // Override due=today semantics by calling with no filter and doing client-side match:
-        // simpler — fetch by source_id when we have it, always fetch by due_date=note_date
-        const byDue = (byDueRes.tasks || []).filter(t => t.due_date === dailyNoteDate);
+        todayList.innerHTML = '<div class="loading">Loading tasks…</div>';
+        overdueList.innerHTML = '';
+        upcomingList.innerHTML = '';
 
-        let bySource = [];
-        if (dailyNoteId) {
-            const res = await fetch(`/api/tasks?status=all&source_table=daily_notes&source_id=${encodeURIComponent(dailyNoteId)}&limit=200`)
-                .then(r => r.ok ? r.json() : { tasks: [] }).catch(() => ({ tasks: [] }));
-            bySource = res.tasks || [];
+        const res = await fetch(`/api/tasks?status=open&client_date=${encodeURIComponent(dailyNoteDate)}&limit=500`)
+            .then(r => r.ok ? r.json() : { tasks: [] })
+            .catch(() => ({ tasks: [] }));
+        const all = res.tasks || [];
+
+        const today = dailyNoteDate;
+        const addDaysIso = (iso, days) => {
+            const d = new Date(iso + 'T12:00:00Z');
+            d.setUTCDate(d.getUTCDate() + days);
+            return d.toISOString().slice(0, 10);
+        };
+        const upcomingCutoff = addDaysIso(today, 14);
+
+        const buckets = { overdue: [], today: [], upcoming: [], undated: [] };
+        for (const t of all) {
+            if (!t.due_date) {
+                // Tasks sourced from *this* daily note without a due_date still
+                // belong in Due Today (the add-form on this page defaults to
+                // today, but legacy rows may not have it).
+                if (t.source_table === 'daily_notes' && dailyNoteId && t.source_id === dailyNoteId) {
+                    buckets.today.push(t);
+                } else {
+                    buckets.undated.push(t);
+                }
+            } else if (t.due_date < today) buckets.overdue.push(t);
+            else if (t.due_date === today) buckets.today.push(t);
+            else if (t.due_date <= upcomingCutoff) buckets.upcoming.push(t);
+            // tasks further out than 14d are hidden from the daily view
         }
 
-        // Union by id; prefer ordering by due_date then created_at
-        const seen = new Set();
-        const combined = [];
-        for (const t of [...byDue, ...bySource]) {
-            if (seen.has(t.id)) continue;
-            seen.add(t.id);
-            combined.push(t);
-        }
-        combined.sort((a, b) => {
-            if ((a.status === 'done') !== (b.status === 'done')) return a.status === 'done' ? 1 : -1;
+        const sortFn = (a, b) => {
+            const ad = a.due_date || '9999-12-31';
+            const bd = b.due_date || '9999-12-31';
+            if (ad !== bd) return ad.localeCompare(bd);
             const p = { high: 0, medium: 1, low: 2 };
             const pa = p[a.priority] ?? 3, pb = p[b.priority] ?? 3;
             if (pa !== pb) return pa - pb;
             return (a.created_at || '').localeCompare(b.created_at || '');
-        });
+        };
+        buckets.overdue.sort(sortFn);
+        buckets.today.sort(sortFn);
+        buckets.upcoming.sort(sortFn);
 
-        if (!combined.length) {
-            list.innerHTML = `<div class="empty" style="padding:1rem; color:var(--text-muted); font-size:0.85rem">No tasks for this day yet. Add one above or set the due date on an existing task.</div>`;
-            return;
+        const renderBucket = (bucketId, listEl, rows, emptyMsg) => {
+            const bucketEl = document.getElementById(bucketId);
+            const countEl = document.getElementById(bucketId + 'Count');
+            if (countEl) countEl.textContent = rows.length;
+            if (!rows.length) {
+                if (bucketEl) bucketEl.classList.add('is-empty');
+                listEl.innerHTML = `<div class="empty" style="padding:0.5rem 0.75rem; color:var(--text-muted); font-size:0.8rem">${emptyMsg}</div>`;
+                return;
+            }
+            if (bucketEl) bucketEl.classList.remove('is-empty');
+            listEl.innerHTML = rows.map(t => taskRowHTML(t)).join('');
+            wireTaskRowEvents(listEl, rows, () => refreshDailyTasksList());
+        };
+
+        renderBucket('dailyTasksOverdue', overdueList, buckets.overdue, 'No overdue tasks.');
+        renderBucket('dailyTasksToday', todayList, buckets.today, 'No tasks for this day yet. Add one above or set the due date on an existing task.');
+        renderBucket('dailyTasksUpcoming', upcomingList, buckets.upcoming, 'No tasks due in the next 14 days.');
+
+        const undatedBtn = document.getElementById('dailyTasksUndatedBtn');
+        const undatedCount = document.getElementById('dailyTasksUndatedCount');
+        const undatedPlural = document.getElementById('dailyTasksUndatedPlural');
+        if (undatedBtn && undatedCount) {
+            if (buckets.undated.length) {
+                undatedBtn.style.display = '';
+                undatedCount.textContent = buckets.undated.length;
+                if (undatedPlural) undatedPlural.textContent = buckets.undated.length === 1 ? '' : 's';
+                undatedBtn.onclick = () => {
+                    tasksState.filter = 'undated';
+                    navigateToView('tasks');
+                };
+            } else {
+                undatedBtn.style.display = 'none';
+            }
         }
 
-        list.innerHTML = combined.map(t => taskRowHTML(t)).join('');
-        wireTaskRowEvents(list, combined, () => refreshDailyTasksList());
         refreshIcons();
     }
 
@@ -16217,7 +16347,7 @@
         ]},
         { name: 'daily_review_write', desc: 'Write structured review results to database', group: 'AI Workflows', params: 2, paramDetails: [
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
-            { name: 'review_data', type: 'object', desc: 'people_entries, product_evidence, product_decisions, project_updates, reflections, migrated_tasks, context_notes, review_summary' },
+            { name: 'review_data', type: 'object', desc: 'people_entries, product_evidence, product_decisions, project_updates, reflections, task_actions, context_notes, review_summary' },
         ]},
         { name: 'weekly_summary_extract', desc: 'Fetch week data + entity context + prompt for summary', group: 'AI Workflows', params: 1, paramDetails: [
             { name: 'week', type: 'string', desc: 'ISO week, e.g. "2026-W13"' },
@@ -17178,6 +17308,8 @@
         today: 'Due today',
         week: 'Due this week',
         overdue: 'Overdue',
+        upcoming: 'Upcoming',
+        undated: 'Undated',
         done: 'Completed',
         cancelled: 'Cancelled',
         all: 'All tasks',
@@ -17281,6 +17413,8 @@
             else if (tasksState.filter === 'today') { params.set('status', 'open'); params.set('due', 'today'); }
             else if (tasksState.filter === 'week') { params.set('status', 'open'); params.set('due', 'week'); }
             else if (tasksState.filter === 'overdue') { params.set('status', 'open'); params.set('due', 'overdue'); }
+            else if (tasksState.filter === 'upcoming') { params.set('status', 'open'); params.set('due', 'upcoming'); }
+            else if (tasksState.filter === 'undated') { params.set('status', 'open'); params.set('due', 'undated'); }
         } else if (tasksState.filter === 'open') {
             params.set('status', 'open');
         } else {

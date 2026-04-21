@@ -1911,23 +1911,30 @@ async function handleDailyReview(request, env, ctx) {
     }
   }
 
-  // 2c. Fetch today's open tasks from the first-class tasks table. These
-  //     are passed as a JSON block to the prompt; the LLM then returns
-  //     task_actions (close / migrate / cancel / create) rather than
-  //     parsing markdown bullets.
+  // 2c. Fetch today's + overdue open tasks from the first-class tasks table.
+  //     These are passed as JSON blocks to the prompt; the LLM then returns
+  //     task_actions (close / reschedule / cancel / create) rather than
+  //     parsing markdown bullets. Overdue is its own triage queue — the
+  //     model decides per-task rather than bulk-migrating.
   let todaysTasks = [];
+  let overdueTasks = [];
   try {
     const orFilter = `or=(due_date.eq.${note_date},and(source_table.eq.daily_notes,source_id.eq.${dailyNote.id}))`;
     todaysTasks = await supabaseGet(supabaseUrl, serviceKey,
       `tasks?${orFilter}&status=in.(todo,doing,blocked)&select=id,title,priority,due_date,source_ref&limit=200&order=priority.asc.nullslast,created_at.asc`);
   } catch (err) {
-    // Non-fatal — proceed with an empty list if the tasks table is missing
     todaysTasks = [];
+  }
+  try {
+    overdueTasks = await supabaseGet(supabaseUrl, serviceKey,
+      `tasks?due_date=lt.${note_date}&status=in.(todo,doing,blocked)&select=id,title,priority,due_date,source_ref&limit=200&order=due_date.asc,priority.asc.nullslast`);
+  } catch (err) {
+    overdueTasks = [];
   }
 
   // 3. Build the prompt
   const systemPrompt = buildReviewSystemPrompt(peopleNames, productNames, projectNames);
-  const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages, todaysTasks);
+  const userPrompt = buildReviewUserPrompt(dailyNote, note_date, includedImages, todaysTasks, overdueTasks);
 
   // 4. Call LLM — send text + any image blocks (with fallback)
   const userContent = imageBlocks.length
@@ -1986,7 +1993,7 @@ async function handleDailyReview(request, env, ctx) {
         ...existingMeta,
         last_reviewed: new Date().toISOString(),
         review_summary: aiResult.review_summary || '',
-        migrated_tasks: aiResult.migrated_tasks || [],
+        task_actions: aiResult.task_actions || [],
         context_notes: aiResult.context_notes || [],
         review_data: aiResult,
         review_writes: writeResults,
@@ -2019,15 +2026,8 @@ async function handleDailyReview(request, env, ctx) {
  * table. Returns a summary `{closed, migrated, cancelled, created, errors}`.
  */
 async function executeTaskActions(supabaseUrl, serviceKey, actions, { dailyNote, note_date }) {
-  const summary = { closed: 0, migrated: 0, cancelled: 0, created: 0, errors: [] };
+  const summary = { closed: 0, rescheduled: 0, cancelled: 0, created: 0, errors: [] };
   if (!Array.isArray(actions) || !actions.length) return summary;
-
-  // Tomorrow as the default migrate target
-  const nextDate = (() => {
-    const d = new Date(note_date + 'T12:00:00Z');
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
 
   const patch = async (id, body) => {
     const res = await fetch(`${supabaseUrl}/rest/v1/tasks?id=eq.${id}`, {
@@ -2045,17 +2045,22 @@ async function executeTaskActions(supabaseUrl, serviceKey, actions, { dailyNote,
 
   for (const action of actions) {
     try {
-      switch (action?.action) {
+      // Accept legacy "migrate" as a synonym for "reschedule" for backwards
+      // compat with any in-flight prompts that still use the old verb.
+      const verb = action?.action === 'migrate' ? 'reschedule' : action?.action;
+      switch (verb) {
         case 'close':
           if (!action.id) throw new Error('close requires id');
           await patch(action.id, { status: 'done' });
           summary.closed++;
           break;
-        case 'migrate': {
-          if (!action.id) throw new Error('migrate requires id');
-          const due = /^\d{4}-\d{2}-\d{2}$/.test(action.due_date || '') ? action.due_date : nextDate;
-          await patch(action.id, { due_date: due });
-          summary.migrated++;
+        case 'reschedule': {
+          if (!action.id) throw new Error('reschedule requires id');
+          if (!/^\d{4}-\d{2}-\d{2}$/.test(action.due_date || '')) {
+            throw new Error('reschedule requires explicit due_date (YYYY-MM-DD)');
+          }
+          await patch(action.id, { due_date: action.due_date });
+          summary.rescheduled++;
           break;
         }
         case 'cancel':
@@ -2110,7 +2115,7 @@ Your job is to process his daily note and extract structured information into a 
 3. **Product decisions**: Decisions made about products (strategic, not tactical).
 4. **Project updates**: Updates about specific projects.
 5. **Reflections**: Leadership observations, coaching insights, self-awareness moments.
-6. **Task actions**: For each task in \`tasks_for_today\`, decide what should happen to it — and optionally propose new tasks from action items mentioned in notes/meetings.
+6. **Task actions**: For each task in \`tasks_for_today\`, decide what should happen to it. Triage every task in \`overdue_tasks\` with an explicit decision (close, cancel, or reschedule to a specific date). Optionally propose new tasks from action items mentioned in notes/meetings.
 7. **Context notes**: Key context from today that would help prepare for tomorrow's meetings.
 
 ## Known People
@@ -2123,13 +2128,17 @@ ${productNames.join(', ')}
 ${projectNames.join(', ')}
 
 ## Task Actions
-Tasks for this day are provided as a JSON array under \`tasks_for_today\`. Each task has \`id\`, \`title\`, \`priority\`, \`due_date\`, \`source_ref\`. For each task, decide whether to:
-- \`close\` — notes/meetings clearly indicate the task was completed today
-- \`migrate\` — it wasn't done and should carry forward (optionally specify \`due_date\` as YYYY-MM-DD; default is tomorrow)
-- \`cancel\` — it was abandoned or is no longer relevant
-- Leave untouched — omit from task_actions entirely if the task is still actively in progress or there's no clear signal
+Tasks are first-class rows. The user prompt provides two JSON arrays:
+- \`tasks_for_today\` — tasks due today or sourced from this note
+- \`overdue_tasks\` — open tasks with a due_date earlier than today
 
-Be conservative with \`close\` — only when completion is explicit. Be liberal with \`migrate\` — if unsure, carry it forward rather than silently abandoning.
+For each task, return a \`task_actions\` entry. Allowed actions:
+- \`close\` — notes/meetings clearly indicate the task was completed today.
+- \`reschedule\` — the task needs to move. **Always include an explicit \`due_date\` (YYYY-MM-DD).** Pick a realistic date per task based on the notes — do not bulk-bump everything to tomorrow. Overdue tasks stay overdue and visible until explicitly acted on.
+- \`cancel\` — the task is no longer relevant or was abandoned.
+- Omit the task entirely from \`task_actions\` if it's still actively in progress with no clear signal.
+
+Be conservative with \`close\` — only when completion is explicit. Prefer leaving an overdue task alone over blindly rescheduling it; the overdue section is designed to stay visible as a triage queue.
 
 You may also propose \`create\` actions for clearly actionable new items mentioned in the notes/meetings — e.g. "I said I'd send Geert the timeline" or "Need to draft the Q3 plan by Friday". Only create when the action is unambiguous; don't invent tasks from vague intent.
 
@@ -2158,9 +2167,9 @@ Respond with ONLY a JSON object (no markdown wrapping, no explanation) with this
     { "observation": "The reflection/insight", "coach_perspective": "Brief coaching response", "category": "leadership|coaching|personal" }
   ],
   "task_actions": [
-    { "id": "<uuid-from-tasks_for_today>", "action": "close" },
-    { "id": "<uuid-from-tasks_for_today>", "action": "migrate", "due_date": "YYYY-MM-DD" },
-    { "id": "<uuid-from-tasks_for_today>", "action": "cancel" },
+    { "id": "<uuid-from-tasks_for_today-or-overdue_tasks>", "action": "close" },
+    { "id": "<uuid-from-tasks_for_today-or-overdue_tasks>", "action": "reschedule", "due_date": "YYYY-MM-DD" },
+    { "id": "<uuid-from-tasks_for_today-or-overdue_tasks>", "action": "cancel" },
     { "action": "create", "title": "New task title", "priority": "high|medium|low", "due_date": "YYYY-MM-DD" }
   ],
   "context_notes": [
@@ -2171,23 +2180,29 @@ Respond with ONLY a JSON object (no markdown wrapping, no explanation) with this
 
 IMPORTANT:
 - Only include entries where there is genuine content to extract. Empty arrays are fine.
-- For task_actions, use the exact \`id\` from \`tasks_for_today\` — copy it verbatim. Do not invent ids.
+- For task_actions, use the exact \`id\` from \`tasks_for_today\` or \`overdue_tasks\` — copy it verbatim. Do not invent ids.
 - Match person/product/project names EXACTLY to the known lists above. If unsure, use the closest match.
 - Keep entries concise but complete. Each entry should stand on its own without needing the daily note for context.
 - The review_summary should capture the day's themes, not list every meeting.
 - CRITICAL: Do NOT create people entries from tasks. Tasks like "Follow up with X" or "Speak to Y about Z" are action items, not observations. People entries should ONLY come from actual meeting notes, conversations, or written observations.`;
 }
 
-function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = [], todaysTasks = []) {
+function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = [], todaysTasks = [], overdueTasks = []) {
   let prompt = `## Daily Note for ${noteDate}\n\n`;
 
-  // Tasks come from the first-class `tasks` table now, not the deprecated
-  // daily_notes.tasks markdown column. Render as a JSON array so the model
-  // can cite ids verbatim in task_actions.
+  // Tasks come from the first-class `tasks` table. Render as JSON arrays so
+  // the model can cite ids verbatim in task_actions. Overdue tasks are a
+  // separate triage queue — the model should decide per-task whether to
+  // close/cancel/reschedule or leave visible.
   prompt += `### Tasks for today (JSON)\n`;
   prompt += Array.isArray(todaysTasks) && todaysTasks.length
     ? '```json\n' + JSON.stringify(todaysTasks, null, 2) + '\n```\n\n'
     : '(no open tasks for this day)\n\n';
+
+  prompt += `### Overdue tasks (JSON) — triage each\n`;
+  prompt += Array.isArray(overdueTasks) && overdueTasks.length
+    ? '```json\n' + JSON.stringify(overdueTasks, null, 2) + '\n```\n\n'
+    : '(no overdue open tasks)\n\n';
 
   if (dailyNote.notes) {
     prompt += `### Notes & Thoughts\n${dailyNote.notes}\n\n`;
@@ -2822,7 +2837,7 @@ function buildTaskPatch(input) {
 }
 
 /**
- * GET /api/tasks?status=open|todo|done|all&due=today|week|overdue&source_table=...&source_id=...&tag=...&limit=50
+ * GET /api/tasks?status=open|todo|done|all&due=today|week|overdue|upcoming|undated&source_table=...&source_id=...&tag=...&limit=50
  */
 async function handleTasksList(request, env) {
   const supabaseUrl = env.SUPABASE_URL;
@@ -2831,7 +2846,7 @@ async function handleTasksList(request, env) {
 
   const url = new URL(request.url);
   const status = url.searchParams.get('status') || 'open';    // open | todo | doing | blocked | done | all
-  const due = url.searchParams.get('due');                     // today | week | overdue | anytime
+  const due = url.searchParams.get('due');                     // today | week | overdue | upcoming | undated | anytime
   const sourceTable = url.searchParams.get('source_table');
   const sourceId = url.searchParams.get('source_id');
   const tag = url.searchParams.get('tag');
@@ -2855,6 +2870,11 @@ async function handleTasksList(request, env) {
     filters.push(`due_date=lte.${sunday}`);
   } else if (due === 'overdue') {
     filters.push(`due_date=lt.${clientDate}`);
+    filters.push('status=not.in.(done,cancelled)');
+  } else if (due === 'upcoming') {
+    filters.push(`due_date=gt.${clientDate}`);
+  } else if (due === 'undated') {
+    filters.push('due_date=is.null');
     filters.push('status=not.in.(done,cancelled)');
   }
 

@@ -1012,9 +1012,11 @@ server.tool(
         .replace('{{problems_list}}', problemsList || '(none loaded)');
     }
 
-    // Fetch today's open tasks from the first-class tasks table. The review
-    // prompt consumes these as structured JSON and returns task_actions.
+    // Fetch today's open tasks and any overdue open tasks. The review prompt
+    // consumes these as structured JSON and returns task_actions (close,
+    // reschedule to an explicit date, cancel, or create new).
     let todaysTasks: any[] = [];
+    let overdueTasks: any[] = [];
     try {
       const orFilter = `or=(due_date.eq.${date},and(source_table.eq.daily_notes,source_id.eq.${dailyNote.id}))`;
       todaysTasks = await supabaseGet(
@@ -1023,6 +1025,13 @@ server.tool(
     } catch {
       todaysTasks = [];
     }
+    try {
+      overdueTasks = await supabaseGet(
+        `tasks?due_date=lt.${date}&status=in.(todo,doing,blocked)&select=id,title,priority,due_date,source_ref&limit=200&order=due_date.asc,priority.asc.nullslast`
+      );
+    } catch {
+      overdueTasks = [];
+    }
 
     // Build the user prompt (same as API version)
     let userPrompt = `## Daily Note for ${date}\n\n`;
@@ -1030,6 +1039,10 @@ server.tool(
     userPrompt += todaysTasks.length
       ? '```json\n' + JSON.stringify(todaysTasks, null, 2) + '\n```\n\n'
       : '(no open tasks for this day)\n\n';
+    userPrompt += `### Overdue tasks (JSON) — triage each\n`;
+    userPrompt += overdueTasks.length
+      ? '```json\n' + JSON.stringify(overdueTasks, null, 2) + '\n```\n\n'
+      : '(no overdue open tasks)\n\n';
     if (dailyNote.notes)
       userPrompt += `### Notes & Thoughts\n${dailyNote.notes}\n\n`;
     if (dailyNote.meetings)
@@ -1064,7 +1077,7 @@ server.tool(
     }
 
     const baseInstructions =
-      'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, task_actions (close/migrate/cancel existing tasks by id, optionally create new tasks), context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. Return as JSON. Then call daily_review_write with the results.';
+      'Process this daily note and extract: people_entries, product_evidence, product_decisions, project_updates, reflections, task_actions (close/reschedule/cancel existing tasks by id, or create new tasks), context_notes, problem_observations (if any meetings or notes relate to known problems), and review_summary. For task_actions: use "close" for anything clearly done in the notes; "reschedule" with an explicit due_date (YYYY-MM-DD) for tasks that need to move — never use the review to bulk-bump everything to tomorrow, pick a realistic date per task; "cancel" for tasks no longer relevant; "create" for new follow-ups found in the notes. Return as JSON. Then call daily_review_write with the results.';
     const imageInstructions = includedImages.length
       ? ` The ${includedImages.length} image block(s) that follow this text are photos/screenshots attached to the daily note. Read any visible text (handwriting, chat screenshots, whiteboards, diagrams, receipts) and treat it as first-class source material alongside the typed notes. When an image materially contributes to an entry, cite it as [image: filename] in the relevant field.`
       : '';
@@ -1081,6 +1094,7 @@ server.tool(
               known_projects: projectNames,
               known_problems: problemsList,
               todays_tasks: todaysTasks,
+              overdue_tasks: overdueTasks,
               system_prompt: systemPrompt,
               user_prompt_template: prompt?.user_prompt_template || null,
               prompt_version: prompt?.version || null,
@@ -1157,11 +1171,11 @@ server.tool(
         task_actions: z
           .array(
             z.object({
-              id: z.string().optional().describe('Task UUID (required for close/migrate/cancel)'),
-              action: z.enum(['close', 'migrate', 'cancel', 'create']).describe('Action to take'),
+              id: z.string().optional().describe('Task UUID (required for close/reschedule/cancel)'),
+              action: z.enum(['close', 'reschedule', 'cancel', 'create']).describe('Action to take'),
               title: z.string().optional().describe('Title (required for create)'),
               priority: z.enum(['high', 'medium', 'low']).optional(),
-              due_date: z.string().optional().describe('YYYY-MM-DD — defaults to tomorrow for migrate, null for create'),
+              due_date: z.string().optional().describe('YYYY-MM-DD — required for reschedule, optional for create'),
             })
           )
           .optional()
@@ -1449,17 +1463,17 @@ server.tool(
       });
 
       // Execute task_actions against the first-class tasks table
-      const actionsSummary = { closed: 0, migrated: 0, cancelled: 0, created: 0, errors: [] as any[] };
+      const actionsSummary = { closed: 0, rescheduled: 0, cancelled: 0, created: 0, errors: [] as any[] };
       const taskActions = (review_data as any).task_actions || [];
       if (Array.isArray(taskActions) && taskActions.length) {
-        const d = new Date(date + 'T12:00:00Z');
-        d.setDate(d.getDate() + 1);
-        const nextDate = d.toISOString().split('T')[0];
         const isoRe = /^\d{4}-\d{2}-\d{2}$/;
 
         for (const action of taskActions) {
           try {
-            switch (action?.action) {
+            // Accept legacy "migrate" as a synonym for "reschedule" so the
+            // write still works if an older prompt is in use.
+            const verb = action?.action === 'migrate' ? 'reschedule' : action?.action;
+            switch (verb) {
               case 'close': {
                 if (!action.id) throw new Error('close requires id');
                 const r = await supabasePatch(`tasks?id=eq.${action.id}`, { status: 'done' });
@@ -1467,12 +1481,14 @@ server.tool(
                 actionsSummary.closed++;
                 break;
               }
-              case 'migrate': {
-                if (!action.id) throw new Error('migrate requires id');
-                const due = isoRe.test(action.due_date || '') ? action.due_date : nextDate;
-                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { due_date: due });
+              case 'reschedule': {
+                if (!action.id) throw new Error('reschedule requires id');
+                if (!isoRe.test(action.due_date || '')) {
+                  throw new Error('reschedule requires explicit due_date (YYYY-MM-DD)');
+                }
+                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { due_date: action.due_date });
                 if (!r.ok) throw new Error(r.error || 'patch failed');
-                actionsSummary.migrated++;
+                actionsSummary.rescheduled++;
                 break;
               }
               case 'cancel': {
@@ -6166,7 +6182,7 @@ server.tool(
 
 server.tool(
   'list_tasks',
-  'List tasks with filters. Defaults to open (not done). Filter by status, due window (today/week/overdue), source, tag, or priority. Returns count + task rows.',
+  'List tasks with filters. Defaults to open (not done). Filter by status, due window (today/week/overdue/upcoming/undated), source, tag, or priority. Returns count + task rows.',
   {
     status: z
       .enum(['open', 'todo', 'doing', 'done', 'blocked', 'all'])
@@ -6174,9 +6190,9 @@ server.tool(
       .default('open')
       .describe('"open" = not done; others filter to that status; "all" = no filter'),
     due: z
-      .enum(['today', 'week', 'overdue', 'anytime'])
+      .enum(['today', 'week', 'overdue', 'upcoming', 'undated', 'anytime'])
       .optional()
-      .describe('Date window: today, current ISO week, overdue (< today & not done), or anytime'),
+      .describe('Date window: today, current ISO week, overdue (< today & not done), upcoming (> today), undated (no due_date & not done), or anytime'),
     priority: z.enum(['high', 'medium', 'low']).optional(),
     source_table: z.string().optional().describe('Filter to tasks linked to a source table'),
     source_id: z.string().optional().describe('Filter to tasks linked to a specific source row'),
@@ -6201,6 +6217,11 @@ server.tool(
     if (due === 'today') filters.push(`due_date=eq.${today}`);
     else if (due === 'overdue') {
       filters.push(`due_date=lt.${today}`);
+      filters.push('status=neq.done');
+    } else if (due === 'upcoming') {
+      filters.push(`due_date=gt.${today}`);
+    } else if (due === 'undated') {
+      filters.push('due_date=is.null');
       filters.push('status=neq.done');
     } else if (due === 'week') {
       const d = new Date(today + 'T00:00:00Z');
@@ -6327,14 +6348,19 @@ Your job is to process his daily note and extract structured information into a 
 3. **Product decisions**: Decisions made about products (strategic, not tactical).
 4. **Project updates**: Updates about specific projects.
 5. **Reflections**: Leadership observations, coaching insights, self-awareness moments.
-6. **Migrated tasks**: Tasks marked [>] or still open [ ] that should carry forward to tomorrow.
+6. **Task actions**: Decide an action per task in \`todays_tasks\` (close/cancel/reschedule/leave) and triage every task in \`overdue_tasks\` (close, cancel, or reschedule with an explicit new due_date). Also create new tasks surfaced by the notes.
 7. **Context notes**: Key context from today that would help prepare for tomorrow's meetings.
 
-## Task Notation
-- \`[ ]\` = open (not done)
-- \`[x]\` = done
-- \`[>]\` = migrated (carry forward)
-- \`[-]\` = cancelled
+## Task Actions
+
+Tasks are first-class rows. The extract provides \`todays_tasks\` and \`overdue_tasks\` as JSON. For each action, return a \`task_actions\` entry:
+
+- \`{ "id": "<uuid>", "action": "close" }\` — task is clearly done per the notes.
+- \`{ "id": "<uuid>", "action": "reschedule", "due_date": "YYYY-MM-DD" }\` — task needs to move. **Pick a realistic date per task** (not just tomorrow). If there's no signal, leave the task alone.
+- \`{ "id": "<uuid>", "action": "cancel" }\` — task is no longer relevant.
+- \`{ "action": "create", "title": "…", "due_date": "YYYY-MM-DD" (optional), "priority": "high|medium|low" (optional) }\` — new follow-up found in the notes.
+
+Do NOT bulk-reschedule everything to tomorrow. Overdue tasks stay overdue and visible until explicitly acted on.
 
 ## Output Format
 Respond with ONLY a JSON object with this structure:
@@ -6344,7 +6370,7 @@ Respond with ONLY a JSON object with this structure:
   "product_decisions": [{ "product_name": "Exact Product", "decision": "...", "context": "..." }],
   "project_updates": [{ "project_name": "Exact Project", "update": "..." }],
   "reflections": [{ "observation": "...", "coach_perspective": "...", "category": "leadership|coaching|personal" }],
-  "migrated_tasks": ["Task text to carry forward"],
+  "task_actions": [{ "id": "…", "action": "close|reschedule|cancel|create", "title": "…", "due_date": "YYYY-MM-DD", "priority": "high|medium|low" }],
   "context_notes": [{ "meeting_title": "...", "context": "..." }],
   "review_summary": "2-3 sentence summary"
 }`,
