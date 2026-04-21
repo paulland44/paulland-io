@@ -1225,28 +1225,95 @@ server.tool(
       .describe('Structured review extraction results'),
   },
   async ({ date, review_data }) => {
-    // Fetch entity maps for ID lookups
-    const [people, products, projects] = await Promise.all([
+    // Fetch entity maps and today's daily note in parallel
+    const [people, products, projects, noteRes] = await Promise.all([
       supabaseGet('people?select=id,name&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet('projects?select=id,name,product_id&order=name'),
+      supabaseGet(`daily_notes?note_date=eq.${date}&limit=1`),
     ]);
 
     const peopleMap: Record<string, string> = {};
-    people.forEach((p: any) => {
-      peopleMap[p.name.toLowerCase()] = p.id;
-    });
+    people.forEach((p: any) => { peopleMap[p.name.toLowerCase()] = p.id; });
     const productMap: Record<string, string> = {};
-    products.forEach((p: any) => {
-      productMap[p.name.toLowerCase()] = p.id;
-    });
+    products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
     const projectMap: Record<string, string> = {};
-    projects.forEach((p: any) => {
-      projectMap[p.name.toLowerCase()] = p.id;
-    });
+    projects.forEach((p: any) => { projectMap[p.name.toLowerCase()] = p.id; });
 
+    const dailyNote = noteRes?.[0] || null;
     const sourceRef = { daily_note_date: date };
-    const results = {
+
+    // Write review metadata EARLY so the UI renders the review block even if
+    // subsequent writes fail partway through. The tail patch below fills in
+    // the per-table counts once writes complete.
+    if (dailyNote) {
+      const existingMeta = dailyNote.metadata || {};
+      await supabasePatch(`daily_notes?note_date=eq.${date}`, {
+        metadata: {
+          ...existingMeta,
+          last_reviewed: new Date().toISOString(),
+          review_summary: review_data.review_summary,
+          task_actions: (review_data as any).task_actions || [],
+          context_notes: review_data.context_notes,
+          review_data,
+        },
+      });
+    }
+
+    // Build batch rows for each log table (filter invalid entries, map name → id)
+    const peopleLogRows = review_data.people_entries
+      .map((e: any) => {
+        const pid = peopleMap[e.person_name?.toLowerCase()];
+        if (!pid || !e.entry) return null;
+        return { person_id: pid, note_date: date, entry: e.entry, source: 'daily_review', source_ref: sourceRef };
+      })
+      .filter(Boolean);
+
+    const productEvidenceRows = review_data.product_evidence
+      .map((e: any) => {
+        const pid = productMap[e.product_name?.toLowerCase()];
+        if (!pid || !e.evidence) return null;
+        return { product_id: pid, note_date: date, evidence: e.evidence, evidence_type: e.evidence_type || 'observation', source_ref: sourceRef };
+      })
+      .filter(Boolean);
+
+    const productDecisionRows = review_data.product_decisions
+      .map((e: any) => {
+        if (!e.decision) return null;
+        const pid = productMap[e.product_name?.toLowerCase()];
+        return { product_id: pid || null, note_date: date, decision: e.decision, context: e.context || '', source_ref: sourceRef };
+      })
+      .filter(Boolean);
+
+    const projectUpdateRows = review_data.project_updates
+      .map((e: any) => {
+        const pid = projectMap[e.project_name?.toLowerCase()];
+        if (!pid || !e.update) return null;
+        return { project_id: pid, note_date: date, update_text: e.update, source_ref: sourceRef };
+      })
+      .filter(Boolean);
+
+    const reflectionRows = review_data.reflections
+      .map((e: any) => {
+        if (!e.observation) return null;
+        let personId: string | null = null;
+        if (e.category === 'coaching') {
+          for (const [name, id] of Object.entries(peopleMap)) {
+            if (e.observation.toLowerCase().includes(name)) { personId = id; break; }
+          }
+        }
+        return {
+          note_date: date,
+          observation: e.observation,
+          coach_perspective: e.coach_perspective || '',
+          category: e.category || 'leadership',
+          person_id: personId,
+          source_ref: sourceRef,
+        };
+      })
+      .filter(Boolean);
+
+    const results: Record<string, number> = {
       people_log: 0,
       product_evidence: 0,
       product_decisions: 0,
@@ -1254,85 +1321,29 @@ server.tool(
       reflections: 0,
     };
 
-    // Write people log entries
-    for (const entry of review_data.people_entries) {
-      const personId = peopleMap[entry.person_name?.toLowerCase()];
-      if (!personId || !entry.entry) continue;
-      await supabasePost('people_log', {
-        person_id: personId,
-        note_date: date,
-        entry: entry.entry,
-        source: 'daily_review',
-        source_ref: sourceRef,
-      });
-      results.people_log++;
+    // One batch POST per log table — 5 subrequests instead of up to 5×N
+    if (peopleLogRows.length) {
+      const r = await supabasePost('people_log', peopleLogRows);
+      if (r.ok) results.people_log = peopleLogRows.length;
+    }
+    if (productEvidenceRows.length) {
+      const r = await supabasePost('product_evidence', productEvidenceRows);
+      if (r.ok) results.product_evidence = productEvidenceRows.length;
+    }
+    if (productDecisionRows.length) {
+      const r = await supabasePost('product_decisions', productDecisionRows);
+      if (r.ok) results.product_decisions = productDecisionRows.length;
+    }
+    if (projectUpdateRows.length) {
+      const r = await supabasePost('project_updates', projectUpdateRows);
+      if (r.ok) results.project_updates = projectUpdateRows.length;
+    }
+    if (reflectionRows.length) {
+      const r = await supabasePost('reflections_log', reflectionRows);
+      if (r.ok) results.reflections = reflectionRows.length;
     }
 
-    // Write product evidence
-    for (const entry of review_data.product_evidence) {
-      const productId = productMap[entry.product_name?.toLowerCase()];
-      if (!productId || !entry.evidence) continue;
-      await supabasePost('product_evidence', {
-        product_id: productId,
-        note_date: date,
-        evidence: entry.evidence,
-        evidence_type: entry.evidence_type || 'observation',
-        source_ref: sourceRef,
-      });
-      results.product_evidence++;
-    }
-
-    // Write product decisions
-    for (const entry of review_data.product_decisions) {
-      const productId = productMap[entry.product_name?.toLowerCase()];
-      if (!entry.decision) continue;
-      await supabasePost('product_decisions', {
-        product_id: productId || null,
-        note_date: date,
-        decision: entry.decision,
-        context: entry.context || '',
-        source_ref: sourceRef,
-      });
-      results.product_decisions++;
-    }
-
-    // Write project updates
-    for (const entry of review_data.project_updates) {
-      const projectId = projectMap[entry.project_name?.toLowerCase()];
-      if (!projectId || !entry.update) continue;
-      await supabasePost('project_updates', {
-        project_id: projectId,
-        note_date: date,
-        update_text: entry.update,
-        source_ref: sourceRef,
-      });
-      results.project_updates++;
-    }
-
-    // Write reflections
-    for (const entry of review_data.reflections) {
-      if (!entry.observation) continue;
-      let personId = null;
-      if (entry.category === 'coaching') {
-        for (const [name, id] of Object.entries(peopleMap)) {
-          if (entry.observation.toLowerCase().includes(name)) {
-            personId = id;
-            break;
-          }
-        }
-      }
-      await supabasePost('reflections_log', {
-        note_date: date,
-        observation: entry.observation,
-        coach_perspective: entry.coach_perspective || '',
-        category: entry.category || 'leadership',
-        person_id: personId,
-        source_ref: sourceRef,
-      });
-      results.reflections++;
-    }
-
-    // Write problem observations — append evidence to matching problems
+    // Problem observations — sequential (each mutates a distinct row's body)
     let problemObsCount = 0;
     for (const obs of review_data.problem_observations) {
       if (!obs.problem_id || !obs.observation) continue;
@@ -1340,40 +1351,27 @@ server.tool(
         `content?type=eq.problem&metadata->>problem_id=eq.${obs.problem_id}&select=id,body&limit=1`
       );
       if (!problems.length) continue;
-
       const problem = problems[0];
       const evidenceSection = `\n\n---\n### Evidence from Daily Review ${date}${obs.evidence_type ? ` (${obs.evidence_type})` : ''}\n${obs.source_context ? `*Source: ${obs.source_context}*\n\n` : ''}${obs.observation}`;
-
       await supabasePatch(`content?id=eq.${problem.id}`, {
         body: (problem.body || '') + evidenceSection,
         updated_at: new Date().toISOString(),
       });
-
-      // Link daily note to problem
-      const noteForLink = await supabaseGet(`daily_notes?note_date=eq.${date}&select=id&limit=1`);
-      if (noteForLink.length) {
-        // Note: content_links requires content IDs — daily_notes are a different table
-        // We track this in the problem's body instead
-      }
-
       embedItem('content', problem.id).catch(() => {});
       problemObsCount++;
     }
-    (results as any).problem_observations = problemObsCount;
+    results.problem_observations = problemObsCount;
 
-    // Write persona updates
+    // Persona updates — sequential
     let personaUpdateCount = 0;
     for (const pu of review_data.persona_updates) {
       if (!pu.persona_name || !pu.observation) continue;
-      // Find persona by name (fuzzy match on title)
       const personas = await supabaseGet(
         `content?type=eq.reference&metadata->>reference_type=eq.persona&title=ilike.*${encodeURIComponent(pu.persona_name)}*&select=id,title,body&limit=1`
       );
       if (!personas.length) continue;
       const persona = personas[0];
-      const today = date;
 
-      // Map section name to markdown header
       const sectionHeaders: Record<string, string> = {
         pain_points: '## Pain Points', discovery_questions: '## Discovery Questions',
         goals: '## Goals & Motivations', workflow_stages: '## Workflow Stages',
@@ -1381,7 +1379,7 @@ server.tool(
         profile: '## Profile', buying_influence: '## Buying Influence',
       };
       const header = sectionHeaders[pu.section] || `## ${pu.section}`;
-      const updateBlock = `\n\n> **Update ${today}** (daily_review): ${pu.observation}`;
+      const updateBlock = `\n\n> **Update ${date}** (daily_review): ${pu.observation}`;
 
       let body = persona.body || '';
       const headerIdx = body.indexOf(header);
@@ -1398,16 +1396,16 @@ server.tool(
 
       await supabasePatch(`content?id=eq.${persona.id}`, { body, updated_at: new Date().toISOString() });
       await supabasePost('persona_log', {
-        content_id: persona.id, log_date: today, entry: pu.observation,
+        content_id: persona.id, log_date: date, entry: pu.observation,
         source: 'daily_review', source_ref: { daily_note_date: date, section: pu.section },
         section_updated: pu.section,
       });
       embedItem('content', persona.id).catch(() => {});
       personaUpdateCount++;
     }
-    (results as any).persona_updates = personaUpdateCount;
+    results.persona_updates = personaUpdateCount;
 
-    // Write research updates
+    // Research updates — sequential
     let researchUpdateCount = 0;
     for (const ru of review_data.research_updates) {
       if (!ru.content_title || !ru.observation) continue;
@@ -1416,24 +1414,23 @@ server.tool(
       );
       if (!items.length) continue;
       const item = items[0];
-      const today = date;
-      const updateBlock = `\n\n---\n### Update ${today} (daily_review)${ru.section ? ` — ${ru.section}` : ''}\n${ru.observation}`;
+      const updateBlock = `\n\n---\n### Update ${date} (daily_review)${ru.section ? ` — ${ru.section}` : ''}\n${ru.observation}`;
 
       await supabasePatch(`content?id=eq.${item.id}`, {
         body: (item.body || '') + updateBlock,
         updated_at: new Date().toISOString(),
       });
       await supabasePost('research_log', {
-        content_id: item.id, log_date: today, entry: ru.observation,
+        content_id: item.id, log_date: date, entry: ru.observation,
         source: 'daily_review', source_ref: { daily_note_date: date },
         section_updated: ru.section || null,
       });
       embedItem('content', item.id).catch(() => {});
       researchUpdateCount++;
     }
-    (results as any).research_updates = researchUpdateCount;
+    results.research_updates = researchUpdateCount;
 
-    // Create audit record
+    // Audit record
     await supabasePost('ai_reviews', {
       review_type: 'daily',
       source_date: date,
@@ -1443,115 +1440,135 @@ server.tool(
       completed_at: new Date().toISOString(),
     });
 
-    // Update daily note metadata
-    const noteRes = await supabaseGet(
-      `daily_notes?note_date=eq.${date}&limit=1`
-    );
-    if (noteRes.length) {
-      const dailyNote = noteRes[0];
-      const existingMeta = dailyNote.metadata || {};
-      await supabasePatch(`daily_notes?note_date=eq.${date}`, {
-        metadata: {
-          ...existingMeta,
-          last_reviewed: new Date().toISOString(),
-          review_summary: review_data.review_summary,
-          task_actions: (review_data as any).task_actions || [],
-          context_notes: review_data.context_notes,
-          review_data,
-          review_writes: results,
-        },
-      });
+    // Task actions — grouped by verb into batch calls
+    const actionsSummary = { closed: 0, rescheduled: 0, cancelled: 0, created: 0, errors: [] as any[] };
+    const taskActions = (review_data as any).task_actions || [];
+    if (Array.isArray(taskActions) && taskActions.length && dailyNote) {
+      const isoRe = /^\d{4}-\d{2}-\d{2}$/;
+      const closeIds: string[] = [];
+      const cancelIds: string[] = [];
+      const rescheduleGroups: Record<string, string[]> = {};
+      const createRows: any[] = [];
 
-      // Execute task_actions against the first-class tasks table
-      const actionsSummary = { closed: 0, rescheduled: 0, cancelled: 0, created: 0, errors: [] as any[] };
-      const taskActions = (review_data as any).task_actions || [];
-      if (Array.isArray(taskActions) && taskActions.length) {
-        const isoRe = /^\d{4}-\d{2}-\d{2}$/;
-
-        for (const action of taskActions) {
-          try {
-            // Accept legacy "migrate" as a synonym for "reschedule" so the
-            // write still works if an older prompt is in use.
-            const verb = action?.action === 'migrate' ? 'reschedule' : action?.action;
-            switch (verb) {
-              case 'close': {
-                if (!action.id) throw new Error('close requires id');
-                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { status: 'done' });
-                if (!r.ok) throw new Error(r.error || 'patch failed');
-                actionsSummary.closed++;
-                break;
-              }
-              case 'reschedule': {
-                if (!action.id) throw new Error('reschedule requires id');
-                if (!isoRe.test(action.due_date || '')) {
-                  throw new Error('reschedule requires explicit due_date (YYYY-MM-DD)');
-                }
-                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { due_date: action.due_date });
-                if (!r.ok) throw new Error(r.error || 'patch failed');
-                actionsSummary.rescheduled++;
-                break;
-              }
-              case 'cancel': {
-                if (!action.id) throw new Error('cancel requires id');
-                const r = await supabasePatch(`tasks?id=eq.${action.id}`, { status: 'cancelled' });
-                if (!r.ok) throw new Error(r.error || 'patch failed');
-                actionsSummary.cancelled++;
-                break;
-              }
-              case 'create': {
-                const title = (action.title || '').trim();
-                if (!title) throw new Error('create requires title');
-                const r = await supabasePost(
-                  'tasks',
-                  {
-                    title,
-                    status: 'todo',
-                    priority: ['high', 'medium', 'low'].includes(action.priority) ? action.priority : null,
-                    due_date: isoRe.test(action.due_date || '') ? action.due_date : null,
-                    source_table: 'daily_notes',
-                    source_id: dailyNote.id,
-                    source_ref: `Daily Note ${date}`,
-                    metadata: { created_by: 'daily_review', note_date: date },
-                  },
-                  false
-                );
-                if (!r.ok) throw new Error(r.error || 'post failed');
-                actionsSummary.created++;
-                break;
-              }
-              default:
-                throw new Error(`unknown action: ${action?.action}`);
+      for (const action of taskActions) {
+        try {
+          // Accept legacy "migrate" as a synonym for "reschedule"
+          const verb = action?.action === 'migrate' ? 'reschedule' : action?.action;
+          switch (verb) {
+            case 'close':
+              if (!action.id) throw new Error('close requires id');
+              closeIds.push(action.id);
+              break;
+            case 'cancel':
+              if (!action.id) throw new Error('cancel requires id');
+              cancelIds.push(action.id);
+              break;
+            case 'reschedule':
+              if (!action.id) throw new Error('reschedule requires id');
+              if (!isoRe.test(action.due_date || '')) throw new Error('reschedule requires explicit due_date (YYYY-MM-DD)');
+              (rescheduleGroups[action.due_date] ||= []).push(action.id);
+              break;
+            case 'create': {
+              const title = (action.title || '').trim();
+              if (!title) throw new Error('create requires title');
+              createRows.push({
+                title,
+                status: 'todo',
+                priority: ['high', 'medium', 'low'].includes(action.priority) ? action.priority : null,
+                due_date: isoRe.test(action.due_date || '') ? action.due_date : null,
+                source_table: 'daily_notes',
+                source_id: dailyNote.id,
+                source_ref: `Daily Note ${date}`,
+                metadata: { created_by: 'daily_review', note_date: date },
+              });
+              break;
             }
-          } catch (err: any) {
-            actionsSummary.errors.push({ action, detail: (err?.message || String(err)).slice(0, 300) });
+            default:
+              throw new Error(`unknown action: ${action?.action}`);
           }
+        } catch (err: any) {
+          actionsSummary.errors.push({ action, detail: (err?.message || String(err)).slice(0, 300) });
         }
       }
 
-      // Re-embed daily note
-      if (dailyNote.id) {
-        embedItem('daily_notes', dailyNote.id).catch(() => {});
+      if (closeIds.length) {
+        const r = await supabasePatch(`tasks?id=in.(${closeIds.join(',')})`, { status: 'done' });
+        if (r.ok) actionsSummary.closed = closeIds.length;
+        else actionsSummary.errors.push({ action: 'batch-close', detail: r.error });
       }
+      if (cancelIds.length) {
+        const r = await supabasePatch(`tasks?id=in.(${cancelIds.join(',')})`, { status: 'cancelled' });
+        if (r.ok) actionsSummary.cancelled = cancelIds.length;
+        else actionsSummary.errors.push({ action: 'batch-cancel', detail: r.error });
+      }
+      for (const [dueDate, ids] of Object.entries(rescheduleGroups)) {
+        const r = await supabasePatch(`tasks?id=in.(${ids.join(',')})`, { due_date: dueDate });
+        if (r.ok) actionsSummary.rescheduled += ids.length;
+        else actionsSummary.errors.push({ action: `batch-reschedule-${dueDate}`, detail: r.error });
+      }
+      if (createRows.length) {
+        const r = await supabasePost('tasks', createRows);
+        if (r.ok) actionsSummary.created = createRows.length;
+        else actionsSummary.errors.push({ action: 'batch-create', detail: r.error });
+      }
+    }
 
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify(
-              { ok: true, writes: results, actions_summary: actionsSummary },
-              null,
-              2
-            ),
-          },
-        ],
-      };
+    // Seed tomorrow's daily note with today's context_notes as a preamble
+    const contextNotes = review_data.context_notes || [];
+    let contextSeeded = false;
+    if (contextNotes.length) {
+      const tomorrow = new Date(`${date}T00:00:00Z`);
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const tomorrowDate = tomorrow.toISOString().slice(0, 10);
+
+      const contextBlock =
+        `## Context from ${date}\n` +
+        contextNotes
+          .map((c: any) => `- **${c.meeting_title || 'Meeting'}**: ${c.context || ''}`)
+          .join('\n');
+
+      const existingTomorrow = await supabaseGet(`daily_notes?note_date=eq.${tomorrowDate}&limit=1`);
+      if (existingTomorrow.length) {
+        const row = existingTomorrow[0];
+        // Skip if the same context block already exists (re-run safety)
+        if (!(row.notes || '').includes(`## Context from ${date}`)) {
+          const newNotes = row.notes ? `${row.notes}\n\n${contextBlock}` : contextBlock;
+          const r = await supabasePatch(`daily_notes?note_date=eq.${tomorrowDate}`, { notes: newNotes });
+          if (r.ok) contextSeeded = true;
+        }
+      } else {
+        const r = await supabaseUpsert(
+          'daily_notes',
+          { note_date: tomorrowDate, notes: contextBlock },
+          'note_date'
+        );
+        if (r.ok) contextSeeded = true;
+      }
+    }
+    (results as any).context_seeded = contextSeeded;
+
+    // Tail patch — fills in per-table counts. Non-critical (UI already renders
+    // from the early patch above), so wrap to avoid this step re-breaking things.
+    if (dailyNote) {
+      try {
+        const refreshed = await supabaseGet(`daily_notes?note_date=eq.${date}&limit=1`);
+        const meta = refreshed?.[0]?.metadata || dailyNote.metadata || {};
+        await supabasePatch(`daily_notes?note_date=eq.${date}`, {
+          metadata: { ...meta, review_writes: results },
+        });
+      } catch {}
+      embedItem('daily_notes', dailyNote.id).catch(() => {});
     }
 
     return {
       content: [
         {
           type: 'text' as const,
-          text: JSON.stringify({ ok: true, writes: results }, null, 2),
+          text: JSON.stringify(
+            { ok: true, writes: results, actions_summary: actionsSummary, context_seeded: contextSeeded },
+            null,
+            2
+          ),
         },
       ],
     };
