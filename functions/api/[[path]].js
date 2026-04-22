@@ -33,31 +33,6 @@ export async function onRequest(ctx) {
     });
   }
 
-  // Diagnostic: fingerprint the configured internal key and any client-sent
-  // header. Neither value is reversible (first 12 chars of SHA-256) so it's
-  // safe to expose; lets us verify clients and Pages are carrying the same
-  // PAULLAND_INTERNAL_API_KEY without leaking the value itself. Remove once
-  // debugging is done.
-  const urlPath = new URL(request.url).pathname;
-  if (urlPath === '/api/_diag/key-fp' && request.method === 'GET') {
-    const fp = async (s) => {
-      if (!s) return null;
-      const data = new TextEncoder().encode(s);
-      const buf = await crypto.subtle.digest('SHA-256', data);
-      return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
-    };
-    const clientHeader = request.headers.get('X-Internal-API-Key');
-    const [serverFp, clientFp] = await Promise.all([fp(env.PAULLAND_INTERNAL_API_KEY), fp(clientHeader)]);
-    return json({
-      place: 'pages',
-      serverFp,
-      serverLen: env.PAULLAND_INTERNAL_API_KEY ? env.PAULLAND_INTERNAL_API_KEY.length : null,
-      clientFp,
-      clientLen: clientHeader ? clientHeader.length : null,
-      match: !!(serverFp && clientFp && serverFp === clientFp),
-    });
-  }
-
   // Allow trusted internal server-to-server calls (e.g. MCP Worker) via pre-shared key
   const internalKey = request.headers.get('X-Internal-API-Key');
   const isInternalRequest = internalKey && env.PAULLAND_INTERNAL_API_KEY && internalKey === env.PAULLAND_INTERNAL_API_KEY;

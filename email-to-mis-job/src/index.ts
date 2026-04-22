@@ -250,30 +250,6 @@ export default {
       });
     }
 
-    // Diagnostic: SHA-256 first 12 of this worker's PAULLAND_INTERNAL_API_KEY
-    // + round-trip to Pages. Remove once debugging is done.
-    if (url.pathname === '/_diag/key-fp') {
-      const fp = async (s?: string) => {
-        if (!s) return null;
-        const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-        return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 12);
-      };
-      const localFp = await fp(env.PAULLAND_INTERNAL_API_KEY);
-      const localLen = env.PAULLAND_INTERNAL_API_KEY ? env.PAULLAND_INTERNAL_API_KEY.length : null;
-      let pagesResp: any = null;
-      try {
-        const r = await fetch(`${env.PAULLAND_API_URL || 'https://paulland.io/api'}/_diag/key-fp`, {
-          headers: { 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY || '' },
-        });
-        pagesResp = await r.json().catch(() => ({ parseError: true }));
-      } catch (e: any) {
-        pagesResp = { fetchError: e.message };
-      }
-      return new Response(JSON.stringify({ place: 'email-to-mis-job', localFp, localLen, pages: pagesResp }), {
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-
     // Test endpoint — POST /test with raw email content
     if (url.pathname === '/test' && request.method === 'POST') {
       // Verify test secret
