@@ -3,8 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2026-03-17"
 compatibility_flags = ["nodejs_compat"]
 
+# Two cron schedules:
+#   */30 — full sweep (calendar, reader, enrichment — the regular round)
+#   */2  — enrichment-only sweep, so AE → WCP jobs flip to Created within ~2 min
+#          even if the immediate /trigger-enrichment call was dropped.
 [triggers]
-crons = ["*/30 * * * *"]
+crons = ["*/30 * * * *", "*/2 * * * *"]
 
 # Needed by the AE → WCP enrichment poller to read staged attachments back
 # out of R2 and re-upload them to the S2 project once AE has provisioned it.

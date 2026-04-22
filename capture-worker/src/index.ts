@@ -42,10 +42,20 @@ async function runSyncs(env: Env): Promise<void> {
 
 export default {
   async scheduled(
-    _event: ScheduledEvent,
+    event: ScheduledEvent,
     env: Env,
     ctx: ExecutionContext
   ): Promise<void> {
+    // Two crons fire into this handler. The fast */2 cron is
+    // enrichment-only (keeps AE → WCP demos snappy); the */30 does the
+    // full round (calendar + reader + enrichment).
+    if (event.cron === '*/2 * * * *') {
+      console.log('Capture worker fast cron — enrichment only');
+      ctx.waitUntil(
+        syncEnrichment(env).catch((e) => console.error('Enrichment sync failed:', e))
+      );
+      return;
+    }
     console.log('Capture worker cron triggered');
     ctx.waitUntil(runSyncs(env));
   },

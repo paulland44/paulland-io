@@ -522,8 +522,6 @@ async function createAeJob(
 
   const aeSucceeded = aeResp.ok && aeResponse?.ae_success !== false;
 
-  // Backoff[0] determines the first poller attempt window.
-  const firstDelayMs = AE_ENRICHMENT_BACKOFF_MIN[0] * 60 * 1000;
   const jobRecord: any = {
     job_id: jobId,
     job_name: extracted.job_name,
@@ -544,7 +542,9 @@ async function createAeJob(
     jobRecord.enrichment_payload = enrichmentPayload;
     jobRecord.pending_attachments = pendingAttachments;
     jobRecord.enrichment_attempts = 0;
-    jobRecord.enrichment_next_at = new Date(Date.now() + firstDelayMs).toISOString();
+    // Due now — the fire-and-forget trigger below picks it up in seconds.
+    // If the trigger is lost, the */2 enrichment cron catches it next tick.
+    jobRecord.enrichment_next_at = new Date().toISOString();
   }
 
   const dbResp = await fetch(`${apiUrl}/mis/jobs`, {
@@ -560,7 +560,17 @@ async function createAeJob(
   if (!aeSucceeded) {
     console.warn(`[email-to-mis] AE creation failed for ${jobId}: HTTP ${aeResp.status} — ${JSON.stringify(aeResponse).slice(0, 300)}`);
   } else {
-    console.log(`[email-to-mis] AE job ${jobId} submitted; enrichment scheduled at ${jobRecord.enrichment_next_at}`);
+    console.log(`[email-to-mis] AE job ${jobId} submitted; enrichment scheduled now`);
+    // Fire-and-forget: kick the enrichment poller on the capture-worker so
+    // the row is picked up within seconds instead of waiting on the next
+    // cron tick. Any failure is non-blocking — the cron is the safety net.
+    try {
+      await fetch('https://capture-worker.paul-land.workers.dev/trigger-enrichment', {
+        method: 'POST',
+      });
+    } catch (err: any) {
+      console.warn(`[email-to-mis] Enrichment trigger failed (non-blocking): ${err.message}`);
+    }
   }
 
   return storedJob;

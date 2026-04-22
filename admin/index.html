@@ -19362,6 +19362,55 @@
         misUpdatePreview();
     };
 
+    // Build the S2 `properties` object from the unified form. Used directly
+    // as the body for S2 creates, and as `enrichment_payload` for AE creates
+    // (the poller POSTs this to /mis/projects once AE has provisioned WCP).
+    function misBuildS2Properties(jobId, jobName, description, customerCode) {
+        const properties = { MISId: document.getElementById('s2MisId')?.value || 'MyMIS', jobId, projectName: jobName, description };
+
+        const jobPartId = document.getElementById('s2JobPartId')?.value || document.getElementById('aeJobPartId')?.value;
+        if (jobPartId) properties.jobPartId = jobPartId;
+
+        const descriptiveName = document.getElementById('s2DescriptiveName')?.value;
+        if (descriptiveName) properties.descriptiveName = descriptiveName;
+
+        const dueDate = document.getElementById('misJobDueDate')?.value;
+        if (dueDate) properties.dueDate = new Date(dueDate).toISOString();
+
+        const printBuyerRef = document.getElementById('s2PrintBuyerRef')?.value;
+        const projectId = document.getElementById('s2ProjectId')?.value;
+        if (printBuyerRef || projectId) {
+            properties.generalIDs = {};
+            if (printBuyerRef) properties.generalIDs.PrintBuyerReference = printBuyerRef;
+            if (projectId) properties.generalIDs.Project = projectId;
+        }
+
+        const projectType = document.getElementById('s2ProjectType')?.value;
+        const approvalMethod = document.getElementById('s2ApprovalMethod')?.value;
+        const editingInstructions = document.getElementById('s2EditingInstructions')?.value;
+        if (projectType || approvalMethod || editingInstructions) {
+            properties.attributes = { string: {} };
+            if (projectType) properties.attributes.string.projectType = projectType;
+            if (approvalMethod) properties.attributes.string.ApprovalMethod = approvalMethod;
+            if (editingInstructions) properties.attributes.string.EditingInstructions = editingInstructions;
+        }
+
+        properties.customers = customerCode
+            ? [{ ref: customerCode, type: 'Reference', version: 0, page: 0 }]
+            : [];
+
+        const barcodes = (jobBarcodes || []).filter(b => b.encoding || b.value);
+        if (barcodes.length) {
+            properties['Job-Barcodes'] = barcodes.map(b => {
+                const bc = { encoding: b.encoding, value: b.value ? [b.value] : [] };
+                if (b.encodingDetails) bc.encodingDetails = b.encodingDetails;
+                return bc;
+            });
+        }
+
+        return properties;
+    }
+
     function misBuildPayload() {
         const isAe = misGetTargetType() === 'ae';
         const isS2 = misIsS2();
@@ -19372,13 +19421,27 @@
         const description = document.getElementById('misJobDescription')?.value || '';
 
         if (isAe) {
-            return {
+            // Minimal payload actually sent to AE (proxied to /ws/JobCreation).
+            // The full property set from the unified form is stashed as the
+            // enrichment payload — the capture-worker poller POSTs it to
+            // /mis/projects once AE has provisioned the WCP project, and
+            // S2 upserts by {MISId, jobId, jobPartId}.
+            const customerCode = document.getElementById('misJobCustomerCode')?.value || '';
+            const aePayload = {
                 jobName, jobId, description,
-                jobPartId: document.getElementById('aeJobPartId')?.value || '',
-                customerCode: document.getElementById('misJobCustomerCode')?.value || '',
-                category: document.getElementById('aeCategory')?.value || '',
+                jobPartId: document.getElementById('aeJobPartId')?.value || `${jobId}-01`,
+                customerCode,
+                category: document.getElementById('aeCategory')?.value || 'Production',
                 customField1: document.getElementById('aeCustomField1')?.value || '',
             };
+            // The S2 customer ref will usually be a short code here (AE side
+            // uses partner codes). Leave it to the enrichment poller/S2 to
+            // cope — the dropdown may not have loaded S2 refs for this conn.
+            const enrichmentProperties = misBuildS2Properties(jobId, jobName, description, customerCode);
+            // Drop fields that don't belong on an update-shaped POST
+            delete enrichmentProperties.status;
+            delete enrichmentProperties.projectName;
+            return { aePayload, enrichmentPayload: { properties: enrichmentProperties } };
         }
 
         // Customer — for S2 use nodeId from searchable select, for legacy use partnerId
@@ -19387,62 +19450,12 @@
         const dueDate = document.getElementById('misJobDueDate')?.value;
 
         if (isS2) {
-            // S2 Create Project payload
-            const properties = {
-                MISId: document.getElementById('s2MisId')?.value || 'MyMIS',
-                jobId,
-                projectName: jobName,
-                description,
-            };
-
-            // Optional fields — only include if set
-            const jobPartId = document.getElementById('s2JobPartId')?.value;
-            if (jobPartId) properties.jobPartId = jobPartId;
-
-            const descriptiveName = document.getElementById('s2DescriptiveName')?.value;
-            if (descriptiveName) properties.descriptiveName = descriptiveName;
-
-            if (dueDate) properties.dueDate = new Date(dueDate).toISOString();
-
-            // General IDs
-            const printBuyerRef = document.getElementById('s2PrintBuyerRef')?.value;
-            const projectId = document.getElementById('s2ProjectId')?.value;
-            if (printBuyerRef || projectId) {
-                properties.generalIDs = {};
-                if (printBuyerRef) properties.generalIDs.PrintBuyerReference = printBuyerRef;
-                if (projectId) properties.generalIDs.Project = projectId;
-            }
-
-            // Attributes
-            const projectType = document.getElementById('s2ProjectType')?.value;
-            const approvalMethod = document.getElementById('s2ApprovalMethod')?.value;
-            const editingInstructions = document.getElementById('s2EditingInstructions')?.value;
-            if (projectType || approvalMethod || editingInstructions) {
-                properties.attributes = { string: {} };
-                if (projectType) properties.attributes.string.projectType = projectType;
-                if (approvalMethod) properties.attributes.string.ApprovalMethod = approvalMethod;
-                if (editingInstructions) properties.attributes.string.EditingInstructions = editingInstructions;
-            }
-
-            // Status
+            // S2 Create Project payload — shares the property builder with
+            // the AE enrichment path so any field added to the form lands on
+            // both at once.
+            const properties = misBuildS2Properties(jobId, jobName, description, customerCode);
             const status = document.getElementById('s2Status')?.value || 'Created';
             properties.status = { type: 'ProjectStatus', status };
-
-            // Customer reference (S2 uses nodeId refs) — always include array (S2 requires it)
-            properties.customers = customerCode
-                ? [{ ref: customerCode, type: 'Reference', version: 0, page: 0 }]
-                : [];
-
-            // Barcodes
-            const barcodes = jobBarcodes.filter(b => b.encoding || b.value);
-            if (barcodes.length) {
-                properties['Job-Barcodes'] = barcodes.map(b => {
-                    const bc = { encoding: b.encoding, value: b.value ? [b.value] : [] };
-                    if (b.encodingDetails) bc.encodingDetails = b.encodingDetails;
-                    return bc;
-                });
-            }
-
             return { properties };
         }
 
@@ -19469,7 +19482,13 @@
 
     function misUpdatePreview() {
         const el = document.getElementById('misJsonPreview');
-        if (el) el.textContent = JSON.stringify(misBuildPayload(), null, 2);
+        if (!el) return;
+        const built = misBuildPayload();
+        // For AE only show the outgoing create payload — the enrichment is
+        // an internal implementation detail we don't want to surface in the
+        // visible JSON preview during demos.
+        const display = (built && typeof built === 'object' && 'aePayload' in built) ? built.aePayload : built;
+        el.textContent = JSON.stringify(display, null, 2);
     }
 
     window.misAddTask = function() {
@@ -19525,10 +19544,15 @@
         const connId = connSel?.value || null;
         const connName = connOpt?.dataset?.name || '';
         const connCluster = connOpt?.dataset?.cluster || '';
-        const isWcp = targetType !== 'ae';
-        const isS2 = apiVersion === 's2';
+        const isAe = targetType === 'ae';
+        const isWcp = !isAe;
+        const isS2 = apiVersion === 's2' && !isAe;
 
-        const payload = misBuildPayload();
+        const built = misBuildPayload();
+        // AE path returns { aePayload, enrichmentPayload }; other paths return
+        // the payload directly. Normalise here to keep downstream code simple.
+        const payload = isAe ? built.aePayload : built;
+        const enrichmentPayload = isAe ? built.enrichmentPayload : null;
 
         // Validation
         if (isS2) {
@@ -19537,9 +19561,9 @@
         } else {
             if (!payload.jobName) return showToast('Enter a job name', 'error');
             if (!payload.jobId) return showToast('Enter a job ID', 'error');
-            if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
-            if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
-            if (isWcp) for (const t of payload.tasks) {
+            if (isWcp && !isAe && !payload.customerCode) return showToast('Select a customer', 'error');
+            if (isWcp && !isAe && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+            if (isWcp && !isAe) for (const t of payload.tasks) {
                 if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
                 if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
             }
@@ -19555,12 +19579,17 @@
                 // S2: POST directly to /projects
                 resp = await fetch(`${MIS_API_BASE}/projects`, { method: 'POST', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
             } else {
-                // Legacy: PUT to /create-job
+                // AE + Legacy WCP both go through PUT /create-job; the proxy
+                // dispatches to AE or WCP based on connection.type.
                 resp = await fetch(`${MIS_API_BASE}/create-job`, { method: 'PUT', headers, credentials: 'same-origin', body: JSON.stringify(payload) });
             }
             const text = await resp.text().catch(() => '');
             try { result = JSON.parse(text); } catch { result = { rawResponse: text.slice(0, 500) }; }
             if (!resp.ok) throw new Error(result.error || result.message || `HTTP ${resp.status}`);
+            // AE returns HTTP 200 even on failure — check the ae_success flag.
+            if (isAe && result?.ae_success === false) {
+                throw new Error(`AE rejected the job: ${(result.ae_errors || []).join('; ') || 'unknown reason'}`);
+            }
 
             const custDisplay = document.getElementById('misJobCustomer')?.querySelector?.('.ss-display')?.textContent || '';
             const jobIdVal = isS2 ? payload.properties.jobId : payload.jobId;
@@ -19569,16 +19598,34 @@
             const dueDateVal = isS2 ? (payload.properties.dueDate || null) : (payload.dueDate || null);
             const descVal = isS2 ? (payload.properties.description || '') : (payload.description || '');
 
-            await storeMisJob({
+            // AE rows carry the enrichment payload + a due-now timestamp so
+            // the poller (kicked below) picks them up on its next sweep.
+            const storePayload = {
                 job_id: jobIdVal, job_name: jobNameVal, customer_code: custCode,
                 customer_name: custDisplay.replace(/\s*\(.*\)$/, '') || document.getElementById('misJobCustomerCode')?.value || '',
-                status: 'Created', phase: isS2 ? (payload.properties.status?.status || 'Created') : 'Draft',
+                status: isAe ? 'AE-Submitted' : 'Created',
+                phase: isAe ? 'Awaiting WCP' : (isS2 ? (payload.properties.status?.status || 'Created') : 'Draft'),
                 due_date: dueDateVal, description: descVal,
-                connection_id: connId, connection_name: connName, solution: isS2 ? 's2' : targetType,
+                connection_id: connId, connection_name: connName,
+                solution: isAe ? 'ae' : (isS2 ? 's2' : targetType),
                 cluster: connCluster, payload, wcp_response: result,
                 project_node_id: isS2 ? (result.id || null) : null,
-            });
+            };
+            if (isAe && enrichmentPayload) {
+                storePayload.enrichment_payload = enrichmentPayload;
+                storePayload.enrichment_attempts = 0;
+                storePayload.enrichment_next_at = new Date().toISOString(); // due now
+            }
+            await storeMisJob(storePayload);
             showToast(`${isS2 ? 'Project' : 'Job'} "${jobIdVal}" created!`, 'success');
+
+            // Demo-grade latency: kick the enrichment poller immediately so
+            // the row gets picked up within seconds rather than waiting on
+            // the next */30 cron. Fire-and-forget, non-blocking.
+            if (isAe) {
+                fetch('https://capture-worker.paul-land.workers.dev/trigger-enrichment', { method: 'POST' })
+                    .catch((e) => console.warn('[MIS] enrichment trigger failed (non-blocking):', e));
+            }
 
             // S2: launch workflow if one was selected
             if (isS2 && result?.id) {
@@ -20140,61 +20187,49 @@
         misUpdatePreview();
     }
 
-    // Toggle collapsible sections based on selected connection type
+    // Unified form: show every section regardless of connection type.
+    // The submit logic in misBuildPayload / misSubmitJob decides which fields
+    // go to which endpoint per target. The only thing that still depends on
+    // the active connection is the customer input (dropdown vs manual code),
+    // because that's driven by whether the S2 customer ref data loaded.
     function misUpdateFormSections() {
-        const type = misGetTargetType();
         const isS2 = misIsS2();
-        const isAe = type === 'ae';
-        const tasksBody = document.querySelector('#misTasksSection .mis-collapsible-body');
-        const aeBody = document.querySelector('#misAeSection .mis-collapsible-body');
 
-        // S2 sections: show/hide entirely
+        // All S2 sections: always visible.
         ['misS2Section', 'misS2GeneralIds', 'misS2Attributes', 'misS2BarcodesSection', 'misS2WorkflowSection', 'misS2AssetsSection'].forEach(id => {
             const el = document.getElementById(id);
-            if (el) el.style.display = (isS2 && !isAe) ? '' : 'none';
+            if (el) el.style.display = '';
         });
 
-        // Site field and manual customer code: hide for S2 and AE — but if S2 customers
-        // failed to load, keep the manual code input visible so the user can still submit.
+        // Site field (WCP-legacy concept) — always visible.
         const siteField = document.getElementById('misJobSite')?.closest('.mis-form-group');
-        if (siteField) siteField.style.display = isS2 ? 'none' : '';
+        if (siteField) siteField.style.display = '';
+
+        // Manual customer-code field: show when the S2 customer dropdown is
+        // either unavailable (legacy/AE) or failed to populate, so the user
+        // always has a way to enter a customer.
         const custCodeField = document.getElementById('misJobCustomerCode');
         if (custCodeField) {
             const customersLoaded = !!(cachedCustomers?.items?.length || cachedCustomers?.data?.length || (Array.isArray(cachedCustomers) && cachedCustomers.length));
-            const hideCustCode = isAe || (isS2 && customersLoaded);
-            custCodeField.style.display = hideCustCode ? 'none' : '';
+            custCodeField.style.display = (isS2 && customersLoaded) ? 'none' : '';
         }
 
-        // Tasks section: hide for S2 (uses workflows) and AE
+        // Tasks, Products, AE sections — always visible.
         const tasksSection = document.getElementById('misTasksSection');
-        if (tasksSection) tasksSection.style.display = (isS2 || isAe) ? 'none' : '';
-
-        // Products & Preflight: hide for S2 and AE (WCP-only)
+        if (tasksSection) tasksSection.style.display = '';
         const productsSection = document.getElementById('misProductsSection');
-        if (productsSection) productsSection.style.display = (isS2 || isAe) ? 'none' : '';
+        if (productsSection) productsSection.style.display = '';
+        const aeSection = document.getElementById('misAeSection');
+        if (aeSection) aeSection.style.display = '';
 
-        // Products & Preflight: hide for S2
-        const prodSection = tasksSection?.nextElementSibling?.nextElementSibling; // The products card after AE section
-        // Use the AE section visibility toggle instead
-
-        if (isAe) {
-            if (tasksBody && !tasksBody.classList.contains('collapsed')) { tasksBody.style.maxHeight = '0'; tasksBody.classList.add('collapsed'); }
-            if (aeBody && aeBody.classList.contains('collapsed')) { aeBody.classList.remove('collapsed'); aeBody.style.maxHeight = aeBody.scrollHeight + 'px'; }
-            const aeSection = document.getElementById('misAeSection');
-            if (aeSection) aeSection.style.display = '';
-        } else if (isS2) {
-            // S2: hide tasks and AE, show S2 sections
-            if (tasksBody && !tasksBody.classList.contains('collapsed')) { tasksBody.style.maxHeight = '0'; tasksBody.classList.add('collapsed'); }
-            if (aeBody && !aeBody.classList.contains('collapsed')) { aeBody.style.maxHeight = '0'; aeBody.classList.add('collapsed'); }
-            const aeSection = document.getElementById('misAeSection');
-            if (aeSection) aeSection.style.display = 'none';
-        } else {
-            // Legacy WCP: show tasks, hide AE and S2
-            if (aeBody && !aeBody.classList.contains('collapsed')) { aeBody.style.maxHeight = '0'; aeBody.classList.add('collapsed'); }
-            if (tasksBody && tasksBody.classList.contains('collapsed')) { tasksBody.classList.remove('collapsed'); tasksBody.style.maxHeight = tasksBody.scrollHeight + 'px'; }
-            const aeSection = document.getElementById('misAeSection');
-            if (aeSection) aeSection.style.display = '';
-        }
+        // Expand collapsible bodies so the user sees everything by default.
+        ['#misTasksSection', '#misAeSection'].forEach((sel) => {
+            const body = document.querySelector(`${sel} .mis-collapsible-body`);
+            if (body?.classList.contains('collapsed')) {
+                body.classList.remove('collapsed');
+                body.style.maxHeight = body.scrollHeight + 'px';
+            }
+        });
     }
 
     window.misOpenJob = function(id, status) {
@@ -20206,7 +20241,12 @@
     window.misSaveExistingDraft = async function(jobId) {
         const connSel = document.getElementById('misTargetConnection');
         const connOpt = connSel?.selectedOptions?.[0];
-        const payload = misBuildPayload();
+        const isAe = (connOpt?.dataset?.type || 'wcp') === 'ae';
+        const built = misBuildPayload();
+        // AE now returns { aePayload, enrichmentPayload }; flatten for the
+        // fields we persist on the row.
+        const payload = isAe ? built.aePayload : built;
+        const enrichmentPayload = isAe ? built.enrichmentPayload : null;
         const btn = document.getElementById('misFormSaveBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<span class="mis-spinner"></span> Saving...'; }
 
@@ -20223,6 +20263,9 @@
             connection_name: connOpt?.dataset?.name || '',
             cluster: connOpt?.dataset?.cluster || '',
         };
+        if (isAe && enrichmentPayload) {
+            updates.enrichment_payload = enrichmentPayload;
+        }
 
         try {
             await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
@@ -20255,17 +20298,23 @@
 
         if (!connId) return showToast('Select a connection to submit to', 'error');
 
-        const payload = misBuildPayload();
+        const isAe = !isWcp; // !isWcp === targetType==='ae'
+        const built = misBuildPayload();
+        // Normalise AE's { aePayload, enrichmentPayload } shape; other paths
+        // return the payload directly.
+        const payload = isAe ? built.aePayload : built;
+        const enrichmentPayload = isAe ? built.enrichmentPayload : null;
 
-        // Validation — different for S2 vs legacy
+        // Validation — different for S2 vs legacy WCP vs AE
+        const isLegacyWcp = isWcp && !isS2;
         if (isS2) {
             if (!payload.properties?.projectName) return showToast('Enter a project name', 'error');
             if (!payload.properties?.jobId) return showToast('Enter a job ID', 'error');
         } else {
             if (!payload.jobName) return showToast('Enter a job name', 'error');
-            if (isWcp && !payload.customerCode) return showToast('Select a customer', 'error');
-            if (isWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
-            if (isWcp) for (const t of payload.tasks) {
+            if (isLegacyWcp && !payload.customerCode) return showToast('Select a customer', 'error');
+            if (isLegacyWcp && !payload.tasks?.length) return showToast('Add at least one task', 'error');
+            if (isLegacyWcp) for (const t of payload.tasks) {
                 if (!t.taskTemplateNodeId) return showToast('All tasks need a template', 'error');
                 if (!t.assignee.length || !t.assignee[0].id) return showToast('All tasks need an assignee', 'error');
             }
@@ -20323,13 +20372,24 @@
             if (data.ae_success === false && data.ae_errors?.length) {
                 await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
-                    body: JSON.stringify({ status: 'Error', wcp_response: data }),
+                    body: JSON.stringify({ status: 'AE-Failed', wcp_response: data }),
                 });
                 _cachedMisJobs = null;
                 throw new Error(`AE workflow parameter errors:\n${data.ae_errors.join('\n')}`);
             }
 
-            const updateFields = { status: 'Created', wcp_response: data };
+            // For AE: row goes to AE-Submitted and carries the enrichment
+            // payload for the poller. For S2/WCP: straight to Created.
+            const updateFields = isAe
+                ? {
+                    status: 'AE-Submitted',
+                    phase: 'Awaiting WCP',
+                    wcp_response: data,
+                    enrichment_payload: enrichmentPayload,
+                    enrichment_attempts: 0,
+                    enrichment_next_at: new Date().toISOString(),
+                  }
+                : { status: 'Created', wcp_response: data };
             if (isS2 && data?.id) updateFields.project_node_id = data.id;
 
             await fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
@@ -20340,6 +20400,13 @@
             });
             _cachedMisJobs = null;
             showToast(`${isS2 ? 'Project' : 'Job'} submitted successfully!`, 'success');
+
+            // AE: kick the enrichment poller so the row gets picked up in
+            // seconds rather than waiting on the next */2 cron.
+            if (isAe) {
+                fetch('https://capture-worker.paul-land.workers.dev/trigger-enrichment', { method: 'POST' })
+                    .catch((e) => console.warn('[MIS] enrichment trigger failed (non-blocking):', e));
+            }
 
             // S2: launch workflow if one was selected
             if (isS2 && data?.id) {
@@ -20375,9 +20442,32 @@
 
     // ─── MIS: Job Monitor ─────────────────────────────────────
 
+    // Map internal lifecycle states to a single user-facing label so the
+    // two-stage AE → WCP flow reads as one seamless step in the UI.
+    // Internal statuses stay untouched on the DB row for ops visibility.
+    function misDisplayStatus(s) {
+        switch (s) {
+            case 'AE-Submitted':      return 'Processing';
+            case 'WCP-Enriched':      return 'Created';
+            case 'AE-Failed':         return 'Error';
+            case 'Enrichment-Failed': return 'Error';
+            case 'Failed':            return 'Error';
+            default: return s || '-'; // Draft / Created / Active / Completed pass through
+        }
+    }
+
     function misStatusBadge(s) {
-        const cls = s === 'Draft' ? 'mis-badge-draft' : s === 'Created' ? 'mis-badge-created' : s === 'Active' ? 'mis-badge-active' : s === 'Completed' ? 'mis-badge-completed' : s === 'Failed' ? 'mis-badge-failed' : '';
-        return `<span class="mis-badge ${cls}">${esc(s || '-')}</span>`;
+        const display = misDisplayStatus(s);
+        // Map the display label to the existing badge classes so styling
+        // doesn't need a second migration.
+        const cls = display === 'Draft' ? 'mis-badge-draft'
+            : display === 'Created' ? 'mis-badge-created'
+            : display === 'Active' ? 'mis-badge-active'
+            : display === 'Completed' ? 'mis-badge-completed'
+            : display === 'Processing' ? 'mis-badge-active'
+            : display === 'Error' ? 'mis-badge-failed'
+            : '';
+        return `<span class="mis-badge ${cls}">${esc(display)}</span>`;
     }
 
     async function loadMisMonitor() {
@@ -20389,9 +20479,14 @@
         const statusBadge = misStatusBadge;
 
         // Stats
-        const draftCount = jobs.filter(j => j.status === 'Draft').length;
-        const createdCount = jobs.filter(j => j.status === 'Created').length;
-        const activeCount = jobs.filter(j => j.status === 'Active').length;
+        // Counters roll up internal statuses via the display mapping so
+        // AE-Submitted shows as Processing, WCP-Enriched as Created, etc.
+        const countByDisplay = (label) => jobs.filter(j => misDisplayStatus(j.status) === label).length;
+        const draftCount = countByDisplay('Draft');
+        const processingCount = countByDisplay('Processing');
+        const createdCount = countByDisplay('Created');
+        const activeCount = countByDisplay('Active');
+        const errorCount = countByDisplay('Error');
 
         // Connection dropdown options
         const connOptions = (profiles || []).map(p => `
@@ -20417,8 +20512,10 @@
                 </div>
                 <div style="display:flex;gap:0.75rem;font-size:0.78rem;color:var(--text-muted);">
                     <span>${misStatusBadge('Draft')} ${draftCount}</span>
+                    ${processingCount > 0 ? `<span>${misStatusBadge('AE-Submitted')} ${processingCount}</span>` : ''}
                     <span>${misStatusBadge('Created')} ${createdCount}</span>
-                    <span>${misStatusBadge('Active')} ${activeCount}</span>
+                    ${activeCount > 0 ? `<span>${misStatusBadge('Active')} ${activeCount}</span>` : ''}
+                    ${errorCount > 0 ? `<span>${misStatusBadge('AE-Failed')} ${errorCount}</span>` : ''}
                     <span style="color:var(--text-muted);">${jobs.length} total</span>
                 </div>
                 <div style="margin-left:auto;display:flex;gap:0.5rem;">

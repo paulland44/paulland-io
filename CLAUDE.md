@@ -39,7 +39,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
                        │       ├── AE → WCP enrichment poller → mis_jobs (AE-Submitted → WCP-Enriched)
                        │       └── Supabase + R2 (read staged attachments) + Pages API proxy
                        │
-                       └── capture-worker (cron: */30 * * * *)
+                       └── capture-worker (crons: */30 full round, */2 enrichment-only)
 ```
 
 - **Hosting**: Cloudflare Pages — deploy with `npx wrangler pages deploy . --project-name=paulland-io --commit-dirty=true`
@@ -351,6 +351,18 @@ An inbound email routed to an AE connection (by `email_prefix` on `mis_connectio
 2. **Stage 2 — enrichment poller** (`capture-worker/src/enrichment-sync.ts`): every 30 min sweeps rows where `status='AE-Submitted' AND enrichment_next_at <= now()`. For each, resolves the S2 connection via `mis_connections.enrichment_connection_id` (falls back to sibling S2 by cluster), searches WCP via `GET /mis/projects?searchValue=<jobId>`, uploads any `pending_attachments` via the 3-step S2 flow, and POSTs the enrichment payload — S2 upserts on `{MISId, jobId, jobPartId}` so the AE-created project gets partial-updated, not duplicated. On success the row flips to `status='WCP-Enriched'` and R2 objects are deleted. Not-yet-visible rows back off via `[2, 5, 10, 30, 60, 120×7]` minutes, then transition to `Enrichment-Failed` after 12 attempts (~16 h).
 
 Statuses: `AE-Submitted` → `WCP-Enriched` (success) | `Enrichment-Failed` (poller exhausted) | `AE-Failed` (AE itself rejected). Manual trigger: `POST https://<capture-worker>/trigger-enrichment`.
+
+**Demo latency**: both the email worker and the admin form fire the capture-worker's `/trigger-enrichment` endpoint immediately after a successful AE create, and the row's `enrichment_next_at` is set to **now**. The `*/2 * * * *` enrichment-only cron on `capture-worker` is the safety net if the direct trigger is dropped — either way, a row moves from AE-Submitted → WCP-Enriched in seconds to minutes, not half-hours.
+
+**UI status mapping** (in `admin/index.html` `misDisplayStatus`): internal statuses are masked behind a customer-friendly label set so the two-stage lifecycle reads as one step:
+- `Draft` → Draft
+- `AE-Submitted` → **Processing**
+- `WCP-Enriched` / `Created` / `Submitted` → **Created**
+- `AE-Failed` / `Enrichment-Failed` / `Failed` → **Error**
+
+The DB still stores the granular internal statuses for ops debugging; the mapping is display-only.
+
+**Unified job form** (`admin/index.html` `loadMisJobForm` + `misUpdateFormSections`): one layout regardless of the target connection type. AE, S2, and legacy WCP sections are all always visible. The submit logic in `misBuildPayload` / `misSubmitJob` projects the form state into the right shape per target — AE returns `{ aePayload, enrichmentPayload }` where the enrichment payload is stashed on the `mis_jobs` row for the poller to POST to WCP on the next tick.
 
 ## Environment Variables
 
