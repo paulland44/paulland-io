@@ -8,6 +8,10 @@ export interface Env {
   READWISE_TOKEN?: string;
   OUTLOOK_ICS_URL?: string;
   USER_TIMEZONE?: string;
+  // AE → WCP enrichment poller
+  PAULLAND_API_URL?: string;
+  PAULLAND_INTERNAL_API_KEY?: string;
+  R2_BUCKET: R2Bucket;
 }
 
 function headers(key: string, extra?: Record<string, string>) {

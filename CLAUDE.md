@@ -36,7 +36,8 @@ Cron ──→ Cloudflare Worker (Capture Worker)
                        │       │
                        │       ├── Readwise Reader API → content + feed_items
                        │       ├── Outlook ICS feed → calendar_events
-                       │       └── Supabase (all read/write)
+                       │       ├── AE → WCP enrichment poller → mis_jobs (AE-Submitted → WCP-Enriched)
+                       │       └── Supabase + R2 (read staged attachments) + Pages API proxy
                        │
                        └── capture-worker (cron: */30 * * * *)
 ```
@@ -65,8 +66,8 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `product_assets` | Junction: products ↔ assets | product_id, asset_id |
 | `product_content` | Junction: products ↔ content | product_id, content_id |
 | `content_links` | Junction: content ↔ content (signals→problems, articles→problems, etc.) | source_id, target_id, link_type, context |
-| `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active |
-| `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response |
+| `mis_connections` | MIS connection profiles (WCP/AE) | name, type, cluster, ecan, repo_id, server_url, encrypted_token, token_iv, is_active, api_version, base_url, email_prefix, workflow_rules, enrichment_connection_id (AE → S2 pointer for WCP enrichment) |
+| `mis_jobs` | MIS job tracking | job_id, job_name, customer_code, customer_name, status, phase, due_date, connection_id, solution, cluster, payload, wcp_response, project_node_id, workflow_instance_id, enrichment_payload, enrichment_attempts, enrichment_next_at, enriched_at, pending_attachments |
 | `bookings` | Weekly bookings order-line data | week, year, order_number, end_user, customer_name, subsegment, booking_type, product_code, region, subregion, country, channel, order_type, sales_rep, sales_org, value_2023, value_2024, value_2025, value_2026, source_file |
 | `revenue` | Monthly revenue by product and type | period, year, month, product_code, product_name, revenue_type, actual, prior_year, two_year_back, growth_dollar, growth_pct, fc, fc_gap, source_file |
 | `wcr_pack_opportunities` | Weekly WebCenter Pack pipeline snapshots (parsed from Salesforce XLSX) | report_date, opportunity_id, account_name, regional_division, region, opportunity_owner, stage, amount_usd, close_date, close_reason, close_reason_detail, close_comment, marketing_generated, source_file. Unique (report_date, opportunity_id) — same opp across N weekly reports = N rows, enabling stage/value trend analysis. |
@@ -342,6 +343,15 @@ Tools that need file content (e.g. `support_review_extract`) fetch it from the a
 - **Icons**: Lucide CDN, `lucide.createIcons()` init, `refreshIcons()` after DOM changes.
 - **CSS Variables**: `--void`, `--accent`, `--border`, `--text-body`, `--text-muted`, `--radius-sm/md/lg/pill`, `--shadow-sm/md/lg`, `--sans` (Inter), `--mono` (Inconsolata).
 
+### Email → AE → WCP enrichment lifecycle
+
+An inbound email routed to an AE connection (by `email_prefix` on `mis_connections` where `type='ae'`) runs a two-stage flow:
+
+1. **Stage 1 — email worker** (`email-to-mis-job`): sends a **minimal** job to Automation Engine via `PUT /api/mis/create-job` (jobName, jobId, jobPartId, customerCode, brief description, category). Writes a `mis_jobs` row with `status='AE-Submitted'`, the **full** enrichment payload stashed in `enrichment_payload`, R2 attachment keys in `pending_attachments`, and `enrichment_next_at` set to now + 2 min. AE provisions the downstream WCP project, preserving our `jobId`/`jobPartId`.
+2. **Stage 2 — enrichment poller** (`capture-worker/src/enrichment-sync.ts`): every 30 min sweeps rows where `status='AE-Submitted' AND enrichment_next_at <= now()`. For each, resolves the S2 connection via `mis_connections.enrichment_connection_id` (falls back to sibling S2 by cluster), searches WCP via `GET /mis/projects?searchValue=<jobId>`, uploads any `pending_attachments` via the 3-step S2 flow, and POSTs the enrichment payload — S2 upserts on `{MISId, jobId, jobPartId}` so the AE-created project gets partial-updated, not duplicated. On success the row flips to `status='WCP-Enriched'` and R2 objects are deleted. Not-yet-visible rows back off via `[2, 5, 10, 30, 60, 120×7]` minutes, then transition to `Enrichment-Failed` after 12 attempts (~16 h).
+
+Statuses: `AE-Submitted` → `WCP-Enriched` (success) | `Enrichment-Failed` (poller exhausted) | `AE-Failed` (AE itself rejected). Manual trigger: `POST https://<capture-worker>/trigger-enrichment`.
+
 ## Environment Variables
 
 **Cloudflare Pages (set in dashboard or wrangler.toml bindings):**
@@ -353,6 +363,15 @@ Tools that need file content (e.g. `support_review_extract`) fetch it from the a
 - `ASSETS_BUCKET` — R2 binding (configured in wrangler.toml)
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
 - `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
+
+**Capture Worker (set via `wrangler secret put` in `capture-worker/`):**
+- `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` — Database access
+- `READWISE_TOKEN` — Readwise Reader API token
+- `OUTLOOK_ICS_URL` — Outlook calendar ICS feed URL
+- `USER_TIMEZONE` — optional, defaults to Europe/London
+- `PAULLAND_API_URL` — base URL for paulland.io API (enrichment poller)
+- `PAULLAND_INTERNAL_API_KEY` — internal API key (enrichment poller)
+- `R2_BUCKET` — R2 binding in wrangler.toml (reads staged attachments for enrichment)
 
 **MCP Worker (set via `wrangler secret put` in `mcp-worker/`):**
 - `SUPABASE_URL` — Supabase project URL
@@ -402,7 +421,6 @@ Pages deploy is sufficient for admin UI or API-only changes. MCP deploys needed 
 - RAG chat history / multi-turn conversations
 - AI auto-tagging on content capture
 - Embedding versioning (track model versions, support re-embedding on model change)
-- **MIS: Automation Engine API integration** — AE connection config exists but job creation/monitoring not yet implemented (awaiting API docs)
 - **MIS: WCP job refresh** — `getJobDetails` endpoint returns 404/session errors; may need alternative identifier or updated token handling
 - **MIS: Unified settings** — Consider merging admin and MIS settings into single page with shared appearance settings
 - **MIS: CF Access Service Token** — Create a Service Token in CF dashboard and add to paulland.io Access policy to enable MCP server proxy calls (`submit_mis_job`, `list_customers`, `list_task_templates`)

@@ -15,6 +15,7 @@
 import type { Env } from './supabase';
 import { syncReader } from './reader-sync';
 import { syncCalendar } from './calendar-sync';
+import { syncEnrichment } from './enrichment-sync';
 
 async function runSyncs(env: Env): Promise<void> {
   // Calendar first — only needs 2 subrequests (fetch ICS + batch upsert)
@@ -24,7 +25,14 @@ async function runSyncs(env: Env): Promise<void> {
     console.error('Calendar sync failed:', e);
   }
 
-  // Reader second — uses the remaining budget (~990 subrequests)
+  // Enrichment second — bounded (≤20 rows × ~5 subrequests each = ~100 max)
+  try {
+    await syncEnrichment(env);
+  } catch (e) {
+    console.error('Enrichment sync failed:', e);
+  }
+
+  // Reader last — uses the remaining budget (~900 subrequests)
   try {
     await syncReader(env);
   } catch (e) {
@@ -59,6 +67,16 @@ export default {
       ctx.waitUntil(runSyncs(env));
       return new Response(
         JSON.stringify({ status: 'triggered', message: 'Sync started in background. Check worker logs for results.' }),
+        { headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    if (url.pathname === '/trigger-enrichment' && request.method === 'POST') {
+      ctx.waitUntil(
+        syncEnrichment(env).catch((e) => console.error('Enrichment sync failed:', e))
+      );
+      return new Response(
+        JSON.stringify({ status: 'triggered', sync: 'enrichment' }),
         { headers: { 'Content-Type': 'application/json' } }
       );
     }

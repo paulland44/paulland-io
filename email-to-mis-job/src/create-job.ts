@@ -399,6 +399,173 @@ async function cleanupR2(env: Env, r2Uploads: R2Upload[], uploadedFiles: string[
   }
 }
 
+// ─── AE Path ────────────────────────────────────────────────
+
+// Minimal payload accepted by the /api/mis/create-job AE proxy (maps to
+// /ws/JobCreation GET params server-side). Keep this lean — full spec lands
+// on the WCP project later via the enrichment poller.
+function buildAePayload(jobId: string, extracted: ExtractedJob): any {
+  const payload: any = {
+    jobName: extracted.job_name,
+    jobId,
+    jobPartId: `${jobId}-01`,
+    customerCode: extracted.customer_match?.partnerId || '',
+    description: extracted.description?.slice(0, 500) || extracted.job_name,
+    category: extracted.request_type === 'reprint' ? 'Reprint' : 'Production',
+  };
+  if (extracted.print_process) payload.customField1 = extracted.print_process;
+  return payload;
+}
+
+// Full S2 properties the poller will POST to /mis/projects once AE has
+// provisioned the WCP project. Matches the upsert key on
+// { MISId, jobId, jobPartId } — see functions/api/[[path]].js for the proxy.
+function buildEnrichmentPayload(
+  jobId: string,
+  extracted: ExtractedJob,
+  r2Uploads: R2Upload[],
+  emailMeta?: EmailMeta
+): any {
+  const dueDateIso = safeDateIso(extracted.due_date);
+  const description = buildDescription(extracted, r2Uploads);
+
+  const attrs: Record<string, string> = {};
+  const setAttr = (key: string, val: any) => {
+    if (val != null && val !== '') attrs[key] = String(val);
+  };
+  setAttr('projectType', extracted.project_type || 'Prepress');
+  setAttr('packagingType', extracted.packaging_type);
+  if (extracted.dimensions) {
+    const d = extracted.dimensions;
+    setAttr('dimensions', `${d.width || '?'}x${d.height || '?'}${d.depth ? 'x' + d.depth : ''} ${d.unit || 'mm'}`);
+  }
+  setAttr('numColours', extracted.num_colours);
+  if (extracted.colour_specs?.length) setAttr('colourSpecs', extracted.colour_specs.join(', '));
+  if (extracted.finishing?.length) setAttr('finishing', extracted.finishing.join(', '));
+  setAttr('substrate', extracted.substrate);
+  setAttr('substrateWeight', extracted.substrate_weight);
+  setAttr('bleed', extracted.bleed);
+  setAttr('printProcess', extracted.print_process);
+  setAttr('quantity', extracted.quantity);
+  setAttr('isReprint', extracted.is_reprint === null ? null : (extracted.is_reprint ? 'Yes' : 'No'));
+  setAttr('requestType', extracted.request_type);
+  if (emailMeta) {
+    setAttr('sourceEmail', emailMeta.from);
+    setAttr('sourceEmailSubject', emailMeta.subject);
+    setAttr('sourceEmailDate', emailMeta.date);
+  }
+  if (extracted.task_assignee?.email) setAttr('taskAssignee', extracted.task_assignee.email);
+
+  const generalIDs: Record<string, string> = {};
+  if (extracted.order_reference) generalIDs.PrintBuyerReference = extracted.order_reference;
+  else if (emailMeta?.from) generalIDs.PrintBuyerReference = emailMeta.from;
+  if (emailMeta?.subject) generalIDs.Project = emailMeta.subject;
+
+  const properties: any = {
+    MISId: 'MyMIS',
+    jobId,
+    jobPartId: `${jobId}-01`,
+    description,
+    dueDate: dueDateIso,
+  };
+  if (Object.keys(attrs).length) properties.attributes = { string: attrs };
+  if (Object.keys(generalIDs).length) properties.generalIDs = generalIDs;
+
+  return { properties };
+}
+
+// Retry backoff schedule for the enrichment poller (minutes). After the
+// last entry is exhausted the row transitions to Enrichment-Failed.
+const AE_ENRICHMENT_BACKOFF_MIN = [2, 5, 10, 30, 60, 120, 120, 120, 120, 120, 120, 120];
+
+async function createAeJob(
+  env: Env,
+  apiUrl: string,
+  connectionId: string,
+  connectionName: string,
+  jobId: string,
+  extracted: ExtractedJob,
+  r2Uploads: R2Upload[],
+  attachments: ClassifiedAttachment[],
+  emailMeta: EmailMeta | undefined,
+  description: string
+): Promise<any> {
+  const aePayload = buildAePayload(jobId, extracted);
+  const enrichmentPayload = buildEnrichmentPayload(jobId, extracted, r2Uploads, emailMeta);
+
+  // Pair each R2 upload with the mime/category from the classified attachments
+  // so the poller can re-fetch the bytes and re-upload to the S2 project.
+  const pendingAttachments = r2Uploads.map((u) => {
+    const cls = attachments.find((a) => a.filename === u.filename);
+    return {
+      key: u.r2Key,
+      filename: u.filename,
+      mime: cls?.mimeType || 'application/octet-stream',
+      category: u.category,
+    };
+  });
+
+  console.log(`[email-to-mis] Submitting job ${jobId} to AE (${connectionName || connectionId})...`);
+  const aeResp = await fetch(`${apiUrl}/mis/create-job`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+      'X-MIS-Connection-Id': connectionId,
+    },
+    body: JSON.stringify(aePayload),
+  });
+  const aeText = await aeResp.text();
+  let aeResponse: any;
+  try { aeResponse = JSON.parse(aeText); } catch { aeResponse = { rawResponse: aeText.slice(0, 800) }; }
+
+  const aeSucceeded = aeResp.ok && aeResponse?.ae_success !== false;
+
+  // Backoff[0] determines the first poller attempt window.
+  const firstDelayMs = AE_ENRICHMENT_BACKOFF_MIN[0] * 60 * 1000;
+  const jobRecord: any = {
+    job_id: jobId,
+    job_name: extracted.job_name,
+    customer_code: extracted.customer_match?.partnerId || '',
+    customer_name: extracted.customer_match?.partnerName || '',
+    status: aeSucceeded ? 'AE-Submitted' : 'AE-Failed',
+    phase: aeSucceeded ? 'Awaiting WCP' : 'AE Error',
+    due_date: extracted.due_date || null,
+    description,
+    connection_id: connectionId,
+    connection_name: connectionName,
+    solution: 'ae',
+    cluster: '',
+    payload: aePayload,
+    wcp_response: aeResponse,
+  };
+  if (aeSucceeded) {
+    jobRecord.enrichment_payload = enrichmentPayload;
+    jobRecord.pending_attachments = pendingAttachments;
+    jobRecord.enrichment_attempts = 0;
+    jobRecord.enrichment_next_at = new Date(Date.now() + firstDelayMs).toISOString();
+  }
+
+  const dbResp = await fetch(`${apiUrl}/mis/jobs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY,
+    },
+    body: JSON.stringify(jobRecord),
+  });
+  const storedJob = dbResp.ok ? await dbResp.json() : jobRecord;
+
+  if (!aeSucceeded) {
+    console.warn(`[email-to-mis] AE creation failed for ${jobId}: HTTP ${aeResp.status} — ${JSON.stringify(aeResponse).slice(0, 300)}`);
+  } else {
+    console.log(`[email-to-mis] AE job ${jobId} submitted; enrichment scheduled at ${jobRecord.enrichment_next_at}`);
+  }
+
+  return storedJob;
+}
+
 // ─── Workflow Launch ────────────────────────────────────────
 
 interface WorkflowRule {
@@ -520,25 +687,34 @@ async function launchWorkflowIfMatched(
   }
 }
 
+export interface EmailMeta {
+  from: string;
+  subject: string;
+  date: string;
+}
+
 export async function createMisJob(
   env: Env,
   extracted: ExtractedJob,
   r2Uploads: R2Upload[],
   autoSubmit = false,
   overrideConnectionId?: string,
-  attachments?: ClassifiedAttachment[]
+  attachments?: ClassifiedAttachment[],
+  emailMeta?: EmailMeta
 ): Promise<any> {
   const jobId = generateJobId();
   const description = buildDescription(extracted, r2Uploads);
   const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
   const connectionId = overrideConnectionId || env.DEFAULT_MIS_CONNECTION_ID || DEFAULT_WCP_CONNECTION_ID;
 
-  // Determine api_version by looking up the connection from Supabase
+  // Determine connection type (ae / wcp) and api_version (legacy / s2) from Supabase
   let apiVersion = env.DEFAULT_MIS_API_VERSION || 'legacy';
+  let connectionType = 'wcp';
+  let connectionName = '';
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
     try {
       const connResp = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=api_version,type,name&limit=1`,
+        `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=api_version,type,name,cluster&limit=1`,
         {
           headers: {
             'apikey': env.SUPABASE_SERVICE_KEY,
@@ -549,16 +725,38 @@ export async function createMisJob(
       );
       if (connResp.ok) {
         const rows = await connResp.json() as any[];
-        if (rows.length > 0 && rows[0].api_version) {
-          apiVersion = rows[0].api_version;
-          console.log(`[email-to-mis] Connection ${rows[0].name}: api_version=${apiVersion}`);
+        if (rows.length > 0) {
+          if (rows[0].api_version) apiVersion = rows[0].api_version;
+          if (rows[0].type) connectionType = rows[0].type;
+          connectionName = rows[0].name || '';
+          console.log(`[email-to-mis] Connection ${connectionName}: type=${connectionType}, api_version=${apiVersion}`);
         }
       }
     } catch (err: any) {
       console.warn(`[email-to-mis] Failed to look up connection: ${err.message}`);
     }
   }
+  const isAe = connectionType === 'ae';
   const isS2 = apiVersion === 's2';
+
+  // ─── AE path ──────────────────────────────────────────────
+  // Send a minimal job to Automation Engine. AE provisions the WCP project
+  // (preserving our jobId / jobPartId), and the capture-worker's enrichment
+  // poller later upserts the full property set via S2 POST /projects.
+  if (isAe) {
+    return await createAeJob(
+      env,
+      apiUrl,
+      connectionId,
+      connectionName,
+      jobId,
+      extracted,
+      r2Uploads,
+      attachments || [],
+      emailMeta,
+      description
+    );
+  }
 
   if (isS2) {
     const s2Payload = await buildS2Payload(jobId, extracted, env, apiUrl, connectionId);

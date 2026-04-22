@@ -6,6 +6,12 @@ compatibility_flags = ["nodejs_compat"]
 [triggers]
 crons = ["*/30 * * * *"]
 
+# Needed by the AE → WCP enrichment poller to read staged attachments back
+# out of R2 and re-upload them to the S2 project once AE has provisioned it.
+[[r2_buckets]]
+binding = "R2_BUCKET"
+bucket_name = "knowledge-capture"
+
 [observability]
 enabled = true
 
@@ -19,4 +25,6 @@ head_sampling_rate = 1
 # SUPABASE_SERVICE_KEY
 # READWISE_TOKEN
 # OUTLOOK_ICS_URL
-# USER_TIMEZONE           — optional, defaults to Europe/London
+# USER_TIMEZONE              — optional, defaults to Europe/London
+# PAULLAND_API_URL           — https://paulland.io/api (for enrichment poller)
+# PAULLAND_INTERNAL_API_KEY  — internal API key (for enrichment poller)
