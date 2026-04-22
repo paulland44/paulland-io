@@ -397,6 +397,11 @@ async function handleMisJobs(path, request, env) {
       project_node_id: body.project_node_id || null,
       workflow_instance_id: body.workflow_instance_id || null,
     };
+    // AE → WCP enrichment columns — only carried when the caller explicitly
+    // sets them (email worker and admin AE form). Legacy paths don't populate.
+    for (const field of ['enrichment_payload', 'enrichment_attempts', 'enrichment_next_at', 'enriched_at', 'pending_attachments']) {
+      if (body[field] !== undefined) row[field] = body[field];
+    }
 
     const res = await fetch(`${supabaseUrl}/rest/v1/mis_jobs`, {
       method: 'POST',
@@ -422,7 +427,10 @@ async function handleMisJobs(path, request, env) {
     for (const field of ['job_name', 'customer_code', 'customer_name', 'status', 'phase',
                          'due_date', 'description', 'payload', 'wcp_response',
                          'project_node_id', 'workflow_instance_id',
-                         'solution', 'connection_id', 'connection_name', 'cluster']) {
+                         'solution', 'connection_id', 'connection_name', 'cluster',
+                         // AE → WCP enrichment lifecycle
+                         'enrichment_payload', 'enrichment_attempts',
+                         'enrichment_next_at', 'enriched_at', 'pending_attachments']) {
       if (body[field] !== undefined) updates[field] = body[field];
     }
 
