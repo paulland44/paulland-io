@@ -144,12 +144,15 @@ WCP Proxy Routes (legacy connections, proxied to Esko APIs with server-side toke
 S2 MIS API Routes (S2 connections, proxied to Esko S2 `/MISapi/v0/` endpoints):
 | Method | Route | Purpose |
 |--------|-------|---------|
-| GET/POST | `mis/customers`, `mis/customers/:id` | List/create/update/get customers |
-| GET/POST | `mis/projects`, `mis/projects/:id` | List/create/update/get projects (jobs) |
+| GET | `mis/customers`, `mis/customers/:id` | List/get customers |
+| POST | `mis/customers` | **Upsert** customer (keyed by identifier in body — creates or updates) |
+| GET | `mis/projects`, `mis/projects/:id` | List/get projects (jobs) |
+| POST | `mis/projects` | **Upsert** project (keyed by `properties.{MISId, jobId, jobPartId}` — creates if new, partial-update if exists). There is no `POST /projects/:id`. |
 | POST | `mis/projects/:id/status` | Update project status |
 | POST | `mis/projects/:id/products` | Link products to project |
 | GET/POST | `mis/projects/:id/assets` | List/create project assets |
-| GET/POST | `mis/products`, `mis/products/:id` | List/create/get products |
+| GET | `mis/products`, `mis/products/:id` | List/get products |
+| POST | `mis/products` | **Upsert** product (keyed by `name` — creates if new, partial-update if exists) |
 | POST | `mis/products/:id/status` | Update product status (per-part) |
 | POST | `mis/products/:id/shapeAsset` | Attach shape asset to product |
 | POST | `mis/products/:id/graphicAssets` | Attach graphic asset to product |
@@ -225,7 +228,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (72 tools)
+### Tool Groups (74 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -241,7 +244,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Assets | list_assets, upload_asset, get_asset_content, batch_update_assets | 4 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
-| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product | 18 |
+| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product, update_product | 20 |
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
 | WCR Pack Pipeline | wcr_pack_opps_extract, wcr_pack_opps_write | 2 |

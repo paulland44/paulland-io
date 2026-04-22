@@ -608,6 +608,10 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // Upsert: S2 matches on properties.{MISId, jobId, jobPartId}. If the triplet
+  // already exists, the body is treated as a partial update (only the fields
+  // present in the body are changed). Otherwise a new project is created.
+  // There is no separate PUT/PATCH on /projects/:id — this is the only write route.
   if (subPath === 'projects' && request.method === 'POST') {
     const body = await request.text();
     const resp = await fetch(
@@ -674,6 +678,9 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // Upsert: S2 matches on `name`. If the name already exists, the body is a
+  // partial update; otherwise a new product is created. There is no separate
+  // PUT/PATCH on /products/:id — this is the only write route.
   if (subPath === 'products' && request.method === 'POST') {
     const body = await request.text();
     const resp = await fetch(

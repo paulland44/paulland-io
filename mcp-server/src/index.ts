@@ -4712,7 +4712,7 @@ server.tool(
 
 server.tool(
   'create_mis_job',
-  'Create a draft MIS job record in the simulator. For WCP connections, use list_customers to find a valid customer_code and list_task_templates to find taskTemplateNodeId values. For AE connections, provide job_name, customer_code, and optionally category/custom_field_1. Once created, submit the draft with submit_mis_job.',
+  'Create a new MIS job/project in the simulator. For WCP connections, use list_customers to find a valid customer_code and list_task_templates to find taskTemplateNodeId values. For AE connections, provide job_name, customer_code, and optionally category/custom_field_1. For S2 connections, submits directly (no draft step). To UPDATE an existing S2 project, use update_project instead — this tool always creates a new auto-sequenced job_id.',
   {
     job_name: z.string().describe('Job display name'),
     customer_code: z.string().optional().describe('Partner/customer ID'),
@@ -5137,6 +5137,37 @@ server.tool(
 );
 
 server.tool(
+  'update_project',
+  'Partial-update an existing S2 project. S2 matches the record on properties.{MISId, jobId, jobPartId} — all three must match an existing project. Only the fields present in `properties` are changed; everything else is preserved. Use update_project_status to change status, and the link/asset tools to change products/assets.',
+  {
+    job_id: z.string().describe('Existing project jobId (e.g. "MIS-0042") — must match the value used at creation'),
+    job_part_id: z.string().optional().describe('Existing jobPartId, if the project was created with one'),
+    mis_id: z.string().optional().describe('MISId used at creation (default: "MyMIS")'),
+    properties: z.record(z.any()).describe('Partial properties to update: description, descriptiveName, attributes, dueDate, generalIDs, etc. Identifier fields (MISId, jobId, jobPartId) are merged in automatically.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ job_id, job_part_id, mis_id, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const payload = {
+      properties: {
+        MISId: mis_id || 'MyMIS',
+        jobId: job_id,
+        ...(job_part_id ? { jobPartId: job_part_id } : {}),
+        ...properties,
+      },
+    };
+
+    const result = await callMisProxy('POST', 'projects', conn.id, payload);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update project (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, job_id, response: result.data }, null, 2) }] };
+  }
+);
+
+server.tool(
   'update_project_status',
   'Update the status of a project (e.g. Created → Active). Requires an S2 connection.',
   {
@@ -5397,7 +5428,7 @@ server.tool(
 
 server.tool(
   'create_product',
-  'Create a new product in S2 with specifications (type, parts, printing intents, media references). Requires an S2 connection.',
+  'Create a new product in S2 with specifications (type, parts, printing intents, media references). Requires an S2 connection. Note: S2 matches on `name`, so calling this with a name that already exists will partial-update the existing product; use update_product for that case to make the intent explicit.',
   {
     name: z.string().describe('Product name (unique identifier)'),
     properties: z.record(z.any()).describe('Product properties object including descriptiveName, productType, parts[], customers[], etc.'),
@@ -5412,6 +5443,26 @@ server.tool(
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to create product (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
     return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'update_product',
+  'Partial-update an existing S2 product. S2 matches the record on `name` — it must match an existing product. Only the fields present in `properties` are changed. Use update_project_status for per-part status changes, and the upload_product_asset tool to attach graphic/shape assets.',
+  {
+    name: z.string().describe('Existing product name — must match the value used at creation'),
+    properties: z.record(z.any()).describe('Partial properties to update: description, descriptiveName, parts, customers, etc.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ name, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('POST', 'products', conn.id, { name, properties });
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update product (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, name, response: result.data }, null, 2) }] };
   }
 );
 
