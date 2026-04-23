@@ -208,7 +208,7 @@ The MCP server runs as a **Cloudflare Worker** at `https://paulland-mcp.paul-lan
 ### Architecture
 
 ```
-mcp-server/src/index.ts    ← Shared implementation (38 tools, resources, prompts)
+mcp-server/src/index.ts    ← Shared implementation (78 tools, resources, prompts)
     exports: createServer(), initMisProxy(), registerTools(), registerResources()
 
 mcp-worker/src/index.ts    ← Cloudflare Worker entry point
@@ -229,13 +229,14 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (71 tools)
+### Tool Groups (78 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
 | Content | list_content, get_content, get_summary, list_daily_notes, get_daily_note, list_entities, get_entity | 7 |
 | Search | search_knowledge_base | 1 |
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
+| Tasks | list_tasks, get_task, create_task, update_task, complete_task | 5 |
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write, sales_report_extract/write, bookings_report_extract/write | 14 |
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
@@ -293,7 +294,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 
 The `content_links` table enables linking any content item to any other (signal→problem, article→problem, problem→problem). Link types: `evidence`, `related`, `derived_from`, `supports`.
 
-### Skills (10 skills, defined in `.claude/skills/`)
+### Skills (11 skills, defined in `.claude/skills/`)
 
 | Skill | Prompt Slug | Tools Used |
 |-------|-------------|------------|
@@ -309,11 +310,11 @@ The `content_links` table enables linking any content item to any other (signal�
 | Bookings Report | `bookings-report` | get_prompt, bookings_report_extract, bookings_report_write |
 | WCR Pack Opportunities | `wcr-pack-opps-report` | get_prompt, wcr_pack_opps_extract, wcr_pack_opps_write |
 
-### Prompt Templates (12 prompts, stored in Supabase `prompts` table)
+### Prompt Templates (15 prompts, stored in Supabase `prompts` table)
 
 Prompts are editable via the admin dashboard (Tools → Prompts). Extract tools fetch their prompt at runtime via `supabaseGet('prompts?slug=eq.{slug}')` and include `system_prompt` + `user_prompt_template` in responses.
 
-Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `ask`, `show-and-tell`, `support-review`, `sales-report`, `bookings-report`, `wcr-pack-opps-report`
+Slugs: `daily-review`, `weekly-summary`, `monthly-summary`, `extract-signals`, `extract-problems`, `extract-strategies`, `signal-synthesis`, `reflection-synthesis`, `ask`, `show-and-tell`, `support-review`, `sales-report`, `bookings-report`, `wcr-pack-opps-report`, `email-job-extraction`
 
 ### Worker Secrets (set via `wrangler secret put`)
 

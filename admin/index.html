@@ -16205,6 +16205,35 @@
             { name: 'properties', type: 'object', desc: 'Product properties' },
             { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
         ]},
+        { name: 'update_product', desc: 'Partial-update an S2 product (matched by name); only fields in properties change', group: 'MIS', params: 3, paramDetails: [
+            { name: 'name', type: 'string', desc: 'Existing product name (must match the value used at creation)' },
+            { name: 'properties', type: 'object', desc: 'Partial properties: description, descriptiveName, parts, customers, etc.' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'update_project', desc: 'Partial-update an S2 project (matched by MISId + jobId + jobPartId); only fields in properties change', group: 'MIS', params: 5, paramDetails: [
+            { name: 'job_id', type: 'string', desc: 'Existing project jobId (must match creation value)' },
+            { name: 'job_part_id', type: 'string?', desc: 'Existing jobPartId, if set at creation' },
+            { name: 'mis_id', type: 'string?', desc: 'MISId used at creation (default: "MyMIS")' },
+            { name: 'properties', type: 'object', desc: 'Partial properties: description, descriptiveName, attributes, dueDate, etc.' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'upload_project_asset', desc: 'Upload a file to an S2 project via the 3-step flow (placeholder → binary → finalize)', group: 'MIS', params: 6, paramDetails: [
+            { name: 'project_node_id', type: 'string', desc: 'S2 node ID of the project' },
+            { name: 'file_name', type: 'string', desc: 'File name with extension (e.g. "design.pdf")' },
+            { name: 'file_content', type: 'string', desc: 'Base64-encoded file content' },
+            { name: 'folder', type: 'string?', desc: 'Subfolder path within project (default: "Input")' },
+            { name: 'mime_type', type: 'string?', desc: 'MIME type (auto-detected from extension if omitted)' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
+        { name: 'upload_product_asset', desc: 'Upload a graphic or shape file to an S2 product via the 3-step flow', group: 'MIS', params: 7, paramDetails: [
+            { name: 'product_node_id', type: 'string', desc: 'S2 node ID of the product' },
+            { name: 'file_name', type: 'string', desc: 'File name with extension (e.g. "artwork.pdf", "die-line.ard")' },
+            { name: 'file_content', type: 'string', desc: 'Base64-encoded file content' },
+            { name: 'asset_type', type: 'enum', desc: '"graphic" (PDF, AI, ...) or "shape" (ARD, CAD, ...)' },
+            { name: 'folder', type: 'string?', desc: 'Subfolder path (default: "Graphic files" or "CAD files")' },
+            { name: 'mime_type', type: 'string?', desc: 'MIME type (auto-detected from extension if omitted)' },
+            { name: 'connection_id', type: 'string?', desc: 'Connection UUID' },
+        ]},
         { name: 'link_content', desc: 'Create a link between two content items', group: 'Content Linking', params: 4, paramDetails: [
             { name: 'source_id', type: 'string', desc: 'Source content UUID' },
             { name: 'target_id', type: 'string', desc: 'Target content UUID' },
@@ -16300,6 +16329,46 @@
             { name: 'summary', type: 'object', desc: 'Weekly summary title + markdown body' },
             { name: 'signals', type: 'array?', desc: 'Closed-lost themes (id-first dedup, then theme_slug)' },
             { name: 'competitors', type: 'array?', desc: 'Competitor mentions (id-first dedup, then name)' },
+        ]},
+        // Tasks
+        { name: 'list_tasks', desc: 'List tasks with filters (status, due window, priority, source, tag). Defaults to open (not done).', group: 'Tasks', params: 8, paramDetails: [
+            { name: 'status', type: 'enum?', desc: 'open (default), todo, doing, done, blocked, all' },
+            { name: 'due', type: 'enum?', desc: 'today, week, overdue, upcoming, undated, anytime' },
+            { name: 'priority', type: 'enum?', desc: 'high, medium, low' },
+            { name: 'source_table', type: 'string?', desc: 'Filter to tasks linked to a source table' },
+            { name: 'source_id', type: 'string?', desc: 'Filter to tasks linked to a specific source row' },
+            { name: 'tag', type: 'string?', desc: 'Filter by tag' },
+            { name: 'client_date', type: 'string?', desc: 'YYYY-MM-DD reference date for due-window math (default: UTC today)' },
+            { name: 'limit', type: 'number?', desc: 'Max items (default 100, cap 500)' },
+        ]},
+        { name: 'get_task', desc: 'Get a single task by ID', group: 'Tasks', params: 1, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Task UUID' },
+        ]},
+        { name: 'create_task', desc: 'Create a new task, optionally linked to a source (daily_note, content item, project, problem)', group: 'Tasks', params: 9, paramDetails: [
+            { name: 'title', type: 'string', desc: 'Task title (required)' },
+            { name: 'description', type: 'string?', desc: 'Longer description' },
+            { name: 'status', type: 'enum?', desc: 'todo (default), doing, done, blocked' },
+            { name: 'priority', type: 'enum?', desc: 'high, medium, low' },
+            { name: 'due_date', type: 'string?', desc: 'YYYY-MM-DD' },
+            { name: 'source_table', type: 'string?', desc: 'Source table name (e.g. daily_notes, content)' },
+            { name: 'source_id', type: 'string?', desc: 'Source row UUID' },
+            { name: 'source_ref', type: 'string?', desc: 'Free-form back-ref (e.g. "Stand-up 2026-04-20")' },
+            { name: 'tags', type: 'string[]?', desc: 'Tags' },
+        ]},
+        { name: 'update_task', desc: 'Update task fields. Setting status=done also sets completed_at.', group: 'Tasks', params: 10, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Task UUID' },
+            { name: 'title', type: 'string?', desc: 'New title' },
+            { name: 'description', type: 'string?', desc: 'New description' },
+            { name: 'status', type: 'enum?', desc: 'todo, doing, done, blocked' },
+            { name: 'priority', type: 'enum?', desc: 'high, medium, low' },
+            { name: 'due_date', type: 'string?', desc: 'YYYY-MM-DD; pass empty string to clear' },
+            { name: 'source_table', type: 'string?', desc: 'Source table' },
+            { name: 'source_id', type: 'string?', desc: 'Source row UUID' },
+            { name: 'source_ref', type: 'string?', desc: 'Back-ref' },
+            { name: 'tags', type: 'string[]?', desc: 'Tags' },
+        ]},
+        { name: 'complete_task', desc: 'Mark a task done (sets status=done, completed_at=now)', group: 'Tasks', params: 1, paramDetails: [
+            { name: 'id', type: 'string', desc: 'Task UUID' },
         ]},
     ];
 
@@ -16464,11 +16533,11 @@
         'Content': 'book-open', 'Search': 'search', 'Write': 'pencil', 'Feed': 'rss',
         'AI Workflows': 'brain', 'Content Linking': 'link', 'Problem Intelligence': 'alert-triangle',
         'Strategy Intelligence': 'target', 'Personas & Research': 'microscope',
-        'Embeddings': 'layers', 'Utility': 'activity',
-        'Prompts': 'file-text', 'MIS': 'factory', 'Sales': 'bar-chart-3',
+        'Embeddings': 'layers', 'Utility': 'activity', 'Tasks': 'check-square',
+        'Prompts': 'file-text', 'MIS': 'factory', 'Sales': 'bar-chart-3', 'Assets': 'folder',
     };
 
-    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Feed', 'AI Workflows', 'Content Linking', 'Problem Intelligence', 'Strategy Intelligence', 'Personas & Research', 'Sales', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
+    const GROUP_ORDER = ['Content', 'Search', 'Write', 'Tasks', 'Feed', 'AI Workflows', 'Content Linking', 'Problem Intelligence', 'Strategy Intelligence', 'Personas & Research', 'Assets', 'Sales', 'Embeddings', 'Prompts', 'MIS', 'Utility'];
 
     async function loadMcpOverview() {
         const main = document.getElementById('mainContent');
