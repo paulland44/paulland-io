@@ -33,9 +33,6 @@ export async function syncReader(env: Env): Promise<SyncStats> {
   const { SUPABASE_URL: url, SUPABASE_SERVICE_KEY: key } = env;
   const readerHeaders = { Authorization: `Token ${token}` };
 
-  // Ensure a "Readwise Reader" feed entry exists
-  const readerFeedId = await ensureReaderFeed(url, key);
-
   // Get last sync timestamp
   let updatedAfter: string | null = null;
   const stateRows = await supabaseGet(
@@ -54,19 +51,14 @@ export async function syncReader(env: Env): Promise<SyncStats> {
   const syncedReaderIds: string[] = [];
   let hitLimit = false;
 
-  // Process one page per location. On Bundled plan (~50 subrequests),
-  // we can do: 3 setup + 1 API + ~20 batch-processed articles + 1 API + ~10 batch feed items
-  // = ~15 subrequests per page with batching.
-  for (const location of ['new', 'later', 'feed'] as const) {
+  for (const location of ['new', 'later'] as const) {
     if (hitLimit) break;
 
     const params = new URLSearchParams({
       page_size: '20',
       location,
+      withHtmlContent: 'true',
     });
-    if (location !== 'feed') {
-      params.set('withHtmlContent', 'true');
-    }
     if (updatedAfter) {
       params.set('updatedAfter', updatedAfter);
     }
@@ -95,17 +87,11 @@ export async function syncReader(env: Env): Promise<SyncStats> {
     console.log(`Reader sync [${location}]: ${results.length} documents`);
 
     try {
-      if (location === 'feed') {
-        const feedStats = await batchProcessFeedDocuments(url, key, results, readerFeedId);
-        stats.synced += feedStats.synced;
-        stats.skipped += feedStats.skipped;
-      } else {
-        const articleStats = await batchProcessDocuments(url, key, results);
-        stats.synced += articleStats.synced;
-        stats.skipped += articleStats.skipped;
-        stats.updated += articleStats.updated;
-        syncedReaderIds.push(...articleStats.syncedIds);
-      }
+      const articleStats = await batchProcessDocuments(url, key, results);
+      stats.synced += articleStats.synced;
+      stats.skipped += articleStats.skipped;
+      stats.updated += articleStats.updated;
+      syncedReaderIds.push(...articleStats.syncedIds);
     } catch (e) {
       console.error(`Batch processing failed (${location}):`, e);
       stats.errors++;
@@ -134,22 +120,6 @@ export async function syncReader(env: Env): Promise<SyncStats> {
     `Reader sync complete: ${stats.synced} synced, ${stats.updated} updated, ${stats.skipped} skipped, ${stats.errors} errors${hitLimit ? ' (limit reached)' : ''}`
   );
   return stats;
-}
-
-async function ensureReaderFeed(url: string, key: string): Promise<string> {
-  const existing = await supabaseGet(
-    url, key,
-    `feeds?url=eq.${encodeURIComponent('https://readwise.io/reader/feed')}&select=id&limit=1`
-  );
-  if (existing.length > 0) return existing[0].id;
-
-  const result = await supabasePost(url, key, 'feeds', {
-    url: 'https://readwise.io/reader/feed',
-    name: 'Readwise Reader',
-    mode: 'digest',
-    active: true,
-  }, true);
-  return result.data?.[0]?.id || '';
 }
 
 /**
@@ -235,75 +205,6 @@ async function batchProcessDocuments(
       result.syncedIds.push(...newDocs.map((d) => d.id));
     } else {
       console.error(`Batch content insert failed: ${insertResult.error}`);
-    }
-  }
-
-  return result;
-}
-
-/**
- * Batch process feed documents.
- * Uses batch URL lookups and batch inserts.
- */
-async function batchProcessFeedDocuments(
-  url: string,
-  key: string,
-  docs: any[],
-  readerFeedId: string
-): Promise<{ synced: number; skipped: number }> {
-  const result = { synced: 0, skipped: 0 };
-
-  const eligible = docs.filter((d) => {
-    const sourceUrl = d.source_url || d.url || '';
-    const title = (d.title || '').trim();
-    return sourceUrl && title;
-  });
-  if (eligible.length === 0) return result;
-
-  // Batch check which URLs already exist in feed_items
-  const urls = eligible.map((d) => d.source_url || d.url);
-  const urlList = urls.map((u: string) => `"${u.replace(/"/g, '\\"')}"`).join(',');
-  const seenFeedItems = await supabaseGet(
-    url, key,
-    `feed_items?item_url=in.(${urlList})&select=item_url`
-  );
-  const seenUrls = new Set(seenFeedItems.map((f: any) => f.item_url));
-
-  // Batch check which URLs already exist in content
-  const seenContent = await supabaseGet(
-    url, key,
-    `content?url=in.(${urlList})&select=id,url`
-  );
-  const contentByUrl = new Map(seenContent.map((c: any) => [c.url, c.id]));
-
-  // Build new feed items to insert
-  const newItems: any[] = [];
-  for (const doc of eligible) {
-    const sourceUrl = doc.source_url || doc.url || '';
-    if (seenUrls.has(sourceUrl)) {
-      result.skipped++;
-      continue;
-    }
-
-    const contentId = contentByUrl.get(sourceUrl);
-    newItems.push({
-      feed_id: readerFeedId,
-      item_url: sourceUrl,
-      item_title: (doc.title || '').trim(),
-      item_summary: (doc.summary || '').slice(0, 500),
-      captured: !!contentId,
-      content_id: contentId || null,
-    });
-  }
-
-  // Batch insert all new feed items (single subrequest)
-  if (newItems.length > 0) {
-    const insertResult = await supabasePost(url, key, 'feed_items', newItems);
-    if (insertResult.ok) {
-      result.synced += newItems.filter((i) => !i.captured).length;
-      result.skipped += newItems.filter((i) => i.captured).length;
-    } else {
-      console.error(`Batch feed_items insert failed: ${insertResult.error}`);
     }
   }
 

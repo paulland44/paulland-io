@@ -162,8 +162,6 @@ export async function onRequest(ctx) {
         return handleAskStream(request, env);
       case 'summarize-to-note':
         return handleSummarizeToNote(request, env);
-      case 'feed-items/capture':
-        return handleFeedItemCapture(request, env);
       case 'competitor-research':
         return handleCompetitorResearch(request, env);
       case 'extract-signals':
@@ -1268,7 +1266,7 @@ async function handleUpdateTags(request, env, ctx) {
 async function handleEntityUpdate(request, env, ctx) {
   const { table, id, updates } = await request.json();
 
-  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'feed_items', 'prompts', 'tasks'];
+  const allowedTables = ['people', 'products', 'projects', 'summaries', 'assets', 'companies', 'content', 'prompts', 'tasks'];
   if (!table || !allowedTables.includes(table)) {
     return json({ error: 'Invalid table. Must be one of: ' + allowedTables.join(', ') }, 400);
   }
@@ -3496,185 +3494,6 @@ async function handleEmbedBatch(request, env) {
   return json({ ok: true, embedded: results, remaining, totalProcessed, halted, haltReason });
   } catch (err) {
     return json({ error: 'Embed batch failed: ' + err.message }, 500);
-  }
-}
-
-/**
- * POST /api/feed-items/capture — Capture a feed item into the content table.
- */
-async function handleFeedItemCapture(request, env) {
-  try {
-    const supabaseUrl = env.SUPABASE_URL;
-    const serviceKey = env.SUPABASE_SERVICE_KEY;
-    const { feed_item_id } = await request.json();
-    if (!feed_item_id) {
-      return json({ error: 'Missing feed_item_id' }, 400);
-    }
-
-    // Fetch the feed item
-    const feedItems = await supabaseGet(supabaseUrl, serviceKey,
-      `feed_items?select=*&id=eq.${feed_item_id}`);
-
-    if (!feedItems || feedItems.length === 0) {
-      return json({ error: 'Feed item not found' }, 404);
-    }
-    const feedItem = feedItems[0];
-
-    if (feedItem.captured) {
-      return json({ already_captured: true });
-    }
-
-    // Check if URL already exists in content (dedup)
-    const existing = await supabaseGet(supabaseUrl, serviceKey,
-      `content?select=id&url=eq.${encodeURIComponent(feedItem.item_url)}&limit=1`);
-
-    if (existing && existing.length > 0) {
-      // Mark captured
-      await supabasePatch(supabaseUrl, serviceKey,
-        `feed_items?id=eq.${feed_item_id}`, { captured: true });
-      return json({ captured: true, deduplicated: true });
-    }
-
-    // Fetch the page and extract full article content
-    let title = feedItem.item_title || 'Untitled';
-    let description = feedItem.item_summary || '';
-    let body = '';
-    let extractedImage = null;
-    let metadata = {
-      feed_item_id: feedItem.id,
-      source_app: 'reader',
-    };
-
-    try {
-      const pageResp = await fetch(feedItem.item_url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(15000),
-      });
-      if (pageResp.ok) {
-        const html = await pageResp.text();
-
-        // Extract metadata from head
-        const ogTitle = html.match(/<meta\s+(?:property|name)="og:title"\s+content="([^"]+)"/i);
-        if (ogTitle) title = ogTitle[1];
-        else {
-          const htmlTitle = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-          if (htmlTitle) title = htmlTitle[1].trim();
-        }
-        const ogDesc = html.match(/<meta\s+(?:property|name)="og:description"\s+content="([^"]+)"/i);
-        const metaDesc = html.match(/<meta\s+name="description"\s+content="([^"]+)"/i);
-        if (ogDesc) description = ogDesc[1];
-        else if (metaDesc) description = metaDesc[1];
-        const ogImage = html.match(/<meta\s+(?:property|name)="og:image"\s+content="([^"]+)"/i);
-        extractedImage = ogImage ? ogImage[1] : null;
-
-        // Extract article content — try <article>, then role="main", then fallback to <main> or <body>
-        let contentHtml = '';
-        const articleMatch = html.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-        const mainMatch = html.match(/<main[^>]*>([\s\S]*?)<\/main>/i);
-        const roleMainMatch = html.match(/<[^>]+role="main"[^>]*>([\s\S]*?)<\/[^>]+>/i);
-        const contentDivMatch = html.match(/<div[^>]+class="[^"]*(?:post-content|article-content|entry-content|post-body|article-body|story-body|content-body)[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-
-        contentHtml = contentDivMatch?.[1] || articleMatch?.[1] || roleMainMatch?.[1] || mainMatch?.[1] || '';
-
-        if (contentHtml) {
-          // Convert HTML to markdown
-          body = contentHtml
-            // Headings
-            .replace(/<h1[^>]*>([\s\S]*?)<\/h1>/gi, '\n# $1\n')
-            .replace(/<h2[^>]*>([\s\S]*?)<\/h2>/gi, '\n## $1\n')
-            .replace(/<h3[^>]*>([\s\S]*?)<\/h3>/gi, '\n### $1\n')
-            .replace(/<h4[^>]*>([\s\S]*?)<\/h4>/gi, '\n#### $1\n')
-            .replace(/<h5[^>]*>([\s\S]*?)<\/h5>/gi, '\n##### $1\n')
-            .replace(/<h6[^>]*>([\s\S]*?)<\/h6>/gi, '\n###### $1\n')
-            // Paragraphs & breaks
-            .replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, '\n$1\n')
-            .replace(/<br\s*\/?>/gi, '\n')
-            // Lists
-            .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, '- $1\n')
-            .replace(/<\/?[ou]l[^>]*>/gi, '\n')
-            // Links & images
-            .replace(/<a[^>]+href="([^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '[$2]($1)')
-            .replace(/<img[^>]+src="([^"]*)"[^>]*alt="([^"]*)"[^>]*\/?>/gi, '![$2]($1)')
-            .replace(/<img[^>]+src="([^"]*)"[^>]*\/?>/gi, '![]($1)')
-            // Formatting
-            .replace(/<strong[^>]*>([\s\S]*?)<\/strong>/gi, '**$1**')
-            .replace(/<b[^>]*>([\s\S]*?)<\/b>/gi, '**$1**')
-            .replace(/<em[^>]*>([\s\S]*?)<\/em>/gi, '*$1*')
-            .replace(/<i[^>]*>([\s\S]*?)<\/i>/gi, '*$1*')
-            .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, '\n> $1\n')
-            .replace(/<code[^>]*>([\s\S]*?)<\/code>/gi, '`$1`')
-            .replace(/<pre[^>]*>([\s\S]*?)<\/pre>/gi, '\n```\n$1\n```\n')
-            // Remove script, style, nav, footer, aside tags entirely
-            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
-            .replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '')
-            .replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '')
-            .replace(/<aside[^>]*>[\s\S]*?<\/aside>/gi, '')
-            // Remove remaining HTML tags
-            .replace(/<[^>]+>/g, '')
-            // Decode entities
-            .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-            .replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'").replace(/&quot;/g, '"')
-            .replace(/&rsquo;/g, "'").replace(/&lsquo;/g, "'")
-            .replace(/&rdquo;/g, '"').replace(/&ldquo;/g, '"')
-            .replace(/&mdash;/g, '—').replace(/&ndash;/g, '–')
-            .replace(/&hellip;/g, '…')
-            // Clean up whitespace
-            .replace(/\n{3,}/g, '\n\n')
-            .trim();
-        }
-      }
-    } catch (e) {
-      // Extraction failed — use feed item data as fallback
-    }
-
-    metadata.description = description;
-    metadata.image_url = extractedImage;
-
-    if (!body) {
-      body = description || feedItem.item_summary || `*View original article: ${feedItem.item_url}*`;
-    }
-
-    // Save to content table
-    const insertRes = await fetch(`${supabaseUrl}/rest/v1/content`, {
-      method: 'POST',
-      headers: {
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-        'Prefer': 'return=representation',
-      },
-      body: JSON.stringify({
-        type: 'article',
-        title: title,
-        body: body,
-        url: feedItem.item_url,
-        source: 'Readwise Reader',
-        tags: [],
-        status: 'new',
-        metadata: metadata,
-      }),
-    });
-
-    if (!insertRes.ok) {
-      const errText = await insertRes.text();
-      return json({ error: 'Failed to create content', detail: errText }, 500);
-    }
-
-    const contentRows = await insertRes.json();
-    const contentId = contentRows?.[0]?.id;
-
-    // Mark feed item as captured
-    await supabasePatch(supabaseUrl, serviceKey,
-      `feed_items?id=eq.${feed_item_id}`, { captured: true });
-
-    return json({ captured: true, content_id: contentId });
-  } catch (err) {
-    return json({ error: 'Capture failed: ' + err.message }, 500);
   }
 }
 

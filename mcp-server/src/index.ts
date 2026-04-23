@@ -25,7 +25,6 @@ import {
   embedItem,
   EMBEDDABLE_TABLES,
 } from './embeddings.js';
-import { extractArticleContent } from './utils/html-to-markdown.js';
 // Note: fs/path are NOT available in the Cloudflare Worker runtime.
 // Tools must not depend on filesystem access. Use base64 data parameters instead.
 
@@ -394,36 +393,6 @@ server.tool(
   }
 );
 
-server.tool(
-  'list_feed_items',
-  'List feed items awaiting triage (not yet captured or dismissed)',
-  {
-    show: z
-      .enum(['pending', 'captured', 'dismissed', 'all'])
-      .optional()
-      .default('pending')
-      .describe('Which items to show'),
-    limit: z.number().optional().default(30),
-  },
-  async ({ show, limit }) => {
-    let path = `feed_items?select=id,item_title,item_url,item_summary,captured,dismissed,feed_id,created_at&order=created_at.desc&limit=${limit}`;
-    if (show === 'pending') {
-      path += '&captured=eq.false&dismissed=eq.false';
-    } else if (show === 'captured') {
-      path += '&captured=eq.true';
-    } else if (show === 'dismissed') {
-      path += '&dismissed=eq.true';
-    }
-
-    const rows = await supabaseGet(path);
-    return {
-      content: [
-        { type: 'text' as const, text: JSON.stringify({ count: rows.length, items: rows }, null, 2) },
-      ],
-    };
-  }
-);
-
 // ─── Group 2: Search ─────────────────────────────────────────
 
 server.tool(
@@ -746,160 +715,6 @@ server.tool(
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, table, id }) }],
-    };
-  }
-);
-
-server.tool(
-  'capture_feed_item',
-  'Promote a feed item to a content article (fetches and extracts the full article)',
-  {
-    feed_item_id: z.string().describe('Feed item UUID'),
-  },
-  async ({ feed_item_id }) => {
-    // Fetch feed item
-    const feedItems = await supabaseGet(
-      `feed_items?select=*&id=eq.${feed_item_id}`
-    );
-    if (!feedItems.length) {
-      return { content: [{ type: 'text' as const, text: 'Feed item not found' }] };
-    }
-    const feedItem = feedItems[0];
-
-    if (feedItem.captured) {
-      return {
-        content: [{ type: 'text' as const, text: 'Feed item already captured' }],
-      };
-    }
-
-    // Dedup check
-    const existing = await supabaseGet(
-      `content?select=id&url=eq.${encodeURIComponent(feedItem.item_url)}&limit=1`
-    );
-    if (existing.length) {
-      await supabasePatch(`feed_items?id=eq.${feed_item_id}`, {
-        captured: true,
-      });
-      return {
-        content: [
-          {
-            type: 'text' as const,
-            text: JSON.stringify({
-              captured: true,
-              deduplicated: true,
-              existing_id: existing[0].id,
-            }),
-          },
-        ],
-      };
-    }
-
-    // Fetch and extract article
-    let title = feedItem.item_title || 'Untitled';
-    let description = feedItem.item_summary || '';
-    let body = '';
-    let imageUrl: string | null = null;
-
-    try {
-      const resp = await fetch(feedItem.item_url, {
-        headers: {
-          'User-Agent':
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          Accept:
-            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        },
-        redirect: 'follow',
-        signal: AbortSignal.timeout(15000),
-      });
-      if (resp.ok) {
-        const html = await resp.text();
-        const extracted = extractArticleContent(html);
-        title = extracted.title || title;
-        description = extracted.description || description;
-        body = extracted.body;
-        imageUrl = extracted.imageUrl;
-      }
-    } catch {
-      // Use feed item data as fallback
-    }
-
-    if (!body) {
-      body =
-        description ||
-        feedItem.item_summary ||
-        `*View original article: ${feedItem.item_url}*`;
-    }
-
-    const metadata: any = {
-      feed_item_id: feedItem.id,
-      source_app: 'reader',
-      description,
-      image_url: imageUrl,
-    };
-
-    const result = await supabasePost(
-      'content',
-      {
-        type: 'article',
-        title,
-        body,
-        url: feedItem.item_url,
-        source: 'Readwise Reader',
-        tags: [],
-        status: 'new',
-        metadata,
-      },
-      true
-    );
-
-    if (!result.ok) {
-      return {
-        content: [
-          { type: 'text' as const, text: `Failed to create content: ${result.error}` },
-        ],
-      };
-    }
-
-    const contentId = result.data?.[0]?.id;
-
-    // Mark captured
-    await supabasePatch(`feed_items?id=eq.${feed_item_id}`, {
-      captured: true,
-    });
-
-    // Embed in background
-    if (contentId) {
-      embedItem('content', contentId).catch(() => {});
-    }
-
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({ captured: true, content_id: contentId, title }),
-        },
-      ],
-    };
-  }
-);
-
-server.tool(
-  'dismiss_feed_item',
-  'Dismiss a feed item from the triage queue',
-  {
-    feed_item_id: z.string().describe('Feed item UUID'),
-  },
-  async ({ feed_item_id }) => {
-    const result = await supabasePatch(`feed_items?id=eq.${feed_item_id}`, {
-      dismissed: true,
-    });
-    return {
-      content: [
-        {
-          type: 'text' as const,
-          text: JSON.stringify({ ok: result.ok, error: result.error }),
-        },
-      ],
     };
   }
 );
@@ -4536,7 +4351,7 @@ server.tool(
 
 server.tool(
   'get_system_status',
-  'Get an overview of the knowledge base: content counts, unembedded items, pending feed items',
+  'Get an overview of the knowledge base: content counts and unembedded items',
   {},
   async () => {
     const [
@@ -4551,7 +4366,6 @@ server.tool(
       companies,
       products,
       projects,
-      pendingFeed,
       unembeddedContent,
       summaries,
     ] = await Promise.all([
@@ -4566,9 +4380,6 @@ server.tool(
       supabaseGet('companies?select=id&limit=1000'),
       supabaseGet('products?select=id&limit=1000'),
       supabaseGet('projects?select=id&limit=1000'),
-      supabaseGet(
-        'feed_items?captured=eq.false&dismissed=eq.false&select=id&limit=1000'
-      ),
       supabaseGet('content?embedded_at=is.null&select=id&limit=1000'),
       supabaseGet('summaries?select=id&limit=1000'),
     ]);
@@ -4590,7 +4401,6 @@ server.tool(
         products: products.length,
         projects: projects.length,
       },
-      pending_feed_items: pendingFeed.length,
       unembedded_content: unembeddedContent.length,
     };
 

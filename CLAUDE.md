@@ -34,7 +34,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
   (every 30 min)      │
                        ├── capture-worker/src/index.ts  (scheduled handler)
                        │       │
-                       │       ├── Readwise Reader API → content + feed_items
+                       │       ├── Readwise Reader API → content (saved articles only)
                        │       ├── Outlook ICS feed → calendar_events
                        │       ├── AE → WCP enrichment poller → mis_jobs (AE-Submitted → WCP-Enriched)
                        │       └── Supabase + R2 (read staged attachments) + Pages API proxy
@@ -58,8 +58,6 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `products` | Products linked to companies | name, description, company_id, url |
 | `projects` | Internal projects | name, description, status |
 | `assets` | Files in R2 | filename, r2_key, mime_type, tags[], metadata |
-| `feeds` | RSS feed sources | url, name, mode, active |
-| `feed_items` | RSS triage queue (from Readwise Reader) | item_title, item_url, item_summary, captured, dismissed, feed_id |
 | `daily_notes` | Daily journal by date | date, meetings, notes, tasks, review |
 | `sync_state` | Key-value sync cursors | key, value |
 | `company_content` | Junction: companies ↔ content | company_id, content_id |
@@ -99,7 +97,6 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `embed-batch` | `handleEmbedBatch` | Batch embed unembedded content |
 | `search` | `handleSearch` | Vector similarity search (pgvector) |
 | `ask` | `handleAsk` | RAG: vector search + Claude answer |
-| `feed-items/capture` | `handleFeedItemCapture` | Promote feed item → content (extracts full article) |
 | `competitor-research` | `handleCompetitorResearch` | **Streaming** Claude + web_search SSE |
 | `extract-signals` | `handleExtractSignals` | AI signal extraction from articles (Claude) |
 | `signal-synthesis` | `handleSignalSynthesis` | **Streaming** multi-signal synthesis (Claude SSE) |
@@ -181,9 +178,9 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Feed Items, Feeds), Tools (Ask AI), Sales (Dashboard), Support (Dashboard)
+**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Tags), Tools (Ask AI), Sales (Dashboard), Support (Dashboard)
 
-**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Feed Items, Feeds, Assets, People, Companies, Products, Projects, Competition, Ask AI, Sales Dashboard, Support Dashboard
+**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Assets, People, Companies, Products, Projects, Competition, Ask AI, Sales Dashboard, Support Dashboard
 
 **Theme System**: Dark/light mode, accent colours (sage, amber, blue, rose, violet), font sizing. Stored in localStorage.
 
@@ -229,14 +226,13 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (74 tools)
+### Tool Groups (71 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
-| Content | list_content, get_content, get_summary, list_daily_notes, get_daily_note, list_entities, get_entity, list_feed_items | 8 |
+| Content | list_content, get_content, get_summary, list_daily_notes, get_daily_note, list_entities, get_entity | 7 |
 | Search | search_knowledge_base | 1 |
 | Write | create_content, update_content, update_tags, upsert_daily_note, create_entity, update_entity | 6 |
-| Feed | capture_feed_item, dismiss_feed_item | 2 |
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write, sales_report_extract/write, bookings_report_extract/write | 14 |
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |

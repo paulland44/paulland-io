@@ -5077,8 +5077,6 @@
             { view: 'strategy-operational', label: 'Operational', countKey: 'strategyOps' },
         ]},
         sources: { tabs: [
-            { view: 'feed-items', label: 'Feed Items', countKey: 'feedItems' },
-            { view: 'feeds', label: 'Feeds', countKey: 'feeds' },
             { view: 'tags', label: 'Tags' },
         ]},
         tools: { tabs: [
@@ -5354,7 +5352,7 @@
 
     // ─── Counts ───────────────────────────────────────────────
     async function loadCounts() {
-        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, referenceResult, summaries, feedItems, feeds, assets, people, companies, products, projects, vocCount, tasksCount] = await Promise.all([
+        const [articles, thoughts, signals, reflections, problemsCount, strategiesResult, referenceResult, summaries, assets, people, companies, products, projects, vocCount, tasksCount] = await Promise.all([
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'article'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'thought'),
             db.from('content').select('id', { count: 'exact', head: true }).eq('type', 'signal'),
@@ -5363,8 +5361,6 @@
             db.from('content').select('id, metadata', { count: 'exact' }).eq('type', 'strategy'),
             db.from('content').select('id, metadata', { count: 'exact' }).eq('type', 'reference'),
             db.from('summaries').select('id', { count: 'exact', head: true }),
-            db.from('feed_items').select('id', { count: 'exact', head: true }),
-            db.from('feeds').select('id', { count: 'exact', head: true }),
             db.from('assets').select('id', { count: 'exact', head: true }),
             db.from('people').select('id', { count: 'exact', head: true }),
             db.from('companies').select('id', { count: 'exact', head: true }),
@@ -5411,8 +5407,6 @@
             strategyFeedback: (strategiesResult.data || []).filter(s => s.metadata?.strategy_type === 'customer-feedback').length,
             strategyOps: (strategiesResult.data || []).filter(s => ['operational','reference'].includes(s.metadata?.strategy_type)).length,
             summaries: summaries.count || 0,
-            feedItems: feedItems.count || 0,
-            feeds: feeds.count || 0,
             assets: assets.count || 0,
             people: people.count || 0,
             companies: companies.count || 0,
@@ -5481,8 +5475,6 @@
             case 'strategy-feedback': await loadStrategyView(['customer-feedback']); break;
             case 'strategy-operational': await loadStrategyView(['operational','reference']); break;
             case 'summaries': await loadSummaries(); break;
-            case 'feed-items': await loadFeedItems(); break;
-            case 'feeds': await loadFeeds(); break;
             case 'tags': await loadTags(); break;
             case 'assets': await loadAssets(); break;
             case 'people': await loadPeople(); break;
@@ -5564,8 +5556,6 @@
         // Parallel fetch — knowledge counts, sales/bookings, WCR snapshot dates, recent items
         const [
             recentContent,
-            uncapturedFeedCount,
-            feedItemPreview,
             dailyNoteToday,
             untaggedArticles,
             signalIdsRes,
@@ -5580,8 +5570,6 @@
             db.from('content').select('id, title, type, tags, source, captured_at, url, metadata')
                 .in('type', ['article', 'thought', 'signal', 'reflection', 'problem', 'strategy', 'summary'])
                 .order('captured_at', { ascending: false }).limit(8),
-            db.from('feed_items').select('id', { count: 'exact', head: true }).eq('captured', false).eq('dismissed', false),
-            db.from('feed_items').select('id, item_title').eq('captured', false).eq('dismissed', false).order('added_at', { ascending: false }).limit(3),
             db.from('daily_notes').select('id, tasks, meetings, notes').eq('note_date', todayDateStr).maybeSingle(),
             db.from('content').select('id, title', { count: 'exact' }).eq('type', 'article').filter('tags', 'eq', '{}').limit(50),
             db.from('content').select('id').eq('type', 'signal'),
@@ -5683,8 +5671,6 @@
         const signalTotal = signalIds.size;
 
         const untaggedCount = untaggedArticles.count || 0;
-        const feedPending = uncapturedFeedCount.count || 0;
-        const feedPreviewItems = feedItemPreview.data || [];
         const problemTotal = problemCount.count || 0;
         const problemActive = problemsActiveMonth.count || 0;
         const strategyMonthCount = strategiesMonth.count || 0;
@@ -5819,14 +5805,6 @@
                 </div>`;
 
         // Attention queue — Band 3 right column
-        const feedInboxHtml = feedPending === 0
-            ? `<div class="attn-row empty"><span>${icon('inbox')}</span> Inbox clear</div>`
-            : `<div class="attn-row" data-nav="feed-items">
-                    <span class="attn-lead">${icon('inbox')} <strong>${feedPending}</strong> feed items awaiting triage</span>
-                </div>` + feedPreviewItems.slice(0, 3).map(f =>
-                    `<div class="attn-sub">· ${esc(f.item_title || '(untitled)')}</div>`
-                ).join('');
-
         const untaggedHtml = untaggedCount === 0
             ? ''
             : `<div class="attn-row" data-nav="articles-untagged">
@@ -5839,7 +5817,7 @@
                     <span class="attn-lead">${icon('radio')} <strong>${unlinkedSignalCount}</strong> signals not linked to a problem</span>
                 </div>`;
 
-        const attentionHtml = (feedInboxHtml + untaggedHtml + unlinkedSignalsHtml) || '<div class="attn-row empty">All clear — nothing needs attention</div>';
+        const attentionHtml = (untaggedHtml + unlinkedSignalsHtml) || '<div class="attn-row empty">All clear — nothing needs attention</div>';
 
         // Band 4 — actionable knowledge chips
         const chips = [
@@ -9783,269 +9761,6 @@
                 });
             });
         }
-    }
-
-    // ─── Feed Items ───────────────────────────────────────────
-    async function captureFeedItem(btn, itemId) {
-        btn.disabled = true;
-        btn.textContent = 'Capturing...';
-        try {
-            const resp = await fetch('/api/feed-items/capture', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ feed_item_id: itemId }),
-            });
-            const text = await resp.text();
-            let result;
-            try { result = JSON.parse(text); } catch (_) {
-                console.error('Capture response not JSON:', text.substring(0, 300));
-                btn.textContent = 'Error';
-                btn.disabled = false;
-                return;
-            }
-            if (result.captured || result.already_captured) {
-                btn.outerHTML = '<span style="color:var(--accent); font-size:0.75rem;">✓ Captured</span>';
-            } else {
-                console.error('Capture failed:', result);
-                btn.textContent = result.error ? 'Failed' : 'Failed';
-                btn.title = result.error || 'Unknown error';
-                btn.disabled = false;
-            }
-        } catch (e) {
-            console.error('Capture error:', e);
-            btn.textContent = 'Error';
-            btn.disabled = false;
-        }
-    }
-
-    async function dismissFeedItem(itemId, cardEl) {
-        try {
-            const res = await fetch('/api/entity-update', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ table: 'feed_items', id: itemId, updates: { dismissed: true } }),
-            });
-            if (res.ok && cardEl) {
-                cardEl.classList.add('dismissed');
-                setTimeout(() => cardEl.remove(), 300);
-            }
-        } catch (e) {
-            console.error('Dismiss failed:', e);
-        }
-    }
-
-    async function loadFeedItems() {
-        const main = document.getElementById('mainContent');
-        main.innerHTML = '<div class="loading">Loading feed items</div>';
-
-        const { data, error } = await db
-            .from('feed_items')
-            .select('id, item_title, item_url, item_summary, captured, dismissed, first_seen_at, feed_id, feeds(name)')
-            .order('first_seen_at', { ascending: false })
-            .limit(200);
-
-        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No feed items yet.</div>'; return; }
-
-        main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Feed Items</h2>
-                <input type="text" class="search-input" placeholder="Filter items..." id="searchFeedItems">
-            </div>
-            <div class="filters" id="feedItemFilters">
-                <button class="filter-btn active" data-filter="inbox">Inbox</button>
-                <button class="filter-btn" data-filter="all">All</button>
-                <button class="filter-btn" data-filter="captured">Captured</button>
-                <button class="filter-btn" data-filter="dismissed">Dismissed</button>
-            </div>
-            <div class="bulk-bar" id="feedBulkBar">
-                <span class="bulk-count" id="feedBulkCount">0</span> selected
-                <button class="btn btn-sm btn-action" id="bulkCaptureFeed">${icon('download', 'icon-sm')} Capture</button>
-                <button class="btn btn-sm" id="bulkDismissFeed" style="background:var(--void-lighter);color:var(--text-body);">${icon('x', 'icon-sm')} Dismiss</button>
-                <button class="btn btn-sm" id="bulkDeselectFeed" style="background:transparent;color:var(--text-muted);">Deselect all</button>
-            </div>
-            <div class="feed-item-cards" id="feedItemCards"></div>
-        `;
-
-        let activeFilter = 'inbox';
-        const selectedIds = new Set();
-
-        function getFiltered() {
-            const q = (document.getElementById('searchFeedItems')?.value || '').toLowerCase();
-            let filtered = data;
-            if (activeFilter === 'inbox') filtered = filtered.filter(i => !i.captured && !i.dismissed);
-            else if (activeFilter === 'captured') filtered = filtered.filter(i => i.captured);
-            else if (activeFilter === 'dismissed') filtered = filtered.filter(i => i.dismissed);
-            if (q) filtered = filtered.filter(i =>
-                (i.item_title || '').toLowerCase().includes(q) ||
-                (i.item_summary || '').toLowerCase().includes(q) ||
-                (i.feeds?.name || '').toLowerCase().includes(q)
-            );
-            return filtered;
-        }
-
-        function updateBulkBar() {
-            const bar = document.getElementById('feedBulkBar');
-            document.getElementById('feedBulkCount').textContent = selectedIds.size;
-            bar.classList.toggle('active', selectedIds.size > 0);
-        }
-
-        function render() {
-            const filtered = getFiltered();
-            const container = document.getElementById('feedItemCards');
-            container.innerHTML = filtered.length === 0
-                ? '<div class="empty">No items match this filter.</div>'
-                : filtered.map(i => `
-                <div class="feed-item-card" data-id="${i.id}">
-                    <div class="feed-item-card-header">
-                        ${!i.captured && !i.dismissed ? `<input type="checkbox" class="feed-check" data-id="${i.id}" ${selectedIds.has(i.id) ? 'checked' : ''}>` : ''}
-                        <div class="feed-item-card-info">
-                            <div class="feed-item-card-title">${esc(i.item_title || 'Untitled')}</div>
-                            <div class="feed-item-card-meta">
-                                <span>${esc(i.feeds?.name || 'Unknown feed')}</span>
-                                <span>·</span>
-                                <span>${formatDate(i.first_seen_at)}</span>
-                            </div>
-                            <div class="feed-item-card-url">
-                                <a href="${esc(i.item_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation();">${esc(i.item_url)}</a>
-                            </div>
-                        </div>
-                        <div class="feed-item-card-actions">
-                            ${i.captured
-                                ? `<span style="color:var(--accent); font-size:0.75rem;">✓ Captured</span>`
-                                : i.dismissed
-                                    ? `<span style="color:var(--text-muted); font-size:0.75rem;">Dismissed</span>`
-                                    : `<button class="btn btn-sm btn-action capture-btn" data-id="${i.id}" style="font-size:0.75rem; padding:0.25rem 0.6rem;" onclick="event.stopPropagation();">${icon('download', 'icon-sm')} Capture</button>
-                                       <button class="feed-item-dismiss dismiss-btn" data-id="${i.id}" onclick="event.stopPropagation();" title="Dismiss">${icon('x', 'icon-sm')}</button>`
-                            }
-                        </div>
-                    </div>
-                    ${i.item_summary ? `<div class="feed-item-card-summary">${renderBody(i.item_summary)}</div>` : ''}
-                </div>
-            `).join('');
-
-            // Wire card click to expand/collapse summary
-            container.querySelectorAll('.feed-item-card').forEach(card => {
-                card.addEventListener('click', (e) => {
-                    if (e.target.closest('button') || e.target.closest('a') || e.target.closest('input')) return;
-                    card.classList.toggle('expanded');
-                });
-            });
-
-            // Wire capture buttons
-            container.querySelectorAll('.capture-btn').forEach(btn => {
-                btn.addEventListener('click', async () => {
-                    const id = btn.dataset.id;
-                    captureFeedItem(btn, id);
-                });
-            });
-
-            // Wire dismiss buttons
-            container.querySelectorAll('.dismiss-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    const id = btn.dataset.id;
-                    const card = btn.closest('.feed-item-card');
-                    const item = data.find(d => d.id === id);
-                    if (item) item.dismissed = true;
-                    dismissFeedItem(id, card);
-                });
-            });
-
-            // Wire checkboxes
-            container.querySelectorAll('.feed-check').forEach(cb => {
-                cb.addEventListener('change', () => {
-                    if (cb.checked) selectedIds.add(cb.dataset.id);
-                    else selectedIds.delete(cb.dataset.id);
-                    updateBulkBar();
-                });
-            });
-
-            refreshIcons();
-            updateBulkBar();
-        }
-
-        // Bulk capture
-        document.getElementById('bulkCaptureFeed')?.addEventListener('click', async () => {
-            const ids = [...selectedIds];
-            for (const id of ids) {
-                const card = document.querySelector(`.feed-item-card[data-id="${id}"]`);
-                const btn = card?.querySelector('.capture-btn');
-                if (btn) await captureFeedItem(btn, id);
-                const item = data.find(d => d.id === id);
-                if (item) item.captured = true;
-            }
-            selectedIds.clear();
-            render();
-        });
-
-        // Bulk dismiss
-        document.getElementById('bulkDismissFeed')?.addEventListener('click', async () => {
-            const ids = [...selectedIds];
-            for (const id of ids) {
-                const item = data.find(d => d.id === id);
-                if (item) item.dismissed = true;
-                await dismissFeedItem(id);
-            }
-            selectedIds.clear();
-            render();
-        });
-
-        // Deselect all
-        document.getElementById('bulkDeselectFeed')?.addEventListener('click', () => {
-            selectedIds.clear();
-            render();
-        });
-
-        document.getElementById('feedItemFilters').addEventListener('click', e => {
-            if (!e.target.classList.contains('filter-btn')) return;
-            document.querySelectorAll('#feedItemFilters .filter-btn').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            activeFilter = e.target.dataset.filter;
-            render();
-        });
-
-        document.getElementById('searchFeedItems').addEventListener('input', render);
-        render();
-    }
-
-    // ─── Feeds ────────────────────────────────────────────────
-    async function loadFeeds() {
-        const main = document.getElementById('mainContent');
-        main.innerHTML = '<div class="loading">Loading feeds</div>';
-
-        const { data, error } = await db
-            .from('feeds')
-            .select('*')
-            .order('name');
-
-        if (error) { main.innerHTML = `<div class="empty">Error: ${error.message}</div>`; return; }
-        if (!data.length) { main.innerHTML = '<div class="empty">No feeds configured.</div>'; return; }
-
-        main.innerHTML = `
-            <div class="page-header">
-                <h2 class="page-title">Feeds</h2>
-            </div>
-            <div class="table-wrap">
-                <table>
-                    <thead>
-                        <tr><th>Name</th><th>URL</th><th>Mode</th><th>Interval</th><th>Tags</th><th>Last Checked</th><th>Active</th></tr>
-                    </thead>
-                    <tbody id="feedsBody"></tbody>
-                </table>
-            </div>
-        `;
-
-        document.getElementById('feedsBody').innerHTML = data.map(f => `
-            <tr>
-                <td class="title-text">${esc(f.name)}</td>
-                <td><a class="title-url" href="${esc(f.url)}" target="_blank" rel="noopener" style="display:inline">${esc(truncUrl(f.url))}</a></td>
-                <td><span class="type-badge type-${f.mode === 'auto' ? 'article' : 'thought'}">${f.mode}</span></td>
-                <td class="date-cell">${f.check_interval_minutes}m</td>
-                <td>${(f.default_tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</td>
-                <td class="date-cell">${f.last_checked_at ? formatDate(f.last_checked_at) : 'Never'}</td>
-                <td class="${f.active ? 'captured-yes' : 'captured-no'}">${f.active ? 'Yes' : 'No'}</td>
-            </tr>
-        `).join('');
     }
 
     // ─── Contacts ────────────────────────────────────────────────
@@ -16292,10 +16007,6 @@
             { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
             { name: 'id', type: 'string', desc: 'Entity UUID' },
         ]},
-        { name: 'list_feed_items', desc: 'List feed items awaiting triage', group: 'Content', params: 2, paramDetails: [
-            { name: 'show', type: 'string?', desc: 'pending, captured, dismissed, all' },
-            { name: 'limit', type: 'number?', desc: 'Max items (default 30)' },
-        ]},
         { name: 'search_knowledge_base', desc: 'Semantic vector search across KB', group: 'Search', params: 6, paramDetails: [
             { name: 'query', type: 'string', desc: 'Search query text' },
             { name: 'tables', type: 'string[]?', desc: 'Limit to specific tables' },
@@ -16335,12 +16046,6 @@
             { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
             { name: 'id', type: 'string', desc: 'Entity UUID' },
             { name: 'updates', type: 'object', desc: 'Fields to update' },
-        ]},
-        { name: 'capture_feed_item', desc: 'Promote feed item to content article', group: 'Feed', params: 1, paramDetails: [
-            { name: 'feed_item_id', type: 'string', desc: 'Feed item UUID' },
-        ]},
-        { name: 'dismiss_feed_item', desc: 'Dismiss feed item from triage', group: 'Feed', params: 1, paramDetails: [
-            { name: 'feed_item_id', type: 'string', desc: 'Feed item UUID' },
         ]},
         { name: 'daily_review_extract', desc: 'Fetch daily note + entity context + prompt for review', group: 'AI Workflows', params: 1, paramDetails: [
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
