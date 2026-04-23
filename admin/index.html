@@ -8631,8 +8631,16 @@
 
         body = body.substring(0, sectionStart) + '\n' + newContent + '\n' + body.substring(sectionEnd);
 
-        const { error } = await db.from('content').update({ body, updated_at: new Date().toISOString() }).eq('id', personaId);
-        if (error) { alert('Error saving: ' + error.message); return; }
+        const updateRes = await fetch('/api/entity-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ table: 'content', id: personaId, updates: { body, updated_at: new Date().toISOString() } }),
+        });
+        if (!updateRes.ok) {
+            const err = await updateRes.json().catch(() => ({}));
+            alert('Error saving: ' + (err.error || updateRes.statusText));
+            return;
+        }
 
         // Log the edit
         await fetch('/api/entity-log', {
@@ -11019,9 +11027,14 @@
                 if (!name) return;
                 const statusVal = document.getElementById('newProductStatus').value;
                 const urlVal = document.getElementById('newProductUrl').value.trim() || null;
-                const { error } = await db.from('products').insert({ name, status: statusVal, url: urlVal, company_id: competitorId });
-                if (error) {
-                    console.error('Failed to create product:', error);
+                const insertRes = await fetch('/api/entity-log', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ table: 'products', data: { name, status: statusVal, url: urlVal, company_id: competitorId } }),
+                });
+                if (!insertRes.ok) {
+                    const err = await insertRes.json().catch(() => ({}));
+                    console.error('Failed to create product:', err);
                     return;
                 }
                 // Reload the detail page to show the new product
