@@ -3,12 +3,12 @@
  * Ported from functions/api/[[path]].js
  */
 
+import { supabaseGet, supabasePatch } from './supabase.js';
 import {
-  supabaseGet,
-  supabasePost,
-  supabasePatch,
-  supabaseDelete,
-} from './supabase.js';
+  replaceSourceVectors,
+  vectorId,
+  type VectorItem,
+} from './vectorize.js';
 
 // ─── Text Building ───────────────────────────────────────────
 
@@ -310,24 +310,26 @@ export async function embedItem(
     return { ok: false, error: 'Embedding count mismatch' };
   }
 
-  // Delete existing embeddings for this source
-  await supabaseDelete(
-    `embeddings?source_table=eq.${sourceTable}&source_id=eq.${sourceId}`
-  );
-
-  // Insert new embeddings
-  const embeddingRows = chunks.map((chunk, i) => ({
-    source_table: sourceTable,
-    source_id: sourceId,
-    chunk_index: chunk.chunkIndex,
-    content_text: chunk.text,
-    embedding: JSON.stringify(embeddings[i]),
-    metadata,
+  const vectors: VectorItem[] = chunks.map((chunk, i) => ({
+    id: vectorId(sourceTable, sourceId, chunk.chunkIndex),
+    values: embeddings[i],
+    metadata: {
+      source_table: sourceTable,
+      source_id: sourceId,
+      chunk_index: chunk.chunkIndex,
+      type: metadata.type || '',
+      date: metadata.date || '',
+      title: metadata.title || '',
+      text: chunk.text,
+    },
   }));
 
-  await supabasePost('embeddings', embeddingRows);
+  try {
+    await replaceSourceVectors(sourceTable, sourceId, vectors);
+  } catch (err: any) {
+    return { ok: false, error: `Vectorize write error: ${err.message}` };
+  }
 
-  // Update embedded_at on the source row
   await supabasePatch(`${sourceTable}?id=eq.${sourceId}`, {
     embedded_at: new Date().toISOString(),
   });

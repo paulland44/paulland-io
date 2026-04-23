@@ -3,6 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2026-03-17"
 compatibility_flags = ["nodejs_compat"]
 
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "paulland-kb"
+
 # Secrets (set via `wrangler secret put`):
 # SUPABASE_URL
 # SUPABASE_SERVICE_KEY

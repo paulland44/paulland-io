@@ -2792,6 +2792,47 @@ async function generateEmbeddings(env, texts) {
   return out;
 }
 
+/**
+ * Query Cloudflare Vectorize via env.VECTORIZE binding, return results in the
+ * same shape handlers used to get from the Postgres search_embeddings RPC.
+ *
+ * Similarity-threshold + date/tag post-filters stay client-side so search
+ * behaviour is unchanged from the caller's perspective.
+ */
+async function searchVectorize(env, queryEmbedding, { tables, matchCount, threshold = 0.3 } = {}) {
+  if (!env.VECTORIZE) throw new Error('VECTORIZE binding not configured on this Pages project');
+
+  const filter = Array.isArray(tables) && tables.length
+    ? (tables.length === 1
+        ? { source_table: { $eq: tables[0] } }
+        : { source_table: { $in: tables } })
+    : undefined;
+
+  const res = await env.VECTORIZE.query(queryEmbedding, {
+    topK: matchCount,
+    returnMetadata: 'all',
+    returnValues: false,
+    filter,
+  });
+
+  const matches = (res?.matches || []).filter(m => (m.score || 0) >= threshold);
+  return matches.map(m => {
+    const md = m.metadata || {};
+    return {
+      source_table: md.source_table,
+      source_id: md.source_id,
+      chunk_index: md.chunk_index,
+      content_text: md.text || '',
+      similarity: m.score,
+      metadata: {
+        title: md.title || '',
+        type: md.type || '',
+        date: md.date || '',
+      },
+    };
+  });
+}
+
 // ─── AI usage error logging ──────────────────────────────────
 // Best-effort insert into ai_usage_errors; never throws so it can't cascade
 // and break the caller. The admin topbar badge polls this table on load.
@@ -3522,34 +3563,13 @@ async function handleSearch(request, env) {
   // Fetch more results if post-filtering, so we still return enough after filtering
   const fetchCount = hasFilters ? Math.min(limit * 3, 60) : Math.min(limit, 20);
 
-  // Call the search_embeddings RPC function
-  const rpcBody = {
-    query_embedding: JSON.stringify(queryEmbedding),
-    match_count: fetchCount,
-    similarity_threshold: 0.3,
-  };
-  if (tables && Array.isArray(tables)) {
-    rpcBody.filter_tables = tables;
+  let results;
+  try {
+    results = await searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount });
+  } catch (err) {
+    return json({ error: 'Search failed', detail: err.message }, 500);
   }
 
-  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
-    method: 'POST',
-    headers: {
-      'apikey': serviceKey,
-      'Authorization': `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(rpcBody),
-  });
-
-  if (!rpcRes.ok) {
-    const err = await rpcRes.text();
-    return json({ error: 'Search failed', detail: err }, 500);
-  }
-
-  let results = await rpcRes.json();
-
-  // Post-filter by date and tags if provided
   if (hasFilters) {
     results = filterSearchResults(results, { date_from, date_to, tags });
     results = results.slice(0, limit);
@@ -3607,33 +3627,13 @@ async function handleAsk(request, env) {
 
   // 2. Vector search for relevant context (fetch more if post-filtering)
   const fetchCount = hasFilters ? 24 : 8;
-  const rpcBody = {
-    query_embedding: JSON.stringify(queryEmbedding),
-    match_count: fetchCount,
-    similarity_threshold: 0.3,
-  };
-  if (tables && Array.isArray(tables)) {
-    rpcBody.filter_tables = tables;
+  let searchResults;
+  try {
+    searchResults = await searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount });
+  } catch (err) {
+    return json({ error: 'Search failed', detail: err.message }, 500);
   }
 
-  const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
-    method: 'POST',
-    headers: {
-      'apikey': serviceKey,
-      'Authorization': `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(rpcBody),
-  });
-
-  if (!rpcRes.ok) {
-    const err = await rpcRes.text();
-    return json({ error: 'Search failed', detail: err }, 500);
-  }
-
-  let searchResults = await rpcRes.json();
-
-  // Post-filter by date/tags if provided, then take top 8
   if (hasFilters) {
     searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
   }
@@ -3917,28 +3917,9 @@ async function handleAskStream(request, env) {
   if (queryEmbedding) {
     try {
       const fetchCount = hasFilters ? 24 : 8;
-      const rpcBody = {
-        query_embedding: JSON.stringify(queryEmbedding),
-        match_count: fetchCount,
-        similarity_threshold: 0.3,
-      };
-      if (tables && Array.isArray(tables)) rpcBody.filter_tables = tables;
-      const rpcRes = await fetch(`${supabaseUrl}/rest/v1/rpc/search_embeddings`, {
-        method: 'POST',
-        headers: {
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(rpcBody),
-      });
-      if (rpcRes.ok) {
-        searchResults = await rpcRes.json();
-        if (hasFilters) {
-          searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
-        }
-      } else {
-        ragError = ragError || `Search RPC returned ${rpcRes.status}`;
+      searchResults = await searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount });
+      if (hasFilters) {
+        searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
       }
     } catch (err) {
       ragError = ragError || err.message;

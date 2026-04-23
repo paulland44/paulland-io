@@ -8,3 +8,7 @@ bucket_name = "knowledge-capture"
 
 [ai]
 binding = "AI"
+
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "paulland-kb"

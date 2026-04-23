@@ -15,6 +15,7 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { initSupabase } from '../../mcp-server/src/supabase.js';
 import { initEmbeddings } from '../../mcp-server/src/embeddings.js';
+import { initVectorize } from '../../mcp-server/src/vectorize.js';
 import { createServer, initMisProxy } from '../../mcp-server/src/index.js';
 
 interface Env {
@@ -27,6 +28,7 @@ interface Env {
   CF_ACCESS_CLIENT_ID?: string;
   CF_ACCESS_CLIENT_SECRET?: string;
   PAULLAND_INTERNAL_API_KEY?: string;
+  VECTORIZE: VectorizeIndex;
 }
 
 // ─── CORS ────────────────────────────────────────────────────
@@ -270,6 +272,7 @@ export default {
     // Init Supabase + embeddings with Worker env
     initSupabase(env.SUPABASE_URL, env.SUPABASE_SERVICE_KEY);
     initEmbeddings(env.CF_ACCOUNT_ID, env.CF_API_TOKEN);
+    initVectorize(env.VECTORIZE);
     initMisProxy(env.PAULLAND_API_URL, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET, env.PAULLAND_INTERNAL_API_KEY);
 
     // Fresh server + transport per request (required by SDK for stateless mode)

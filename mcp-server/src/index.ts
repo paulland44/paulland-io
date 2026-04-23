@@ -25,6 +25,11 @@ import {
   embedItem,
   EMBEDDABLE_TABLES,
 } from './embeddings.js';
+import {
+  queryVectors,
+  buildTableFilter,
+  matchToLegacyResult,
+} from './vectorize.js';
 // Note: fs/path are NOT available in the Cloudflare Worker runtime.
 // Tools must not depend on filesystem access. Use base64 data parameters instead.
 
@@ -431,23 +436,21 @@ server.tool(
       ? Math.min(limit * 3, 60)
       : Math.min(limit, 20);
 
-    const rpcBody: any = {
-      query_embedding: JSON.stringify(queryEmbedding),
-      match_count: fetchCount,
-      similarity_threshold: 0.3,
-    };
-    if (tables?.length) rpcBody.filter_tables = tables;
-
-    const rpcResult = await supabaseRpc('search_embeddings', rpcBody);
-    if (!rpcResult.ok) {
+    let results: any[];
+    try {
+      const matches = await queryVectors(queryEmbedding, {
+        topK: fetchCount,
+        filter: buildTableFilter(tables),
+        similarityThreshold: 0.3,
+      });
+      results = matches.map(matchToLegacyResult);
+    } catch (err: any) {
       return {
         content: [
-          { type: 'text' as const, text: `Search failed: ${rpcResult.error}` },
+          { type: 'text' as const, text: `Search failed: ${err.message}` },
         ],
       };
     }
-
-    let results = rpcResult.data || [];
 
     // Post-filter
     if (hasFilters) {
