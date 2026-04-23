@@ -269,6 +269,25 @@ async function cfEmbed(texts) {
   return out;
 }
 
+// ─── Vectorize REST (read — for resume skip check) ───
+
+async function vectorizeHasSource(sourceTable, sourceId) {
+  // Checks if the :0 chunk exists — indicates this source was already backfilled.
+  // Uses getByIds (cheap, no vector math).
+  const ids = [`${sourceTable}:${sourceId}:0`];
+  const res = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/get-by-ids`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+    }
+  );
+  if (!res.ok) return false; // treat errors as "not present", safer to re-embed
+  const data = await res.json();
+  return Array.isArray(data.result) && data.result.length > 0;
+}
+
 // ─── Vectorize REST (upsert) ───
 
 async function vectorizeUpsert(vectors) {
@@ -321,6 +340,12 @@ async function backfillTable(table) {
 
     for (const row of rows) {
       try {
+        // Skip if this source already has vectors in Vectorize — saves quota
+        // when resuming a partial backfill.
+        if (await vectorizeHasSource(table, row.id)) {
+          continue;
+        }
+
         const rawText = buildEmbeddingText(table, row);
         if (!rawText || rawText.length < 10) {
           continue; // skip empty rows

@@ -3368,40 +3368,39 @@ async function embedItem(env, sourceTable, sourceId) {
     return { ok: false, error: 'Embedding count mismatch' };
   }
 
-  // Delete existing embeddings for this source
-  await fetch(
-    `${supabaseUrl}/rest/v1/embeddings?source_table=eq.${sourceTable}&source_id=eq.${sourceId}`,
-    {
-      method: 'DELETE',
-      headers: {
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`,
-      },
-    }
-  );
+  if (!env.VECTORIZE) {
+    return { ok: false, error: 'VECTORIZE binding not configured on this Pages project' };
+  }
 
-  // Insert new embeddings
-  const embeddingRows = chunks.map((chunk, i) => ({
-    source_table: sourceTable,
-    source_id: sourceId,
-    chunk_index: chunk.chunkIndex,
-    content_text: chunk.text,
-    embedding: JSON.stringify(embeddings[i]),
-    metadata,
+  // Clear the full chunk range for this source (deleteByIds tolerates missing
+  // IDs) so a re-embed that shrinks chunk count doesn't leave orphans.
+  const MAX_CHUNKS = 40;
+  const staleIds = [];
+  for (let i = 0; i < MAX_CHUNKS; i++) {
+    staleIds.push(`${sourceTable}:${sourceId}:${i}`);
+  }
+
+  const vectors = chunks.map((chunk, i) => ({
+    id: `${sourceTable}:${sourceId}:${chunk.chunkIndex}`,
+    values: embeddings[i],
+    metadata: {
+      source_table: sourceTable,
+      source_id: sourceId,
+      chunk_index: chunk.chunkIndex,
+      type: metadata.type || '',
+      date: metadata.date || '',
+      title: metadata.title || '',
+      text: chunk.text,
+    },
   }));
 
-  await fetch(`${supabaseUrl}/rest/v1/embeddings`, {
-    method: 'POST',
-    headers: {
-      'apikey': serviceKey,
-      'Authorization': `Bearer ${serviceKey}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'return=minimal',
-    },
-    body: JSON.stringify(embeddingRows),
-  });
+  try {
+    await env.VECTORIZE.deleteByIds(staleIds);
+    await env.VECTORIZE.upsert(vectors);
+  } catch (err) {
+    return { ok: false, error: `Vectorize write error: ${err.message}` };
+  }
 
-  // Update embedded_at on the source row
   await supabasePatch(supabaseUrl, serviceKey,
     `${sourceTable}?id=eq.${sourceId}`,
     { embedded_at: new Date().toISOString() }

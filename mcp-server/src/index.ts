@@ -29,6 +29,7 @@ import {
   queryVectors,
   buildTableFilter,
   matchToLegacyResult,
+  initVectorizeRest,
 } from './vectorize.js';
 // Note: fs/path are NOT available in the Cloudflare Worker runtime.
 // Tools must not depend on filesystem access. Use base64 data parameters instead.
@@ -6381,6 +6382,12 @@ const isDirectRun =
   (process.argv[1].endsWith('index.js') || process.argv[1].endsWith('launch.cjs'));
 
 if (isDirectRun) {
+  // Stdio context — initialise Vectorize with REST credentials from env.
+  // (Worker context initialises via initVectorize(env.VECTORIZE) instead.)
+  if (process.env.CF_ACCOUNT_ID && process.env.CF_API_TOKEN) {
+    initVectorizeRest(process.env.CF_ACCOUNT_ID, process.env.CF_API_TOKEN);
+  }
+
   (async () => {
     const transport = new StdioServerTransport();
     await server.connect(transport);

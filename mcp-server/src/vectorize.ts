@@ -34,17 +34,46 @@ export interface VectorMatch {
 type VectorizeBinding = any;
 
 let _binding: VectorizeBinding | undefined;
+let _restAccountId: string | undefined;
+let _restApiToken: string | undefined;
+let _restIndexName = 'paulland-kb';
 
 export function initVectorize(binding: VectorizeBinding) {
   _binding = binding;
 }
 
-function getBinding(): VectorizeBinding {
-  if (!_binding)
-    throw new Error(
-      'VECTORIZE binding not initialised — call initVectorize() before use'
-    );
-  return _binding;
+/** Node/stdio context — falls back to Cloudflare REST API. */
+export function initVectorizeRest(accountId: string, apiToken: string, indexName = 'paulland-kb') {
+  _restAccountId = accountId;
+  _restApiToken = apiToken;
+  _restIndexName = indexName;
+}
+
+function bindingAvailable(): boolean {
+  return !!_binding;
+}
+
+function restAvailable(): boolean {
+  return !!_restAccountId && !!_restApiToken;
+}
+
+async function restCall(pathSuffix: string, body: unknown, contentType = 'application/json'): Promise<any> {
+  if (!restAvailable()) throw new Error('Vectorize not initialised (no binding and no REST credentials)');
+  const url = `https://api.cloudflare.com/client/v4/accounts/${_restAccountId}/vectorize/v2/indexes/${_restIndexName}/${pathSuffix}`;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${_restApiToken}`,
+    'Content-Type': contentType,
+  };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers,
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Vectorize REST ${pathSuffix} ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  return res.json();
 }
 
 export function vectorId(
@@ -61,7 +90,12 @@ export const MAX_CHUNKS_PER_SOURCE = 40;
 
 export async function upsertVectors(vectors: VectorItem[]): Promise<void> {
   if (!vectors.length) return;
-  await getBinding().upsert(vectors);
+  if (bindingAvailable()) {
+    await _binding.upsert(vectors);
+  } else {
+    const ndjson = vectors.map((v) => JSON.stringify(v)).join('\n');
+    await restCall('upsert', ndjson, 'application/x-ndjson');
+  }
 }
 
 export async function replaceSourceVectors(
@@ -69,15 +103,20 @@ export async function replaceSourceVectors(
   sourceId: string,
   vectors: VectorItem[]
 ): Promise<void> {
-  // Drop the full possible ID range for this source, then write the new set.
-  // Delete tolerates non-existent IDs, so this handles both fresh inserts and
-  // re-embeds where the new chunk count is smaller than the old.
   const staleIds: string[] = [];
   for (let i = 0; i < MAX_CHUNKS_PER_SOURCE; i++) {
     staleIds.push(vectorId(sourceTable, sourceId, i));
   }
-  await getBinding().deleteByIds(staleIds);
-  if (vectors.length) await getBinding().upsert(vectors);
+  if (bindingAvailable()) {
+    await _binding.deleteByIds(staleIds);
+    if (vectors.length) await _binding.upsert(vectors);
+  } else {
+    await restCall('delete-by-ids', { ids: staleIds });
+    if (vectors.length) {
+      const ndjson = vectors.map((v) => JSON.stringify(v)).join('\n');
+      await restCall('upsert', ndjson, 'application/x-ndjson');
+    }
+  }
 }
 
 export async function queryVectors(
@@ -89,13 +128,25 @@ export async function queryVectors(
   } = {}
 ): Promise<VectorMatch[]> {
   const { topK = 10, filter, similarityThreshold = 0 } = opts;
-  const res = await getBinding().query(queryEmbedding, {
-    topK,
-    returnMetadata: 'all',
-    returnValues: false,
-    filter,
-  });
-  const matches: VectorMatch[] = res.matches || [];
+  let matches: VectorMatch[];
+  if (bindingAvailable()) {
+    const res = await _binding.query(queryEmbedding, {
+      topK,
+      returnMetadata: 'all',
+      returnValues: false,
+      filter,
+    });
+    matches = res.matches || [];
+  } else {
+    const res = await restCall('query', {
+      vector: queryEmbedding,
+      topK,
+      returnMetadata: 'all',
+      returnValues: false,
+      filter,
+    });
+    matches = res?.result?.matches || [];
+  }
   return similarityThreshold > 0
     ? matches.filter((m: VectorMatch) => m.score >= similarityThreshold)
     : matches;
@@ -109,7 +160,11 @@ export async function deleteSourceVectors(
   for (let i = 0; i < MAX_CHUNKS_PER_SOURCE; i++) {
     ids.push(vectorId(sourceTable, sourceId, i));
   }
-  await getBinding().deleteByIds(ids);
+  if (bindingAvailable()) {
+    await _binding.deleteByIds(ids);
+  } else {
+    await restCall('delete-by-ids', { ids });
+  }
 }
 
 // Convert a Vectorize match to the result shape handlers have historically
