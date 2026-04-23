@@ -141,6 +141,53 @@ function safeDateIso(raw: string | null | undefined, fallbackDays = 7): string {
   return new Date(Date.now() + fallbackDays * 86400000).toISOString();
 }
 
+// S2 barcode enum tables. encoding must be one of these values; encodingDetails
+// must be a member of the encoding's detail list (or omitted). The AI extractor
+// sometimes stuffs the barcode value into encodingDetails — without this gate,
+// S2 rejects the whole project with schema_validation_error on Job-Barcodes.
+const BARCODE_ENCODING_MAP: Record<string, string> = {
+  'EAN-13': 'EAN_13', 'EAN-8': 'EAN_8', 'UPC-A': 'UPC_A', 'UPC-E': 'UPC_E',
+  'Code128': 'Code128', 'Code39': 'Code39', 'GS1-128': 'GS1-128',
+  'GS1-QR': 'GS1-QR', 'QR': 'QR', 'QR Code': 'QR',
+  'GS1-DataMatrix': 'GS1-DataMatrix', 'DataMatrix': 'DATAMATRIX',
+  'ITF-14': 'ITF_14', 'GS1-DataBar': 'GS1-DataBar-Omnidirectional',
+};
+
+const BARCODE_ENCODING_DETAILS: Record<string, string[]> = {
+  EAN_13: ['EAN_13_Standard', 'EAN_13_Swissmedic', 'EAN_13_Iceland_Foods'],
+  EAN_8: ['EAN_8_Standard', 'EAN_8_Marks_Spencer', 'EAN_8_M+S_7'],
+  UPC_A: ['UPC_A_Standard', 'UPC_A_NDC_HRI'],
+  Code128: ['Code128_Standard', 'Code128_HIBC'],
+  Code39: ['Code39_Standard', 'Code39_HIBC', 'Code39_CIP'],
+  Code93: ['Code39_Code32'],
+  QR: ['QR_1','QR_2','QR_3','QR_4','QR_5','QR_6','QR_7','QR_8','QR_9','QR_10'],
+  'GS1-QR': ['QR_1','QR_2','QR_3','QR_4','QR_5','QR_6','QR_7','QR_8','QR_9','QR_10'],
+  DATAMATRIX: ['DM_10_by_10','DM_12_by_12','DM_14_by_14','DM_16_by_16','DM_18_by_18','DM_20_by_20','DM_22_by_22','DM_24_by_24','DM_26_by_26','DM_32_by_32'],
+  'GS1-DataMatrix': ['DM_10_by_10','DM_12_by_12','DM_14_by_14','DM_16_by_16','DM_18_by_18','DM_20_by_20','DM_22_by_22','DM_24_by_24','DM_26_by_26','DM_32_by_32'],
+};
+
+function mapBarcode(b: any): any | null {
+  const enc = BARCODE_ENCODING_MAP[b.encoding] || b.encoding?.replace(/-/g, '_') || '';
+  if (!enc) return null;
+  const value = Array.isArray(b.value)
+    ? b.value.filter((v: any) => v && v !== 'null')
+    : (b.value && b.value !== 'null' ? [b.value] : []);
+  if (!value.length) return null;
+  const bc: any = { encoding: enc, value };
+  const det = b.encodingDetails;
+  const validDetails = BARCODE_ENCODING_DETAILS[enc];
+  // Only include encodingDetails if it's one of the valid enum values for this
+  // encoding — and never if it duplicates the barcode value or the encoding name.
+  if (
+    det && det !== 'null' && det !== enc &&
+    !value.includes(det) &&
+    validDetails && validDetails.includes(det)
+  ) {
+    bc.encodingDetails = det;
+  }
+  return bc;
+}
+
 async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, apiUrl: string, connectionId: string): Promise<any> {
   const dueDateIso = safeDateIso(extracted.due_date);
 
@@ -244,24 +291,8 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
 
   // Barcodes
   if (extracted.barcodes?.length) {
-    // Map AI-extracted encoding names to S2 API enum values
-    const ENCODING_MAP: Record<string, string> = {
-      'EAN-13': 'EAN_13', 'EAN-8': 'EAN_8', 'UPC-A': 'UPC_A', 'UPC-E': 'UPC_E',
-      'Code128': 'Code128', 'Code39': 'Code39', 'GS1-128': 'GS1-128',
-      'GS1-QR': 'GS1-QR', 'QR': 'QR', 'QR Code': 'QR',
-      'GS1-DataMatrix': 'GS1-DataMatrix', 'DataMatrix': 'DATAMATRIX',
-      'ITF-14': 'ITF_14', 'GS1-DataBar': 'GS1-DataBar-Omnidirectional',
-    };
-    properties['Job-Barcodes'] = extracted.barcodes.map(b => {
-      const enc = ENCODING_MAP[b.encoding] || b.encoding?.replace(/-/g, '_') || '';
-      const bc: any = {
-        encoding: enc,
-        value: Array.isArray(b.value) ? b.value.filter(v => v && v !== 'null') : (b.value && b.value !== 'null' ? [b.value] : []),
-      };
-      const det = b.encodingDetails;
-      if (det && det !== 'null' && det !== enc) bc.encodingDetails = det;
-      return bc;
-    });
+    const mapped = extracted.barcodes.map(mapBarcode).filter(Boolean);
+    if (mapped.length) properties['Job-Barcodes'] = mapped;
   }
 
   return { properties };
@@ -474,25 +505,7 @@ function buildEnrichmentPayload(
   // Barcodes — mirror the mapping used by buildS2Payload so barcodes
   // extracted from the email land on the enriched WCP project too.
   if (extracted.barcodes?.length) {
-    const ENCODING_MAP: Record<string, string> = {
-      'EAN-13': 'EAN_13', 'EAN-8': 'EAN_8', 'UPC-A': 'UPC_A', 'UPC-E': 'UPC_E',
-      'Code128': 'Code128', 'Code39': 'Code39', 'GS1-128': 'GS1-128',
-      'GS1-QR': 'GS1-QR', 'QR': 'QR', 'QR Code': 'QR',
-      'GS1-DataMatrix': 'GS1-DataMatrix', 'DataMatrix': 'DATAMATRIX',
-      'ITF-14': 'ITF_14', 'GS1-DataBar': 'GS1-DataBar-Omnidirectional',
-    };
-    const mapped = extracted.barcodes.map((b) => {
-      const enc = ENCODING_MAP[b.encoding] || b.encoding?.replace(/-/g, '_') || '';
-      const bc: any = {
-        encoding: enc,
-        value: Array.isArray(b.value)
-          ? b.value.filter((v) => v && v !== 'null')
-          : (b.value && b.value !== 'null' ? [b.value] : []),
-      };
-      const det = b.encodingDetails;
-      if (det && det !== 'null' && det !== enc) bc.encodingDetails = det;
-      return bc;
-    }).filter((b) => b.encoding && b.value?.length);
+    const mapped = extracted.barcodes.map(mapBarcode).filter(Boolean);
     if (mapped.length) properties['Job-Barcodes'] = mapped;
   }
 
