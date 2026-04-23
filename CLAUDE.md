@@ -9,10 +9,11 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
                 │
                 ├── functions/api/[[path]].js  (single catch-all API handler)
                 │       │
-                │       ├── Supabase (PostgreSQL + pgvector)
+                │       ├── Supabase (PostgreSQL — metadata, bodies, relations)
+                │       ├── Cloudflare Vectorize (paulland-kb — 768-dim vectors, cosine)
                 │       ├── Cloudflare R2 (asset storage, bucket: knowledge-capture)
                 │       ├── Claude API (summaries, reviews, research, RAG)
-                │       ├── Cloudflare AI (embeddings)
+                │       ├── Cloudflare AI (embedding generation @cf/baai/bge-base-en-v1.5)
                 │       └── WebCenter Pack / Automation Engine APIs (MIS proxy)
                 │
                 ├── index.html          (public homepage)
@@ -25,7 +26,8 @@ Claude ──→ Cloudflare Worker (MCP Remote Server)
                      │       └── imports mcp-server/src/index.ts (shared tool implementation)
                      │               │
                      │               ├── Supabase (all KB read/write)
-                     │               ├── Cloudflare AI (embeddings)
+                     │               ├── Cloudflare Vectorize (semantic search via binding)
+                     │               ├── Cloudflare AI (embedding generation)
                      │               └── Pages API proxy (R2 uploads, MIS)
                      │
                      └── https://paulland-mcp.paul-land.workers.dev
@@ -47,12 +49,13 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 - **Capture Worker**: Cloudflare Worker with Cron Trigger — deploy with `cd capture-worker && npx wrangler deploy`
 - **Auth**: Cloudflare Access JWT on API routes; OAuth 2.0 + Bearer token on MCP endpoint
 - **Database**: Supabase with RLS enabled on all tables. Service key bypasses RLS.
+- **Vector store**: Cloudflare Vectorize index `paulland-kb` (768-dim, cosine, metadata indexes on `source_table`, `type`, `date`). Embeddings previously lived in a Supabase `embeddings` table with pgvector; migrated out 2026-04-23 to reclaim quota.
 
 ## Database Schema (Supabase)
 
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `content` | Articles, thoughts, reflections, signals, problems, summaries | type, title, body, url, source, tags[], status, metadata, embedding |
+| `content` | Articles, thoughts, reflections, signals, problems, summaries | type, title, body, url, source, tags[], status, metadata, embedded_at |
 | `companies` | Companies & competitors | name, website, industry, notes, is_competitor, is_internal |
 | `people` | Contacts | name, company_id, role, notes |
 | `products` | Products linked to companies | name, description, company_id, url |
@@ -95,7 +98,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `assets/upload` | `handleAssetUpload` | Upload file to R2 + create metadata |
 | `embed` | `handleEmbed` | Generate embedding for single item |
 | `embed-batch` | `handleEmbedBatch` | Batch embed unembedded content |
-| `search` | `handleSearch` | Vector similarity search (pgvector) |
+| `search` | `handleSearch` | Vector similarity search (Cloudflare Vectorize) |
 | `ask` | `handleAsk` | RAG: vector search + Claude answer |
 | `competitor-research` | `handleCompetitorResearch` | **Streaming** Claude + web_search SSE |
 | `extract-signals` | `handleExtractSignals` | AI signal extraction from articles (Claude) |
@@ -339,6 +342,19 @@ Tools that need file content (e.g. `support_review_extract`) fetch it from the a
 - **Icons**: Lucide CDN, `lucide.createIcons()` init, `refreshIcons()` after DOM changes.
 - **CSS Variables**: `--void`, `--accent`, `--border`, `--text-body`, `--text-muted`, `--radius-sm/md/lg/pill`, `--shadow-sm/md/lg`, `--sans` (Inter), `--mono` (Inconsolata).
 
+### Vector store — Cloudflare Vectorize (`paulland-kb`)
+
+Embeddings live in a Cloudflare Vectorize index, not Supabase. Single index, 768-dim (matches `@cf/baai/bge-base-en-v1.5`), cosine metric. Metadata indexes on `source_table`, `type`, `date` for filtering.
+
+- **Vector ID scheme**: `${source_table}:${source_id}:${chunk_index}` — deterministic, so re-embeds overwrite in place. `MAX_CHUNKS_PER_SOURCE = 40` bounds the ID range used by `replaceSourceVectors` to clean up orphans.
+- **Metadata per vector**: `source_table`, `source_id`, `chunk_index`, `type`, `date`, `title`, `text` (the chunk text — kept in Vectorize so Ask/search callers still get `content_text` in results without a Supabase hop).
+- **Write path**: `embedItem()` in both `functions/api/[[path]].js` (Pages side, uses `env.VECTORIZE` binding) and `mcp-server/src/embeddings.ts` (shared — routes through `replaceSourceVectors()` in `vectorize.ts`). Every `embedItem` call is a fire-and-forget `ctx.waitUntil` from whichever handler created/updated the source row.
+- **Read path**: Pages `handleSearch`/`handleAsk`/`handleAskStream` all go through `searchVectorize(env, queryEmbedding, { tables, matchCount, threshold })`, which returns results in the legacy RPC shape so downstream code is untouched. MCP `search_knowledge_base` uses `queryVectors()` from `vectorize.ts` with the same pattern.
+- **Binding vs REST**: Worker context (mcp-worker, Pages Functions) uses `env.VECTORIZE`. Node/stdio context (local `launch.cjs` MCP server, backfill script) calls `initVectorizeRest(accountId, apiToken)` and goes through the Cloudflare REST API — `/client/v4/accounts/{id}/vectorize/v2/indexes/paulland-kb/{upsert|query|delete-by-ids|get-by-ids}`. Same `vectorize.ts` module handles both.
+- **Embeddable tables**: `content`, `daily_notes`, `summaries`, `people`, `companies`, `products`, `projects`, `people_log`, `product_evidence`, `product_decisions`, `reflections_log`, `persona_log`, `research_log`, `tasks` (see `EMBEDDABLE_TABLES`).
+- **Backfill script**: `scripts/backfill-vectorize.mjs` — run with `set -a && source mcp-server/.env && set +a && node scripts/backfill-vectorize.mjs`. Idempotent via deterministic IDs; resumable via `.backfill-state.json`; skips rows already in Vectorize (`vectorizeHasSource()`), so re-running is cheap.
+- **When you rotate `CF_API_TOKEN`**: update `mcp-server/.env` AND the mcp-worker secret (`cd mcp-worker && npx wrangler secret put CF_API_TOKEN`). Kill long-running local stdio MCP processes (`pkill -f 'mcp-server/launch.cjs'`) so they respawn with fresh creds — they cache env on startup.
+
 ### Email → AE → WCP enrichment lifecycle
 
 An inbound email routed to an AE connection (by `email_prefix` on `mis_connections` where `type='ae'`) runs a two-stage flow:
@@ -370,6 +386,7 @@ The DB still stores the granular internal statuses for ops debugging; the mappin
 - `OUTLOOK_ICS_URL` — Outlook calendar ICS feed URL
 - `ASSETS_BUCKET` — R2 binding (configured in wrangler.toml)
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
+- `VECTORIZE` — Cloudflare Vectorize binding → `paulland-kb` index (configured in wrangler.toml)
 - `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
 
 **Capture Worker (set via `wrangler secret put` in `capture-worker/`):**
@@ -384,13 +401,15 @@ The DB still stores the granular internal statuses for ops debugging; the mappin
 **MCP Worker (set via `wrangler secret put` in `mcp-worker/`):**
 - `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_SERVICE_KEY` — Service role key
-- `CF_ACCOUNT_ID` — Cloudflare account ID (for AI embeddings)
-- `CF_API_TOKEN` — Cloudflare API token (for AI embeddings)
+- `CF_ACCOUNT_ID` — Cloudflare account ID (for AI embeddings REST)
+- `CF_API_TOKEN` — User API token with **Workers AI Read** + **Vectorize Edit** scopes, Account Resources → include this account. `cfut_` prefix, 53 chars. Used for AI embedding REST calls.
 - `MCP_AUTH_TOKEN` — OAuth access token for MCP endpoint auth
 - `PAULLAND_API_URL` — Base URL for paulland.io API (default: `https://paulland.io/api`)
 - `PAULLAND_INTERNAL_API_KEY` — Internal API key for Pages API proxy calls
 - `CF_ACCESS_CLIENT_ID` — Cloudflare Access Service Token client ID (for MIS proxy auth)
 - `CF_ACCESS_CLIENT_SECRET` — Cloudflare Access Service Token client secret
+
+MCP worker also has a `VECTORIZE` binding (configured in `mcp-worker/wrangler.toml`, not a secret). Vector writes/queries go through the binding, not REST.
 
 **Legacy MIS env vars (optional fallback, superseded by Supabase-backed connections):**
 - `WCP_REGION` — WCP cluster region
@@ -428,7 +447,7 @@ Pages deploy is sufficient for admin UI or API-only changes. MCP deploys needed 
 - Signal auto-clustering (AI-assisted grouping of related signals)
 - RAG chat history / multi-turn conversations
 - AI auto-tagging on content capture
-- Embedding versioning (track model versions, support re-embedding on model change)
+- Embedding versioning (track model versions, support re-embedding on model change — now that vectors live in Vectorize, a model swap means re-creating the index at the new dim)
 - **MIS: WCP job refresh** — `getJobDetails` endpoint returns 404/session errors; may need alternative identifier or updated token handling
 - **MIS: Unified settings** — Consider merging admin and MIS settings into single page with shared appearance settings
 - **MIS: CF Access Service Token** — Create a Service Token in CF dashboard and add to paulland.io Access policy to enable MCP server proxy calls (`submit_mis_job`, `list_customers`, `list_task_templates`)
