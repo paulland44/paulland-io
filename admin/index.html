@@ -17559,6 +17559,7 @@
         product_decisions: `${icon('scale')} Decision`,
         reflections_log: `${icon('brain')} Reflection`,
         calendar_events: `${icon('calendar-clock')} Calendar Event`,
+        assets: `${icon('paperclip')} Asset`,
     };
 
     const ASK_HOME_DEFAULT_MODEL = 'claude-sonnet-4-6';
@@ -18096,7 +18097,7 @@
     }
 
     async function askHomeFetchSourceRow(table, id) {
-        const readable = ['content', 'daily_notes', 'summaries', 'people', 'companies', 'products', 'projects', 'people_log', 'product_evidence', 'product_decisions', 'reflections_log', 'persona_log', 'research_log', 'calendar_events'];
+        const readable = ['content', 'daily_notes', 'summaries', 'people', 'companies', 'products', 'projects', 'people_log', 'product_evidence', 'product_decisions', 'reflections_log', 'persona_log', 'research_log', 'calendar_events', 'assets'];
         if (!readable.includes(table)) throw new Error(`Unsupported source table: ${table}`);
         // calendar_events use `uid` as the external key, not `id`
         let query;
@@ -18144,7 +18145,7 @@
     }
 
     function askHomeSourceTableLabel(table) {
-        const labels = { content: 'Content', daily_notes: 'Daily Note', summaries: 'Summary', people: 'Person', companies: 'Company', products: 'Product', projects: 'Project', people_log: 'Note about a person', product_evidence: 'Product evidence', product_decisions: 'Decision', reflections_log: 'Reflection', persona_log: 'Persona log', research_log: 'Research log', calendar_events: 'Calendar event' };
+        const labels = { content: 'Content', daily_notes: 'Daily Note', summaries: 'Summary', people: 'Person', companies: 'Company', products: 'Product', projects: 'Project', people_log: 'Note about a person', product_evidence: 'Product evidence', product_decisions: 'Decision', reflections_log: 'Reflection', persona_log: 'Persona log', research_log: 'Research log', calendar_events: 'Calendar event', assets: 'Asset' };
         return labels[table] || table;
     }
 
@@ -18219,6 +18220,22 @@
                     date: row.event_date,
                     meta: metaBits,
                     body: `${row.description ? md(row.description) : '<em>(no description)</em>'}${attHtml}`,
+                };
+            }
+            case 'assets': {
+                const metaBits = [
+                    row.mime_type && `<span class="chip">${esc(row.mime_type)}</span>`,
+                    row.file_size && `<span class="chip">${esc(formatFileSize(row.file_size))}</span>`,
+                    Array.isArray(row.tags) && row.tags.length && `<span class="askhome-panel-tags">${row.tags.map(t => `<span class="chip">${esc(t)}</span>`).join('')}</span>`,
+                ].filter(Boolean).join(' ');
+                const downloadUrl = `/api/assets/file/${encodeURIComponent(row.r2_key)}`;
+                const openLink = `<p><a href="${downloadUrl}" target="_blank" rel="noopener">Open file</a></p>`;
+                const description = row.description ? md(row.description) : '';
+                return {
+                    title: row.filename || 'Asset',
+                    date: row.uploaded_at ? row.uploaded_at.slice(0, 10) : '',
+                    meta: metaBits,
+                    body: `${description}${openLink}<p class="text-muted"><em>Preview: the chunk that matched is already shown in the answer. Click "Open file" to view the full asset.</em></p>`,
                 };
             }
             default:

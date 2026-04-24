@@ -2833,6 +2833,114 @@ async function searchVectorize(env, queryEmbedding, { tables, matchCount, thresh
   });
 }
 
+/**
+ * Query the Cloudflare AI Search instance indexing our knowledge-capture R2
+ * bucket. Returns PDF / DOCX / PPTX / text hits from the asset library —
+ * content that's invisible to searchVectorize because asset file bodies are
+ * not in Vectorize.
+ *
+ * Normalises results to the same shape searchVectorize returns, with
+ * source_table='assets' and source_id set to the UUID of the matching
+ * `assets` row (resolved via r2_key = item.key). Chunks whose r2_key can't
+ * be mapped back to an assets row are dropped so the UI source panel always
+ * has a real row to display.
+ *
+ * Graceful degradation: if CF_ACCOUNT_ID / CF_AI_SEARCH_API_TOKEN /
+ * AI_SEARCH_INSTANCE_ID are not set, returns []. Network / auth errors
+ * are logged and swallowed so Ask continues to work without the asset
+ * channel.
+ */
+async function searchAssetLibrary(env, query, { matchCount = 5, threshold = 0.3 } = {}) {
+  if (!env.CF_ACCOUNT_ID || !env.CF_AI_SEARCH_API_TOKEN || !env.AI_SEARCH_INSTANCE_ID) {
+    return [];
+  }
+  if (!query || typeof query !== 'string') return [];
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/ai-search/instances/${env.AI_SEARCH_INSTANCE_ID}/search`;
+  const body = {
+    query,
+    ai_search_options: {
+      retrieval: {
+        retrieval_type: 'hybrid',
+        max_num_results: matchCount,
+        match_threshold: threshold,
+      },
+    },
+  };
+
+  let json;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.CF_AI_SEARCH_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      await logAiError(env, {
+        provider: 'cloudflare-ai-search',
+        endpoint: 'search',
+        status: res.status,
+        message: text.slice(0, 500),
+      });
+      return [];
+    }
+    json = await res.json();
+  } catch (err) {
+    await logAiError(env, {
+      provider: 'cloudflare-ai-search',
+      endpoint: 'search',
+      message: err?.message || String(err),
+    });
+    return [];
+  }
+
+  const chunks = json?.result?.chunks || [];
+  if (!chunks.length) return [];
+
+  const r2Keys = Array.from(new Set(chunks.map(c => c?.item?.key).filter(Boolean)));
+  if (!r2Keys.length) return [];
+
+  let assetRows = [];
+  try {
+    const keysParam = r2Keys.map(k => `"${encodeURIComponent(k)}"`).join(',');
+    assetRows = await supabaseGet(
+      env.SUPABASE_URL,
+      env.SUPABASE_SERVICE_KEY,
+      `assets?select=id,r2_key,filename,mime_type,uploaded_at&r2_key=in.(${keysParam})`,
+    );
+  } catch {
+    return [];
+  }
+  const byKey = new Map(assetRows.map(a => [a.r2_key, a]));
+
+  return chunks
+    .map((c, i) => {
+      const key = c?.item?.key;
+      const asset = key ? byKey.get(key) : null;
+      if (!asset) return null;
+      const title = asset.filename || key || 'Asset';
+      const date = asset.uploaded_at ? String(asset.uploaded_at).slice(0, 10) : '';
+      return {
+        source_table: 'assets',
+        source_id: asset.id,
+        chunk_index: typeof c.id === 'string' ? i : (c.id ?? i),
+        content_text: c.text || '',
+        similarity: typeof c.score === 'number' ? c.score : 0,
+        metadata: {
+          title,
+          type: asset.mime_type || 'application/octet-stream',
+          date,
+          r2_key: key,
+        },
+      };
+    })
+    .filter(Boolean);
+}
+
 // ─── AI usage error logging ──────────────────────────────────
 // Best-effort insert into ai_usage_errors; never throws so it can't cascade
 // and break the caller. The admin topbar badge polls this table on load.
@@ -3624,18 +3732,30 @@ async function handleAsk(request, env) {
     return json({ error: `Embedding failed: ${err.message}` }, 500);
   }
 
-  // 2. Vector search for relevant context (fetch more if post-filtering)
+  // 2. Search in parallel across two channels:
+  //    - Vectorize: structured rows (content, daily_notes, summaries, …)
+  //    - AI Search: R2 asset bodies (PDF, DOCX, etc) — no-op if env unset
   const fetchCount = hasFilters ? 24 : 8;
-  let searchResults;
+  const assetMatchCount = hasFilters ? 12 : 5;
+  const wantAssets = !tables || tables.includes('assets');
+  let searchResults, assetResults;
   try {
-    searchResults = await searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount });
+    const [vec, ast] = await Promise.all([
+      searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount }),
+      wantAssets ? searchAssetLibrary(env, question, { matchCount: assetMatchCount }) : Promise.resolve([]),
+    ]);
+    searchResults = vec;
+    assetResults = ast;
   } catch (err) {
     return json({ error: 'Search failed', detail: err.message }, 500);
   }
 
   if (hasFilters) {
     searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
+    assetResults = filterSearchResults(assetResults, { date_from, date_to, tags }).slice(0, 5);
   }
+
+  searchResults = [...searchResults, ...assetResults];
 
   if (!searchResults.length) {
     return json({
@@ -3911,20 +4031,39 @@ async function handleAskStream(request, env) {
     console.warn('Ask: embedding failed, continuing without RAG:', err.message);
   }
 
-  // 2. Vector search — only if we have an embedding.
+  // 2. Search in parallel across two channels:
+  //    - Vectorize (requires embedding): structured rows
+  //    - AI Search (no embedding needed, hybrid retrieval server-side): R2
+  //      asset bodies. Silently no-op when CF_* / AI_SEARCH_INSTANCE_ID unset.
   let searchResults = [];
-  if (queryEmbedding) {
-    try {
-      const fetchCount = hasFilters ? 24 : 8;
-      searchResults = await searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount });
-      if (hasFilters) {
-        searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
-      }
-    } catch (err) {
-      ragError = ragError || err.message;
-      console.warn('Ask: vector search failed, continuing without RAG:', err.message);
+  let assetResults = [];
+  const fetchCount = hasFilters ? 24 : 8;
+  const assetMatchCount = hasFilters ? 12 : 5;
+  const wantAssets = !tables || tables.includes('assets');
+  const [vecResult, astResult] = await Promise.allSettled([
+    queryEmbedding
+      ? searchVectorize(env, queryEmbedding, { tables, matchCount: fetchCount })
+      : Promise.resolve([]),
+    wantAssets ? searchAssetLibrary(env, question, { matchCount: assetMatchCount }) : Promise.resolve([]),
+  ]);
+  if (vecResult.status === 'fulfilled') {
+    searchResults = vecResult.value;
+    if (hasFilters) {
+      searchResults = filterSearchResults(searchResults, { date_from, date_to, tags }).slice(0, 8);
     }
+  } else {
+    ragError = ragError || vecResult.reason?.message;
+    console.warn('Ask: vector search failed, continuing without RAG:', vecResult.reason?.message);
   }
+  if (astResult.status === 'fulfilled') {
+    assetResults = astResult.value;
+    if (hasFilters) {
+      assetResults = filterSearchResults(assetResults, { date_from, date_to, tags }).slice(0, 5);
+    }
+  } else {
+    console.warn('Ask: asset-library search failed, continuing without assets:', astResult.reason?.message);
+  }
+  searchResults = [...searchResults, ...assetResults];
 
   const sources = searchResults.map(r => ({
     source_table: r.source_table,

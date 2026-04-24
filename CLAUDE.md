@@ -14,6 +14,7 @@ Browser ──→ Cloudflare Pages (static HTML + Pages Functions)
                 │       ├── Cloudflare R2 (asset storage, bucket: knowledge-capture)
                 │       ├── Claude API (summaries, reviews, research, RAG)
                 │       ├── Cloudflare AI (embedding generation @cf/baai/bge-base-en-v1.5)
+                │       ├── Cloudflare AI Search (R2 asset bodies — PDF/DOCX/PPTX retrieval for Jasper)
                 │       └── WebCenter Pack / Automation Engine APIs (MIS proxy)
                 │
                 ├── index.html          (public homepage)
@@ -358,6 +359,17 @@ Embeddings live in a Cloudflare Vectorize index, not Supabase. Single index, 768
 - **Backfill script**: `scripts/backfill-vectorize.mjs` — run with `set -a && source mcp-server/.env && set +a && node scripts/backfill-vectorize.mjs`. Idempotent via deterministic IDs; resumable via `.backfill-state.json`; skips rows already in Vectorize (`vectorizeHasSource()`), so re-running is cheap.
 - **When you rotate `CF_API_TOKEN`**: update `mcp-server/.env` AND the mcp-worker secret (`cd mcp-worker && npx wrangler secret put CF_API_TOKEN`). Kill long-running local stdio MCP processes (`pkill -f 'mcp-server/launch.cjs'`) so they respawn with fresh creds — they cache env on startup.
 
+### Asset-body retrieval — Cloudflare AI Search
+
+Jasper uses a **second retrieval channel** alongside Vectorize: a Cloudflare AI Search instance pointed at the `knowledge-capture` R2 bucket. AI Search's Markdown Conversion extracts text from PDFs / DOCX / XLSX / PPTX on the fly and re-indexes automatically when files change — content that's invisible to `searchVectorize` because asset bodies are not embedded in Vectorize.
+
+- **Where**: `searchAssetLibrary(env, query, { matchCount })` in [functions/api/[[path]].js](functions/api/[[path]].js), called in parallel with `searchVectorize` from both `handleAsk` and `handleAskStream`.
+- **REST endpoint**: `POST /client/v4/accounts/{CF_ACCOUNT_ID}/ai-search/instances/{AI_SEARCH_INSTANCE_ID}/search` with `{ query, ai_search_options: { retrieval: { retrieval_type: 'hybrid', max_num_results, match_threshold } } }`.
+- **Response → normalised**: each `result.chunks[]` is mapped to the same shape `searchVectorize` returns, with `source_table: 'assets'`, `source_id` resolved from `chunks[].item.key → assets.r2_key → assets.id`, `content_text` from `chunks[].text`, and `metadata.date` from `assets.uploaded_at`.
+- **Env vars** (Pages): `CF_ACCOUNT_ID`, `CF_AI_SEARCH_API_TOKEN` (token with "AI Search Read" scope), `AI_SEARCH_INSTANCE_ID`. If any is missing, `searchAssetLibrary` returns `[]` so Ask continues to work without the channel.
+- **Filters**: when the user sets a date/tag filter in the Ask Home UI, it runs on asset results too (via `filterSearchResults`). The "Asset" checkbox in the filters panel toggles the channel on/off.
+- **Source panel**: the admin UI has an `assets` case in `askHomeSourceSummary` that renders filename + mime type + size + a link to `/api/assets/file/:r2_key` for the full file.
+
 ### Email → AE → WCP enrichment lifecycle
 
 An inbound email routed to an AE connection (by `email_prefix` on `mis_connections` where `type='ae'`) runs a two-stage flow:
@@ -390,6 +402,9 @@ The DB still stores the granular internal statuses for ops debugging; the mappin
 - `ASSETS_BUCKET` — R2 binding (configured in wrangler.toml)
 - `AI` — Cloudflare AI binding (configured in wrangler.toml)
 - `VECTORIZE` — Cloudflare Vectorize binding → `paulland-kb` index (configured in wrangler.toml)
+- `CF_ACCOUNT_ID` — Cloudflare account ID (for AI Search REST calls from `searchAssetLibrary`)
+- `CF_AI_SEARCH_API_TOKEN` — Cloudflare API token with "AI Search Read" scope (asset-body retrieval)
+- `AI_SEARCH_INSTANCE_ID` — the AI Search instance provisioned against the `knowledge-capture` R2 bucket
 - `MIS_ENCRYPTION_KEY` — AES-GCM key for encrypting MIS tokens at rest (32 chars recommended)
 
 **Capture Worker (set via `wrangler secret put` in `capture-worker/`):**
