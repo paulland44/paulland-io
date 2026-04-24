@@ -4029,6 +4029,54 @@
             color: var(--text-muted);
             font-style: italic;
         }
+        /* ─── Jasper identity ─── */
+        .msg-speaker {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 0.55rem;
+        }
+        .msg-speaker-name {
+            font-size: 0.78rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            color: var(--text-muted);
+        }
+        .jasper-avatar,
+        .jasper-title-badge,
+        .jasper-empty-avatar {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: var(--accent-dim);
+            color: var(--accent);
+            flex-shrink: 0;
+        }
+        .jasper-avatar {
+            width: 1.4rem;
+            height: 1.4rem;
+        }
+        .jasper-avatar .icon,
+        .jasper-title-badge .icon {
+            width: 0.85rem;
+            height: 0.85rem;
+        }
+        .jasper-title-badge {
+            width: 1.55rem;
+            height: 1.55rem;
+            margin-right: 0.55rem;
+            vertical-align: middle;
+        }
+        .jasper-empty-avatar {
+            width: 3rem;
+            height: 3rem;
+            margin: 0 auto 0.75rem;
+        }
+        .jasper-empty-avatar .icon {
+            width: 1.5rem;
+            height: 1.5rem;
+        }
         .msg-error {
             color: var(--red);
             font-size: 0.9rem;
@@ -5016,7 +5064,7 @@
         // Restore last section/view or default to dashboard
         let savedSection = sessionStorage.getItem('paulland_section');
         let savedView = sessionStorage.getItem('paulland_view');
-        // Legacy route: Tools → Ask AI has been moved to Dashboard → Ask.
+        // Legacy route: Tools → Ask AI has been moved to Dashboard → Ask Jasper.
         if (savedView === 'ask') {
             savedSection = 'dashboard';
             savedView = 'ask-home';
@@ -5040,7 +5088,7 @@
 
     const SECTIONS = {
         dashboard: { tabs: [
-            { view: 'ask-home', label: 'Ask' },
+            { view: 'ask-home', label: 'Ask Jasper' },
             { view: 'overview', label: 'Briefing' },
         ]},
         content: { tabs: [
@@ -16917,12 +16965,12 @@
 
         main.innerHTML = `
             <div class="page-header">
-                <h2 class="page-title">Ask AI</h2>
+                <h2 class="page-title">Ask Jasper</h2>
             </div>
             <div class="ask-container">
-                <textarea id="askInput" class="ask-input" placeholder="Ask a question about your knowledge base..." rows="2"></textarea>
+                <textarea id="askInput" class="ask-input" placeholder="Ask Jasper about your knowledge base..." rows="2"></textarea>
                 <div class="ask-buttons">
-                    <button id="askBtn" class="btn btn-primary">Ask</button>
+                    <button id="askBtn" class="btn btn-primary">Ask Jasper</button>
                     <button id="searchBtn" class="btn">Search Only</button>
                 </div>
                 <div class="ask-filter-toggle" id="askFilterToggle">▸ Filters</div>
@@ -17548,13 +17596,13 @@
                 <aside class="askhome-side askhome-side--left" id="askHomeSourcePanel" aria-label="Source detail"></aside>
                 <section class="askhome askhome-center">
                     <div class="askhome-header">
-                        <h2 class="page-title">Ask</h2>
+                        <h2 class="page-title"><span class="jasper-title-badge" aria-hidden="true"><i class="icon" data-lucide="gem"></i></span>Ask Jasper</h2>
                         <button id="askHomeNewBtn" class="icon-btn" title="New conversation" aria-label="New conversation"><i class="icon" data-lucide="plus"></i></button>
                     </div>
                     <div class="askhome-thread" id="askHomeThread"></div>
                     <div class="askhome-input-bar">
                         <button class="askhome-scroll-tail" id="askHomeScrollTail" type="button" aria-label="Scroll to latest" title="Scroll to latest" style="display:none"><i class="icon" data-lucide="arrow-down"></i></button>
-                        <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask anything about your knowledge base…"></textarea>
+                        <textarea id="askHomeInput" class="askhome-input" rows="2" placeholder="Ask Jasper anything about your knowledge base…"></textarea>
                         <div class="askhome-input-actions">
                             <details class="askhome-filters" id="askHomeFiltersDetails">
                                 <summary class="askhome-filter-summary">Filters</summary>
@@ -17705,6 +17753,10 @@
             </div>` : '';
         return `
             <div class="msg msg-assistant" data-id="${msg.id}">
+                <div class="msg-speaker">
+                    <span class="jasper-avatar" aria-hidden="true"><i class="icon" data-lucide="gem"></i></span>
+                    <span class="msg-speaker-name">Jasper</span>
+                </div>
                 ${body}
                 ${sources}
                 <div class="msg-footer">
@@ -17721,8 +17773,9 @@
         if (!askHomeState.messages.length) {
             thread.innerHTML = `
                 <div class="askhome-empty">
-                    <div class="askhome-empty-title">Ask your knowledge base</div>
-                    <div class="askhome-empty-hint">Questions are answered with citations from your articles, daily notes, summaries, people, and more. Every answer is grounded in what you've captured.</div>
+                    <div class="jasper-empty-avatar" aria-hidden="true"><i class="icon" data-lucide="gem"></i></div>
+                    <div class="askhome-empty-title">Hi, I'm Jasper</div>
+                    <div class="askhome-empty-hint">Ask me anything about what you've captured — articles, daily notes, summaries, people, and more. Every answer is grounded in your knowledge base, with citations.</div>
                 </div>
             `;
             askHomeUpdateScrollButton();
@@ -17938,7 +17991,7 @@
         btn.textContent = 'Saving…';
         btn.disabled = true;
         const today = new Date().toISOString().slice(0, 10);
-        const titleLine = (msg.content.split('\n').find(l => l.trim()) || msg.question || 'Ask AI answer')
+        const titleLine = (msg.content.split('\n').find(l => l.trim()) || msg.question || 'Jasper answer')
             .replace(/^#+\s*/, '')
             .slice(0, 120);
 

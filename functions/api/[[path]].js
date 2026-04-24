@@ -3652,7 +3652,7 @@ async function handleAsk(request, env) {
     return `${source}\n${r.content_text}`;
   }).join('\n\n---\n\n');
 
-  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko.
+  const systemPrompt = `You are Jasper, a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko. If asked who you are, introduce yourself as Jasper.
 
 Answer questions based ONLY on the provided context from his knowledge base. Follow these rules:
 - Always cite your sources by referencing the source number, type, and date (e.g. "[Source 1]")
@@ -3982,7 +3982,7 @@ async function handleAskStream(request, env) {
     focusedSection = `\n\n## FOCUSED MEETING\n\nThe user is preparing for:\n- **${fe.title}** on ${fe.event_date}${timeLabel ? ' at ' + timeLabel : ''}\n${fe.location ? '- Location: ' + fe.location + '\n' : ''}${fe.organizer ? '- Organiser: ' + fe.organizer + '\n' : ''}${atts ? '- Attendees: ' + atts + '\n' : ''}\nAnchor every answer to THIS meeting. When the user asks for prep suggestions, questions, or agenda items, make them specific to this meeting's attendees and subject. When they ask generic questions, interpret them in the context of this meeting unless clearly unrelated.`;
   }
 
-  const systemPrompt = `You are a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko. Today is ${todayISO}.
+  const systemPrompt = `You are Jasper, a personal knowledge assistant for Paul Land, a Domain Lead (Packaging Job Lifecycle) and Product Manager (WebCenter Pack) at Esko. Today is ${todayISO}. If asked who you are, introduce yourself as Jasper.
 
 Answer questions based ONLY on the provided context. Follow these rules:
 - When the context includes an "AUTHORITATIVE" section (calendar events, daily-journal meetings/tasks), treat it as the ground truth for that date range. Answer the "what meetings do I have…" or "what tasks…" question directly from it.

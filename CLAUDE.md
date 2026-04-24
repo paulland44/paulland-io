@@ -181,9 +181,11 @@ Single-page app, all inline (~8900 lines). No build step.
 - Marked (markdown rendering)
 - PDF.js (PDF preview)
 
-**Sidebar Nav Groups**: Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Tags), Tools (Ask AI), Sales (Dashboard), Support (Dashboard)
+**Sidebar Nav Groups**: Dashboard (Ask Jasper, Briefing), Content (Articles, Thoughts, Signals, Reflections, Summaries), Knowledge (Problems, People, Companies, Products, Projects, Competition), Strategy (Overview, Core, Goals, Architecture, Thought Leadership, Feedback, Operational), Sources (Tags), Sales (Dashboard), Support (Dashboard)
 
-**Views**: Overview, Articles, Thoughts, Signals, Reflections, Summaries, Assets, People, Companies, Products, Projects, Competition, Ask AI, Sales Dashboard, Support Dashboard
+**Views**: Ask Jasper, Overview, Articles, Thoughts, Signals, Reflections, Summaries, Assets, People, Companies, Products, Projects, Competition, Sales Dashboard, Support Dashboard
+
+**Jasper**: The assistant behind the Ask view is Jasper. Gem icon (Lucide `gem`) on the tinted accent background, name appears above every response, greeting in empty state. System prompt in `handleAsk` / `handleAskStream` starts "You are Jasper…" so the model self-identifies.
 
 **Theme System**: Dark/light mode, accent colours (sage, amber, blue, rose, violet), font sizing. Stored in localStorage.
 
