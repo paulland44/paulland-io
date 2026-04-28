@@ -17190,7 +17190,6 @@
                         <option value="low">Low</option>
                     </select>
                     <button class="btn-action" id="tasksAddBtn" type="button">+ Add task</button>
-                    <button class="btn-ghost-sm" id="tasksBackfillBtn" type="button" title="Import - [ ] bullets from existing daily notes">Backfill from daily notes</button>
                 </div>
             </div>
             <form class="tasks-new-form" id="tasksNewForm" style="display:none">
@@ -17249,8 +17248,6 @@
             refreshTasks();
             loadCounts();
         });
-        document.getElementById('tasksBackfillBtn').addEventListener('click', runTasksBackfill);
-
         refreshTasks();
     }
 
@@ -17514,52 +17511,6 @@
                 showToast(err.message, 'error');
             }
         });
-    }
-
-    async function runTasksBackfill() {
-        if (!confirm('Preview what would be imported from your daily-note task bullets?')) return;
-        const btn = document.getElementById('tasksBackfillBtn');
-        btn.textContent = 'Running…'; btn.disabled = true;
-        try {
-            // Always dry-run first so the user sees the breakdown and the
-            // defaults (skip done, dedupe open, last 90 days) in action.
-            const dryRes = await fetch('/api/tasks/backfill-from-daily-notes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dry_run: true }),
-            });
-            const dry = await dryRes.json();
-            if (!dryRes.ok) throw new Error(dry.error || 'Dry-run failed');
-            const s = dry.stats || {};
-            const preview = [
-                `Dry-run result (last ${s.days_back || 90} days):`,
-                ``,
-                `  Parsed bullets:          ${s.parsed_bullets ?? 0}`,
-                `  Done lines skipped:      ${s.done_skipped_by_default ?? 0} (include_done=false)`,
-                `  Open duplicates merged:  ${s.open_deduped ?? 0}`,
-                `  Already imported:        ${s.already_imported_skipped ?? 0}`,
-                ``,
-                `  → Would insert:          ${dry.wouldInsert ?? 0}`,
-                ``,
-                `Click OK to commit this import, or Cancel to adjust.`,
-            ].join('\n');
-            if (!confirm(preview)) return;
-            const res = await fetch('/api/tasks/backfill-from-daily-notes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Backfill failed');
-            alert(`Imported ${data.inserted} tasks. You can now review them in the Tasks view.`);
-            refreshTasks();
-            loadCounts();
-        } catch (err) {
-            alert(`Error: ${err.message}`);
-        } finally {
-            btn.textContent = 'Backfill from daily notes';
-            btn.disabled = false;
-        }
     }
 
     // ─── Ask Home (conversational RAG) ─────────────────────────

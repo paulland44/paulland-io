@@ -17,7 +17,6 @@
  *   GET  /api/assets/file/:key — Serve file from R2
  *   GET  /api/assets/:id/content — Fetch asset content (text or base64)
  *   DELETE /api/assets/:id     — Delete asset from R2 + Supabase
- *   POST /api/embed            — Embed a single item (source_table, source_id)
  *   POST /api/embed-batch      — Batch embed unembedded content
  *   POST /api/search           — Vector similarity search
  *   POST /api/ask              — RAG: vector search + Claude answer
@@ -54,11 +53,6 @@ export async function onRequest(ctx) {
     return handleMisRoute(path, request, env);
   }
 
-  // List R2 bucket objects — GET /api/assets/r2-list
-  if (request.method === 'GET' && path === 'assets/r2-list') {
-    return handleR2List(env);
-  }
-
   // Asset file serving — GET /api/assets/file/...
   if (request.method === 'GET' && path.startsWith('assets/file/')) {
     const r2Key = path.replace('assets/file/', '');
@@ -90,10 +84,6 @@ export async function onRequest(ctx) {
 
   // ─── Tasks routes ───────────────────────────────────────────
   if (path.startsWith('tasks')) {
-    // POST /api/tasks/backfill-from-daily-notes
-    if (request.method === 'POST' && path === 'tasks/backfill-from-daily-notes') {
-      return handleTasksBackfill(request, env, ctx);
-    }
     // POST /api/tasks/:id/complete
     const completeMatch = path.match(/^tasks\/([0-9a-f-]+)\/complete$/);
     if (request.method === 'POST' && completeMatch) {
@@ -150,26 +140,24 @@ export async function onRequest(ctx) {
         return handleGenerateSummary(request, env, ctx);
       case 'assets/upload':
         return handleAssetUpload(request, env);
-      case 'embed':
-        return handleEmbed(request, env);
       case 'embed-batch':
         return handleEmbedBatch(request, env);
       case 'search':
         return handleSearch(request, env);
       case 'ask':
-        return handleAsk(request, env);
+        return handleAsk(request, env, ctx);
       case 'ask-stream':
-        return handleAskStream(request, env);
+        return handleAskStream(request, env, ctx);
       case 'summarize-to-note':
-        return handleSummarizeToNote(request, env);
+        return handleSummarizeToNote(request, env, ctx);
       case 'competitor-research':
-        return handleCompetitorResearch(request, env);
+        return handleCompetitorResearch(request, env, ctx);
       case 'extract-signals':
-        return handleExtractSignals(request, env);
+        return handleExtractSignals(request, env, ctx);
       case 'signal-synthesis':
-        return handleSignalSynthesis(request, env);
+        return handleSignalSynthesis(request, env, ctx);
       case 'reflection-synthesis':
-        return handleReflectionSynthesis(request, env);
+        return handleReflectionSynthesis(request, env, ctx);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -1679,7 +1667,7 @@ async function handleGenerateSummary(request, env, ctx) {
   // Call LLM (with fallback)
   let summaryContent, modelUsed;
   try {
-    const result = await callLLM({ env, systemPrompt, userMessage: context_data, maxTokens: 8000, tier: 'balanced' });
+    const result = await callLLM({ env, ctx, feature: 'generate_summary', systemPrompt, userMessage: context_data, maxTokens: 8000, tier: 'balanced' });
     summaryContent = result.text;
     modelUsed = result.model;
     if (!summaryContent) {
@@ -1958,6 +1946,8 @@ async function handleDailyReview(request, env, ctx) {
   try {
     const result = await callLLM({
       env,
+      ctx,
+      feature: 'daily_review',
       systemPrompt,
       messages: [{ role: 'user', content: userContent }],
       maxTokens: 8000,
@@ -2352,22 +2342,6 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
 }
 
 // ─── Asset Management (R2 + Supabase) ────────────────────────
-
-async function handleR2List(env) {
-  const bucket = env.ASSETS_BUCKET;
-  if (!bucket) return json({ error: 'R2 bucket not configured' }, 500);
-
-  const listed = await bucket.list({ limit: 500 });
-  const objects = (listed.objects || []).map(obj => ({
-    key: obj.key,
-    size: obj.size,
-    uploaded: obj.uploaded,
-    httpMetadata: obj.httpMetadata,
-    customMetadata: obj.customMetadata,
-  }));
-
-  return json({ ok: true, objects, truncated: listed.truncated });
-}
 
 async function handleAssetUpload(request, env) {
   const bucket = env.ASSETS_BUCKET;
@@ -2969,6 +2943,103 @@ async function logAiError(env, { provider, model, endpoint, status, message }) {
   }
 }
 
+// ─── LLM usage event logging (cost + quality) ────────────────
+// Per-call row in `usage_events`. Fire-and-forget via ctx.waitUntil where
+// possible. Cost estimates are computed at write-time from the model name +
+// token counts so the dashboard can render USD without re-pricing on read.
+//
+// Pricing per million tokens. Update when Anthropic changes prices.
+const USAGE_PRICING = {
+  // Anthropic — input / output / cache_write / cache_read
+  'claude-opus-4-7':   { in: 15.00, out: 75.00, cw: 18.75, cr: 1.50 },
+  'claude-sonnet-4-6': { in:  3.00, out: 15.00, cw:  3.75, cr: 0.30 },
+  'claude-haiku-4-5':  { in:  1.00, out:  5.00, cw:  1.25, cr: 0.10 },
+  // Cloudflare Workers AI (embeddings) — effectively free at this volume
+  '@cf/baai/bge-base-en-v1.5': { in: 0, out: 0, cw: 0, cr: 0 },
+};
+
+function estimateCost(model, { tokens_in = 0, tokens_out = 0, cache_creation_tokens = 0, cache_read_tokens = 0 } = {}) {
+  if (!model) return 0;
+  // Match by prefix so model IDs with date suffixes (e.g. 'claude-haiku-4-5-20251001') still hit
+  const key = Object.keys(USAGE_PRICING).find(k => model.startsWith(k));
+  if (!key) return 0;
+  const p = USAGE_PRICING[key];
+  const cost =
+    (tokens_in              * p.in  / 1_000_000) +
+    (tokens_out             * p.out / 1_000_000) +
+    (cache_creation_tokens  * p.cw  / 1_000_000) +
+    (cache_read_tokens      * p.cr  / 1_000_000);
+  return Math.round(cost * 1_000_000) / 1_000_000; // 6dp, matches column scale
+}
+
+async function logUsageEvent(env, ctx, {
+  surface = 'api',
+  feature,
+  prompt_id = null,
+  prompt_version = null,
+  model = null,
+  tokens_in = 0,
+  tokens_out = 0,
+  cache_creation_tokens = 0,
+  cache_read_tokens = 0,
+  output_excerpt = null,
+  duration_ms = null,
+  error = null,
+  metadata = null,
+  request_id = null,
+} = {}) {
+  const writeRow = async () => {
+    try {
+      if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !feature) return;
+      const cost_est = estimateCost(model, { tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens });
+      await fetch(`${env.SUPABASE_URL}/rest/v1/usage_events`, {
+        method: 'POST',
+        headers: {
+          'apikey': env.SUPABASE_SERVICE_KEY,
+          'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal',
+        },
+        body: JSON.stringify({
+          surface,
+          feature,
+          prompt_id,
+          prompt_version,
+          model,
+          tokens_in,
+          tokens_out,
+          cache_creation_tokens,
+          cache_read_tokens,
+          cost_est,
+          output_excerpt: output_excerpt ? String(output_excerpt).slice(0, 200) : null,
+          duration_ms: Number.isFinite(duration_ms) ? duration_ms : null,
+          error: error ? String(error).slice(0, 500) : null,
+          metadata: metadata && typeof metadata === 'object' ? metadata : null,
+          request_id,
+        }),
+      });
+    } catch {
+      // Never let logging break the caller
+    }
+  };
+  if (ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(writeRow());
+  } else {
+    await writeRow().catch(() => {});
+  }
+}
+
+// Pull token counts from an Anthropic non-streaming response in one place.
+function extractAnthropicUsage(responseJson) {
+  const u = responseJson?.usage || {};
+  return {
+    tokens_in:             Number(u.input_tokens) || 0,
+    tokens_out:            Number(u.output_tokens) || 0,
+    cache_creation_tokens: Number(u.cache_creation_input_tokens) || 0,
+    cache_read_tokens:     Number(u.cache_read_input_tokens) || 0,
+  };
+}
+
 function isAuthOrQuotaSignal(status, message) {
   if (!status && !message) return false;
   if (status === 401 || status === 402 || status === 403 || status === 429) return true;
@@ -3150,224 +3221,6 @@ async function handleTaskDelete(id, env) {
   return json({ ok: true });
 }
 
-/**
- * POST /api/tasks/backfill-from-daily-notes { dry_run?: boolean }
- *
- * One-shot parser: walks every daily_note with a non-empty `tasks` field and
- * extracts `- [ ]` / `- [x]` / `- [X]` bullets, creating rows in the `tasks`
- * table linked back to the daily note. Idempotent — skips lines that already
- * have a matching task (same title + source_table + source_id).
- */
-async function handleTasksBackfill(request, env, ctx) {
-  // Defaults are tuned to keep the imported set manageable: skip historical
-  // done tasks, dedupe open tasks across days (keeping the latest mention),
-  // and ignore anything older than 90 days. Override via flags.
-  try {
-    let body = {};
-    try { body = await request.json(); } catch {}
-    const dryRun      = !!body.dry_run;
-    const includeDone = body.include_done === true;        // default false
-    const dedupeOpen  = body.dedupe_open !== false;        // default true
-    const daysBack    = Number.isFinite(body.days_back) && body.days_back > 0
-      ? Math.min(Math.floor(body.days_back), 3650)
-      : 90;
-
-    const supabaseUrl = env.SUPABASE_URL;
-    const serviceKey = env.SUPABASE_SERVICE_KEY;
-    if (!supabaseUrl || !serviceKey) {
-      return json({ error: 'Server misconfigured (Supabase)' }, 500);
-    }
-
-    const cutoffDate = new Date(Date.now() - daysBack * 86400_000).toISOString().slice(0, 10);
-
-    // 1. Load daily notes within the cutoff window.
-    let notes = [];
-    try {
-      const notesRes = await fetch(
-        `${supabaseUrl}/rest/v1/daily_notes?tasks=not.is.null&tasks=neq.&note_date=gte.${cutoffDate}&select=id,note_date,tasks&order=note_date.asc&limit=2000`,
-        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
-      );
-      if (!notesRes.ok) {
-        return json({ error: 'Failed to load daily_notes', detail: await notesRes.text() }, notesRes.status);
-      }
-      notes = await notesRes.json();
-    } catch (err) {
-      return json({ error: 'daily_notes fetch failed', detail: err?.message || String(err) }, 500);
-    }
-
-    // 2. Fetch ALL existing tasks that came from daily_notes so we can dedupe
-    //    both ways (by source_id+title OR by title-only for cross-day dedupe).
-    //    No chunking needed — we only need id/title/source_id so the payload
-    //    is small even with thousands of rows.
-    const existingByKey = new Map();  // "sourceId|title" → existing task id
-    const existingByTitle = new Set(); // title.lowercase() → exists
-    try {
-      const res = await fetch(
-        `${supabaseUrl}/rest/v1/tasks?source_table=eq.daily_notes&select=id,title,source_id&limit=5000`,
-        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
-      );
-      if (res.ok) {
-        const rows = await res.json();
-        for (const t of rows) {
-          const titleKey = (t.title || '').trim().toLowerCase();
-          existingByKey.set(`${t.source_id}|${titleKey}`, t.id);
-          existingByTitle.add(titleKey);
-        }
-      } else {
-        const txt = await res.text();
-        if (!/relation.*does not exist|Could not find the table/i.test(txt)) {
-          return json({ error: 'Existing-tasks lookup failed', detail: txt }, res.status);
-        }
-      }
-    } catch (err) {
-      return json({ error: 'Existing-tasks lookup threw', detail: err?.message || String(err) }, 500);
-    }
-
-    // 3. Parse bullets, track counts, and bucket into candidates.
-    //    openByTitle:  titleKey → {title, latestDate, latestNoteId, mentions[]}
-    //    doneLines:    full list when includeDone=true (kept as-is, no dedupe)
-    const openByTitle = new Map();
-    const doneLines = [];
-    let parsedBullets = 0;
-    let doneSkipped = 0;
-
-    for (const note of notes) {
-      const lines = String(note.tasks || '').split('\n');
-      for (const rawLine of lines) {
-        const m = rawLine.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+?)\s*$/);
-        if (!m) continue;
-        parsedBullets++;
-        const isDone = m[1].toLowerCase() === 'x';
-        const title = m[2].trim();
-        if (!title) continue;
-
-        if (isDone) {
-          if (!includeDone) { doneSkipped++; continue; }
-          doneLines.push({ title, note });
-          continue;
-        }
-
-        const titleKey = title.toLowerCase();
-        if (!dedupeOpen) {
-          // No dedupe — one entry per (note, title).
-          const key = `${note.id}|${titleKey}`;
-          if (openByTitle.has(key)) continue;
-          openByTitle.set(key, { title, latestDate: note.note_date, latestNoteId: note.id, mentions: [note.note_date] });
-        } else {
-          // Dedupe by title across all notes; keep latest date.
-          const prev = openByTitle.get(titleKey);
-          if (!prev) {
-            openByTitle.set(titleKey, { title, latestDate: note.note_date, latestNoteId: note.id, mentions: [note.note_date] });
-          } else {
-            prev.mentions.push(note.note_date);
-            if (note.note_date > prev.latestDate) {
-              prev.latestDate = note.note_date;
-              prev.latestNoteId = note.id;
-              // Keep the casing of the latest mention's title too
-              prev.title = title;
-            }
-          }
-        }
-      }
-    }
-
-    // 4. Build insert list. Skip rows whose title already exists (cross-day
-    //    dedupe uses title-only; non-dedupe mode uses source_id+title).
-    const toInsert = [];
-    let dedupeSkipped = 0;
-    let alreadyImportedSkipped = 0;
-
-    for (const cand of openByTitle.values()) {
-      const titleKey = cand.title.toLowerCase();
-      if (dedupeOpen && existingByTitle.has(titleKey)) { alreadyImportedSkipped++; continue; }
-      if (!dedupeOpen && existingByKey.has(`${cand.latestNoteId}|${titleKey}`)) { alreadyImportedSkipped++; continue; }
-
-      const mentionCount = Math.max(0, cand.mentions.length - 1);
-      if (mentionCount > 0) dedupeSkipped += mentionCount;
-      const sourceRef = mentionCount > 0
-        ? `Daily Note ${cand.latestDate} (+${mentionCount} earlier mention${mentionCount === 1 ? '' : 's'})`
-        : `Daily Note ${cand.latestDate}`;
-
-      toInsert.push({
-        title: cand.title,
-        status: 'todo',
-        completed_at: null,
-        source_table: 'daily_notes',
-        source_id: cand.latestNoteId,
-        source_ref: sourceRef,
-        due_date: null,
-        metadata: {
-          backfilled_from: 'daily_notes.tasks',
-          latest_date: cand.latestDate,
-          mentions: cand.mentions,
-        },
-      });
-    }
-
-    // Done lines go through only if includeDone=true. No cross-day dedupe —
-    // each historical completion is a separate event.
-    if (includeDone) {
-      for (const d of doneLines) {
-        const titleKey = d.title.toLowerCase();
-        if (existingByKey.has(`${d.note.id}|${titleKey}`)) { alreadyImportedSkipped++; continue; }
-        toInsert.push({
-          title: d.title,
-          status: 'done',
-          completed_at: new Date(d.note.note_date + 'T12:00:00Z').toISOString(),
-          source_table: 'daily_notes',
-          source_id: d.note.id,
-          source_ref: `Daily Note ${d.note.note_date}`,
-          due_date: null,
-          metadata: { backfilled_from: 'daily_notes.tasks', note_date: d.note.note_date },
-        });
-      }
-    }
-
-    const stats = {
-      parsed_bullets: parsedBullets,
-      done_skipped_outside_cutoff: null, // set below if cutoff trimmed anything
-      done_skipped_by_default: doneSkipped,
-      open_deduped: dedupeSkipped,
-      already_imported_skipped: alreadyImportedSkipped,
-      would_insert: toInsert.length,
-      cutoff_date: cutoffDate,
-      days_back: daysBack,
-      include_done: includeDone,
-      dedupe_open: dedupeOpen,
-    };
-
-    if (dryRun) {
-      return json({ ok: true, dry_run: true, stats, wouldInsert: toInsert.length });
-    }
-
-    // 5. Insert in chunks of 100. Embeddings happen lazily via the admin's
-    //    background drain on next page load — avoids blowing the subrequest
-    //    budget on a bulk import.
-    let insertedTotal = 0;
-    for (let i = 0; i < toInsert.length; i += 100) {
-      const batch = toInsert.slice(i, i + 100);
-      const res = await fetch(`${supabaseUrl}/rest/v1/tasks`, {
-        method: 'POST',
-        headers: {
-          'apikey': serviceKey,
-          'Authorization': `Bearer ${serviceKey}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=representation',
-        },
-        body: JSON.stringify(batch),
-      });
-      if (!res.ok) {
-        return json({ error: 'Insert failed', detail: await res.text(), insertedTotal, stats }, 500);
-      }
-      const rows = await res.json();
-      insertedTotal += rows.length;
-    }
-
-    return json({ ok: true, stats, inserted: insertedTotal });
-  } catch (err) {
-    return json({ error: 'Backfill crashed', detail: err?.message || String(err), stack: err?.stack }, 500);
-  }
-}
 
 /**
  * GET /api/usage-errors?window=24h — list unresolved AI usage errors from the
@@ -3515,23 +3368,6 @@ async function embedItem(env, sourceTable, sourceId) {
   );
 
   return { ok: true, chunks: chunks.length };
-}
-
-/**
- * POST /api/embed — Embed a single item.
- */
-async function handleEmbed(request, env) {
-  const { source_table, source_id } = await request.json();
-
-  if (!source_table || !source_id) {
-    return json({ error: 'Missing source_table or source_id' }, 400);
-  }
-
-  const result = await embedItem(env, source_table, source_id);
-  if (!result.ok) {
-    return json({ error: result.error }, 500);
-  }
-  return json({ ok: true, chunks: result.chunks });
 }
 
 /**
@@ -3713,7 +3549,7 @@ function filterSearchResults(results, { date_from, date_to, tags }) {
 /**
  * POST /api/ask — RAG: vector search + Claude answer generation.
  */
-async function handleAsk(request, env) {
+async function handleAsk(request, env, ctx) {
   const { question, tables, date_from, date_to, tags } = await request.json();
   if (!question || typeof question !== 'string') {
     return json({ error: 'Missing question string' }, 400);
@@ -3794,7 +3630,7 @@ ${question}`;
   // 4. Call LLM (with fallback)
   let answer, modelUsed, fallback;
   try {
-    const result = await callLLM({ env, systemPrompt, userMessage, maxTokens: 4000, tier: 'balanced' });
+    const result = await callLLM({ env, ctx, feature: 'ask', systemPrompt, userMessage, maxTokens: 4000, tier: 'balanced' });
     answer = result.text;
     modelUsed = result.model;
     fallback = result.fallback;
@@ -3997,7 +3833,7 @@ async function fetchStructuredContext(env, intent) {
  *   data: {"type":"meta","model":"...","fallback":true,...}   (only if fallback fired)
  *   data: [DONE]
  */
-async function handleAskStream(request, env) {
+async function handleAskStream(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
   const { messages, tables, date_from, date_to, tags, client_date, focused_meeting } = body || {};
@@ -4163,6 +3999,8 @@ Answer questions based ONLY on the provided context. Follow these rules:
       } else {
         await callLLM({
           env,
+          ctx,
+          feature: 'ask_stream',
           systemPrompt,
           messages: llmMessages,
           maxTokens: 4000,
@@ -4196,7 +4034,7 @@ Answer questions based ONLY on the provided context. Follow these rules:
  * clean markdown meeting notes. Used by the focused-meeting card's "Save
  * discussion as notes" action. Body: { event, messages }.
  */
-async function handleSummarizeToNote(request, env) {
+async function handleSummarizeToNote(request, env, ctx) {
   let body;
   try { body = await request.json(); } catch { return json({ error: 'Invalid JSON' }, 400); }
   const { event, messages } = body || {};
@@ -4234,6 +4072,8 @@ Skip any section that has nothing to say rather than leaving it empty. Keep it p
   try {
     const { text, model } = await callLLM({
       env,
+      ctx,
+      feature: 'summarize_to_note',
       systemPrompt,
       userMessage,
       maxTokens: 2000,
@@ -4247,7 +4087,7 @@ Skip any section that has nothing to say rather than leaving it empty. Keep it p
 
 // ─── Extract Signals from Content ─────────────────────────────
 
-async function handleExtractSignals(request, env) {
+async function handleExtractSignals(request, env, ctx) {
   try {
   const { content_id } = await request.json();
   if (!content_id) {
@@ -4294,7 +4134,7 @@ ${item.tags?.length ? `Tags: ${item.tags.join(', ')}` : ''}
 ${(item.body || '(No body content)').slice(0, 15000)}`;
 
   try {
-    const result = await callLLM({ env, systemPrompt, userMessage, maxTokens: 2000, tier: 'quick' });
+    const result = await callLLM({ env, ctx, feature: 'extract_signals', systemPrompt, userMessage, maxTokens: 2000, tier: 'quick' });
     const text = result.text || '[]';
 
     // Parse JSON from response (handle potential markdown wrapping)
@@ -4434,6 +4274,10 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
       return { ok: false, status: res.status, errText };
     }
 
+    // Accumulate usage + first chunk of output text from the SSE stream
+    const usage = { tokens_in: 0, tokens_out: 0, cache_creation_tokens: 0, cache_read_tokens: 0 };
+    let outputExcerpt = '';
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
@@ -4449,7 +4293,17 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
         if (!data || data === '[DONE]') continue;
         let parsed;
         try { parsed = JSON.parse(data); } catch { continue; }
-        if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+        if (parsed.type === 'message_start' && parsed.message?.usage) {
+          const u = parsed.message.usage;
+          usage.tokens_in             = Number(u.input_tokens) || 0;
+          usage.tokens_out            = Number(u.output_tokens) || 0;
+          usage.cache_creation_tokens = Number(u.cache_creation_input_tokens) || 0;
+          usage.cache_read_tokens     = Number(u.cache_read_input_tokens) || 0;
+        } else if (parsed.type === 'message_delta' && parsed.usage) {
+          // message_delta carries the final output_tokens count
+          usage.tokens_out = Number(parsed.usage.output_tokens) || usage.tokens_out;
+        } else if (parsed.type === 'content_block_delta' && parsed.delta?.text) {
+          if (outputExcerpt.length < 200) outputExcerpt += parsed.delta.text;
           await sendDelta(parsed.delta.text);
         } else if (parsed.type === 'error') {
           // Mid-stream error — surface to client, cannot fall back now
@@ -4459,7 +4313,7 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
         }
       }
     }
-    return { ok: true };
+    return { ok: true, usage, output_excerpt: outputExcerpt.slice(0, 200) };
   }
 
   if (model.startsWith('@cf/')) {
@@ -4501,7 +4355,7 @@ async function streamOneModel({ env, model, systemPrompt, userMessage, messages,
 }
 
 /**
- * Non-streaming call to one model. Returns {ok, text?, status?, errText?}.
+ * Non-streaming call to one model. Returns {ok, text?, usage?, status?, errText?}.
  */
 async function invokeOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens }) {
   if (model.startsWith('claude-')) {
@@ -4532,7 +4386,7 @@ async function invokeOneModel({ env, model, systemPrompt, userMessage, messages,
     }
     const data = await res.json();
     const text = data.content?.[0]?.text || '';
-    return { ok: true, text };
+    return { ok: true, text, usage: extractAnthropicUsage(data) };
   }
 
   if (model.startsWith('@cf/')) {
@@ -4540,7 +4394,7 @@ async function invokeOneModel({ env, model, systemPrompt, userMessage, messages,
     try {
       const out = await env.AI.run(model, buildWorkersAiArgs({ systemPrompt, userMessage, messages, maxTokens, stream: false }));
       const text = out?.response ?? out?.result?.response ?? '';
-      return { ok: true, text };
+      return { ok: true, text, usage: { tokens_in: 0, tokens_out: 0, cache_creation_tokens: 0, cache_read_tokens: 0 } };
     } catch (err) {
       await logAiError(env, { provider: 'cloudflare_ai', model, endpoint: 'invoke', status: 0, message: err?.message });
       return { ok: false, status: 0, errText: `Workers AI error: ${err.message}` };
@@ -4562,6 +4416,9 @@ async function invokeOneModel({ env, model, systemPrompt, userMessage, messages,
  */
 async function callLLM({
   env,
+  ctx,
+  feature,
+  prompt_id,
   systemPrompt,
   userMessage,
   messages,
@@ -4579,6 +4436,7 @@ async function callLLM({
 
   const attempts = [];
   let lastErr = null;
+  const startedAt = Date.now();
 
   for (let i = 0; i < chain.length; i++) {
     const model = chain[i];
@@ -4595,7 +4453,21 @@ async function callLLM({
       }
       const result = await streamOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder });
       attempts.push({ model, ok: result.ok, status: result.status });
-      if (result.ok) return { model, attempts };
+      if (result.ok) {
+        if (feature) {
+          await logUsageEvent(env, ctx, {
+            surface: 'api',
+            feature,
+            prompt_id: prompt_id || null,
+            model,
+            ...(result.usage || {}),
+            output_excerpt: result.output_excerpt || null,
+            duration_ms: Date.now() - startedAt,
+            metadata: isFallback ? { fallback_from: chain[0] } : null,
+          });
+        }
+        return { model, attempts };
+      }
       lastErr = result;
       if (!isRetryableError(result.status, result.errText) && i < chain.length - 1) {
         // Non-retryable error — still try fallback, user wants graceful degradation
@@ -4603,7 +4475,21 @@ async function callLLM({
     } else {
       const result = await invokeOneModel({ env, model, systemPrompt, userMessage, messages, maxTokens });
       attempts.push({ model, ok: result.ok, status: result.status });
-      if (result.ok) return { text: result.text, model, attempts, fallback: isFallback };
+      if (result.ok) {
+        if (feature) {
+          await logUsageEvent(env, ctx, {
+            surface: 'api',
+            feature,
+            prompt_id: prompt_id || null,
+            model,
+            ...(result.usage || {}),
+            output_excerpt: result.text ? result.text.slice(0, 200) : null,
+            duration_ms: Date.now() - startedAt,
+            metadata: isFallback ? { fallback_from: chain[0] } : null,
+          });
+        }
+        return { text: result.text, model, attempts, fallback: isFallback };
+      }
       lastErr = result;
     }
   }
@@ -4626,9 +4512,10 @@ async function callLLM({
  * Thin compat shim — delegates to callLLM in streaming mode.
  * Existing streaming callers gain multi-model fallback transparently.
  */
-async function streamLLMToWriter({ env, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder }) {
+async function streamLLMToWriter({ env, ctx, feature, prompt_id, model, systemPrompt, userMessage, messages, maxTokens, writer, encoder }) {
   return callLLM({
-    env, systemPrompt, userMessage, messages, maxTokens,
+    env, ctx, feature, prompt_id,
+    systemPrompt, userMessage, messages, maxTokens,
     preferredModel: model,
     tier: 'balanced',
     streaming: true,
@@ -4638,7 +4525,7 @@ async function streamLLMToWriter({ env, model, systemPrompt, userMessage, messag
 
 // ─── Signal Synthesis (streaming) ─────────────────────────────
 
-async function handleSignalSynthesis(request, env) {
+async function handleSignalSynthesis(request, env, ctx) {
   const { signal_ids, format = 'narrative', focus = 'strategic-implications', context, model: modelOverride } = await request.json();
   if (!signal_ids?.length || signal_ids.length < 2) {
     return json({ error: 'At least 2 signal IDs required' }, 400);
@@ -4732,7 +4619,7 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.
   const streamPromise = (async () => {
     try {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'meta', model })}\n\n`));
-      await streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder });
+      await streamLLMToWriter({ env, ctx, feature: 'signal_synthesis', model, systemPrompt, userMessage, maxTokens, writer, encoder });
       await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
@@ -4754,7 +4641,7 @@ Please synthesise these ${signals.length} signals with a focus on ${focusLabel}.
 
 // ─── Reflection Synthesis ─────────────────────────────────────
 
-async function handleReflectionSynthesis(request, env) {
+async function handleReflectionSynthesis(request, env, ctx) {
   const { from_date, to_date, categories, context, model: modelOverride } = await request.json();
   if (!from_date || !to_date) {
     return json({ error: 'from_date and to_date required' }, 400);
@@ -4849,7 +4736,7 @@ Please synthesise per the system prompt.`;
         content_count: contentData.length,
         source_ids: { log: logData.map(r => r.id), content: contentData.map(r => r.id) },
       })}\n\n`));
-      await streamLLMToWriter({ env, model, systemPrompt, userMessage, maxTokens, writer, encoder });
+      await streamLLMToWriter({ env, ctx, feature: 'reflection_synthesis', model, systemPrompt, userMessage, maxTokens, writer, encoder });
       await writer.write(encoder.encode('data: [DONE]\n\n'));
     } catch (err) {
       await writer.write(encoder.encode(`data: ${JSON.stringify({ type: 'error', error: err.message })}\n\n`));
@@ -4871,7 +4758,7 @@ Please synthesise per the system prompt.`;
 
 // ─── Competitor Research (web search) ─────────────────────────
 
-async function handleCompetitorResearch(request, env) {
+async function handleCompetitorResearch(request, env, ctx) {
   const anthropicKey = env.ANTHROPIC_API_KEY;
   if (!anthropicKey) {
     return json({ error: 'ANTHROPIC_API_KEY not configured' }, 500);
@@ -4972,6 +4859,16 @@ ${focus === 'all' || !focus ? 'End with a **## Key Takeaways** section with 3-5 
         .filter(b => b.type === 'text')
         .map(b => b.text)
         .join('\n\n');
+
+      // Cost tracking — even if report is empty, the call was billed
+      await logUsageEvent(env, ctx, {
+        surface: 'api',
+        feature: 'competitor_research',
+        model: claudeData.model || 'claude-sonnet-4-20250514',
+        ...extractAnthropicUsage(claudeData),
+        output_excerpt: report ? report.slice(0, 200) : null,
+        metadata: { name, focus: focus || 'all', web_search: true },
+      });
 
       if (!report) {
         await send({ type: 'error', message: 'No research results generated. Try a different focus area.' });
