@@ -2988,44 +2988,42 @@ async function logUsageEvent(env, ctx, {
   metadata = null,
   request_id = null,
 } = {}) {
-  const writeRow = async () => {
-    try {
-      if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !feature) return;
-      const cost_est = estimateCost(model, { tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens });
-      await fetch(`${env.SUPABASE_URL}/rest/v1/usage_events`, {
-        method: 'POST',
-        headers: {
-          'apikey': env.SUPABASE_SERVICE_KEY,
-          'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
-          'Content-Type': 'application/json',
-          'Prefer': 'return=minimal',
-        },
-        body: JSON.stringify({
-          surface,
-          feature,
-          prompt_id,
-          prompt_version,
-          model,
-          tokens_in,
-          tokens_out,
-          cache_creation_tokens,
-          cache_read_tokens,
-          cost_est,
-          output_excerpt: output_excerpt ? String(output_excerpt).slice(0, 200) : null,
-          duration_ms: Number.isFinite(duration_ms) ? duration_ms : null,
-          error: error ? String(error).slice(0, 500) : null,
-          metadata: metadata && typeof metadata === 'object' ? metadata : null,
-          request_id,
-        }),
-      });
-    } catch {
-      // Never let logging break the caller
-    }
-  };
-  if (ctx && typeof ctx.waitUntil === 'function') {
-    ctx.waitUntil(writeRow());
-  } else {
-    await writeRow().catch(() => {});
+  // Note: we deliberately *await* the write rather than using ctx.waitUntil.
+  // In streaming handlers the waitUntil pattern can be reaped silently when
+  // writer.close() finalises the response body before the Supabase fetch
+  // completes. A 50–100ms synchronous insert is negligible compared to the
+  // LLM call we just made, and it guarantees the row lands.
+  try {
+    if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY || !feature) return;
+    const cost_est = estimateCost(model, { tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens });
+    await fetch(`${env.SUPABASE_URL}/rest/v1/usage_events`, {
+      method: 'POST',
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal',
+      },
+      body: JSON.stringify({
+        surface,
+        feature,
+        prompt_id,
+        prompt_version,
+        model,
+        tokens_in,
+        tokens_out,
+        cache_creation_tokens,
+        cache_read_tokens,
+        cost_est,
+        output_excerpt: output_excerpt ? String(output_excerpt).slice(0, 200) : null,
+        duration_ms: Number.isFinite(duration_ms) ? duration_ms : null,
+        error: error ? String(error).slice(0, 500) : null,
+        metadata: metadata && typeof metadata === 'object' ? metadata : null,
+        request_id,
+      }),
+    });
+  } catch {
+    // Never let logging break the caller
   }
 }
 
