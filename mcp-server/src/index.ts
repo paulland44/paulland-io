@@ -719,9 +719,9 @@ server.tool(
     const current: any = existing[0] || { meetings: '', metadata: {} };
 
     // 3. Build the structured entry
-    const time = meeting.all_day
-      ? 'All day'
-      : (meeting.start_time ? new Date(meeting.start_time).toISOString().slice(11, 16) : '');
+    // start_time is stored as "HH:MM" (clock time, not a full timestamp)
+    // by the capture worker's ICS parser — use it directly.
+    const time = meeting.all_day ? 'All day' : (meeting.start_time || '');
     const attendeeNames: string[] = Array.isArray(meeting.attendees)
       ? meeting.attendees
           .map((a: any) => typeof a === 'string' ? a : (a?.name || a?.email || ''))
