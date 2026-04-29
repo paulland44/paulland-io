@@ -4414,6 +4414,99 @@ server.tool(
   }
 );
 
+server.tool(
+  'list_usage_events',
+  'Cost / quality observability for paulland.io LLM calls. Returns totals, per-feature breakdown, per-day trend, and recent rows from the usage_events table for the cost panel Live Artifact and the Skill Auditor agent. Single round-trip: an artifact can render the whole panel from one call.',
+  {
+    since: z
+      .string()
+      .optional()
+      .default('7d')
+      .describe('Time window: "24h", "7d", "30d", "90d", or an ISO timestamp'),
+    feature: z
+      .string()
+      .optional()
+      .describe('Filter to a single feature (e.g. "ask_stream", "signal_synthesis")'),
+    limit: z
+      .number()
+      .optional()
+      .default(50)
+      .describe('Max recent rows to return'),
+  },
+  async ({ since, feature, limit }) => {
+    const sinceISO = (() => {
+      const m = /^(\d+)([hdwm])$/.exec(since);
+      if (!m) return new Date(since).toISOString();
+      const n = parseInt(m[1], 10);
+      const unitMap: Record<string, number> = { h: 3600e3, d: 86400e3, w: 7 * 86400e3, m: 30 * 86400e3 };
+      const unitMs = unitMap[m[2]] ?? 86400e3;
+      return new Date(Date.now() - n * unitMs).toISOString();
+    })();
+
+    let path = `usage_events?created_at=gte.${encodeURIComponent(sinceISO)}&select=created_at,surface,feature,prompt_id,model,tokens_in,tokens_out,cache_creation_tokens,cache_read_tokens,cost_est,duration_ms,quality_flag,output_excerpt&order=created_at.desc&limit=2000`;
+    if (feature) path += `&feature=eq.${encodeURIComponent(feature)}`;
+
+    const rows = await supabaseGet(path);
+
+    const totals = {
+      since: sinceISO,
+      count: rows.length,
+      cost_est_total: 0,
+      tokens_in_total: 0,
+      tokens_out_total: 0,
+      cache_creation_total: 0,
+      cache_read_total: 0,
+    };
+    const byFeature: Record<string, { count: number; cost_est: number; tokens_in: number; tokens_out: number }> = {};
+    const byDay: Record<string, { count: number; cost_est: number }> = {};
+
+    for (const r of rows) {
+      const cost = Number(r.cost_est) || 0;
+      const tin  = Number(r.tokens_in) || 0;
+      const tout = Number(r.tokens_out) || 0;
+      totals.cost_est_total       += cost;
+      totals.tokens_in_total      += tin;
+      totals.tokens_out_total     += tout;
+      totals.cache_creation_total += Number(r.cache_creation_tokens) || 0;
+      totals.cache_read_total     += Number(r.cache_read_tokens) || 0;
+
+      const f = r.feature || 'unknown';
+      if (!byFeature[f]) byFeature[f] = { count: 0, cost_est: 0, tokens_in: 0, tokens_out: 0 };
+      byFeature[f].count += 1;
+      byFeature[f].cost_est += cost;
+      byFeature[f].tokens_in += tin;
+      byFeature[f].tokens_out += tout;
+
+      const day = (r.created_at || '').slice(0, 10);
+      if (day) {
+        if (!byDay[day]) byDay[day] = { count: 0, cost_est: 0 };
+        byDay[day].count += 1;
+        byDay[day].cost_est += cost;
+      }
+    }
+
+    // Round to 6dp to match column scale
+    totals.cost_est_total = Math.round(totals.cost_est_total * 1_000_000) / 1_000_000;
+    for (const k of Object.keys(byFeature)) {
+      byFeature[k].cost_est = Math.round(byFeature[k].cost_est * 1_000_000) / 1_000_000;
+    }
+    for (const k of Object.keys(byDay)) {
+      byDay[k].cost_est = Math.round(byDay[k].cost_est * 1_000_000) / 1_000_000;
+    }
+
+    const recent = rows.slice(0, limit);
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ totals, by_feature: byFeature, by_day: byDay, recent }, null, 2),
+        },
+      ],
+    };
+  }
+);
+
 // ─── Group 6: Prompt Management ─────────────────────────────
 
 server.tool(

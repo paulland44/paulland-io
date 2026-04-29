@@ -211,7 +211,7 @@ The MCP server runs as a **Cloudflare Worker** at `https://paulland-mcp.paul-lan
 ### Architecture
 
 ```
-mcp-server/src/index.ts    ← Shared implementation (78 tools, resources, prompts)
+mcp-server/src/index.ts    ← Shared implementation (79 tools, resources, prompts)
     exports: createServer(), initMisProxy(), registerTools(), registerResources()
 
 mcp-worker/src/index.ts    ← Cloudflare Worker entry point
@@ -232,7 +232,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (78 tools)
+### Tool Groups (79 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -252,7 +252,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
 | WCR Pack Pipeline | wcr_pack_opps_extract, wcr_pack_opps_write | 2 |
-| Utility | get_system_status | 1 |
+| Utility | get_system_status, list_usage_events | 2 |
 
 ### Content Types
 
