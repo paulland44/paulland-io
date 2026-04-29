@@ -312,6 +312,33 @@ server.tool(
 );
 
 server.tool(
+  'list_calendar_events',
+  "List Outlook-synced calendar events for a date range. Capture worker syncs from the ICS feed every 30 minutes; this tool just reads. Returns each meeting's uid + event_date (the natural identifier for add_meeting_note).",
+  {
+    date_from: z.string().optional().describe('Start date (YYYY-MM-DD). Defaults to today.'),
+    date_to: z.string().optional().describe('End date (YYYY-MM-DD). Defaults to date_from.'),
+    limit: z.number().optional().default(50).describe('Max events to return'),
+  },
+  async ({ date_from, date_to, limit }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = date_from || today;
+    const to = date_to || from;
+
+    const path = `calendar_events?event_date=gte.${from}&event_date=lte.${to}&order=event_date.asc,start_time.asc&select=uid,event_date,title,start_time,end_time,all_day,location,organizer,attendees&limit=${limit}`;
+    const rows = await supabaseGet(path);
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ count: rows.length, from, to, items: rows }, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+server.tool(
   'list_entities',
   'List entities from people, companies, products, or projects tables',
   {
@@ -657,6 +684,93 @@ server.tool(
     return {
       content: [
         { type: 'text' as const, text: JSON.stringify({ ok: true, date }) },
+      ],
+    };
+  }
+);
+
+server.tool(
+  'add_meeting_note',
+  "Append a note to a calendar meeting in the daily note for that meeting's date. Looks up the meeting from calendar_events by (uid, event_date), upserts the daily note, and appends both: (a) a structured entry to metadata.meetings_structured with title/time/attendees/note (the daily_review_extract picks this up), and (b) a markdown line to the meetings field for human readability in admin views. Idempotent in spirit: each call adds a new entry; a single meeting can accumulate multiple notes across the day.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid (the iCal UID; the natural meeting identifier from list_calendar_events)'),
+    event_date: z.string().optional().describe('The meeting\'s event_date (YYYY-MM-DD). Defaults to today. Required only for events that recur on multiple dates.'),
+    text: z.string().describe('The note text to append to this meeting'),
+  },
+  async ({ meeting_uid, event_date, text }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = event_date || today;
+
+    // 1. Resolve the meeting
+    const events = await supabaseGet(
+      `calendar_events?uid=eq.${encodeURIComponent(meeting_uid)}&event_date=eq.${date}&limit=1&select=uid,event_date,title,start_time,end_time,all_day,location,attendees`
+    );
+    if (!events.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No calendar event with uid=${meeting_uid} on ${date}` }) }],
+      };
+    }
+    const meeting = events[0];
+
+    // 2. Fetch existing daily note (so we can merge metadata)
+    const existing = await supabaseGet(
+      `daily_notes?note_date=eq.${date}&limit=1&select=id,meetings,metadata`
+    );
+    const current: any = existing[0] || { meetings: '', metadata: {} };
+
+    // 3. Build the structured entry
+    const time = meeting.all_day
+      ? 'All day'
+      : (meeting.start_time ? new Date(meeting.start_time).toISOString().slice(11, 16) : '');
+    const attendeeNames: string[] = Array.isArray(meeting.attendees)
+      ? meeting.attendees
+          .map((a: any) => typeof a === 'string' ? a : (a?.name || a?.email || ''))
+          .filter(Boolean)
+      : [];
+
+    const structuredEntry = {
+      meeting_uid,
+      event_date: date,
+      title: meeting.title,
+      time,
+      attendees: attendeeNames,
+      notes: text,
+      added_at: new Date().toISOString(),
+    };
+
+    // 4. Merge into metadata.meetings_structured (append)
+    const meta = { ...(current.metadata || {}) };
+    meta.meetings_structured = [...(meta.meetings_structured || []), structuredEntry];
+
+    // 5. Append a markdown line to the meetings field for human readability
+    const header = `### ${meeting.title}${time ? ` (${time})` : ''}${attendeeNames.length ? ` — ${attendeeNames.join(', ')}` : ''}`;
+    const newMeetings = (current.meetings || '').trim()
+      ? `${current.meetings.trim()}\n\n${header}\n${text}\n`
+      : `${header}\n${text}\n`;
+
+    // 6. Upsert
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: date, meetings: newMeetings, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }],
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            ok: true,
+            date,
+            meeting: { title: meeting.title, time, attendees: attendeeNames },
+            structured_count: meta.meetings_structured.length,
+          }, null, 2),
+        },
       ],
     };
   }
