@@ -5676,10 +5676,25 @@
         }
 
         // Bookings — YTD current year across all products (bookings stored in raw $)
+        // Weekly files are cumulative snapshots; pick the latest one (highest week)
+        // among files that contain current-year data to avoid triple-counting.
         const currentYear = now.getFullYear();
         const valueCol = `value_${currentYear}`;
+        const bookingsRows = bookingsData || [];
+        const bookingsSourceFiles = [...new Set(bookingsRows.map(r => r.source_file).filter(Boolean))];
+        const bookingsPrimaryFile = bookingsSourceFiles
+            .map(f => {
+                const fileYrRows = bookingsRows.filter(r => r.source_file === f && r[valueCol]);
+                return { file: f, maxWeek: fileYrRows.length ? Math.max(...fileYrRows.map(r => r.week)) : -1 };
+            })
+            .filter(x => x.maxWeek >= 0)
+            .sort((a, b) => b.maxWeek - a.maxWeek)[0]?.file;
         let bookingsYtdDollars = 0;
-        (bookingsData || []).forEach(r => { bookingsYtdDollars += r[valueCol] || 0; });
+        if (bookingsPrimaryFile) {
+            bookingsRows.forEach(r => {
+                if (r.source_file === bookingsPrimaryFile) bookingsYtdDollars += r[valueCol] || 0;
+            });
+        }
         const bookingsYtdK = bookingsYtdDollars / 1000; // convert to $k for display
         // Revenue YTD from latest sales report (products[].ytd.actual stored in $k)
         let revenueYtdK = 0;
@@ -11990,13 +12005,16 @@
 
         // Identify the primary source file for the target year
         // Each year's data must come from ONE file to avoid double-counting
-        // The primary file is the one where the target year is the LATEST year column
+        // Weekly files are cumulative snapshots, so pick the file with the highest week
+        // among those that contain target-year data
         const sourceFiles = [...new Set(allRows.map(r => r.source_file).filter(Boolean))];
-        const primaryFile = sourceFiles.find(f => {
-            if (!allRows.some(r => r.source_file === f && r[valKey])) return false;
-            const laterKey = 'value_' + (yr + 1);
-            return !allRows.some(r => r.source_file === f && r[laterKey]);
-        }) || sourceFiles[0];
+        const primaryFile = sourceFiles
+            .map(f => {
+                const fileYrRows = allRows.filter(r => r.source_file === f && r[valKey]);
+                return { file: f, maxWeek: fileYrRows.length ? Math.max(...fileYrRows.map(r => r.week)) : -1 };
+            })
+            .filter(x => x.maxWeek >= 0)
+            .sort((a, b) => b.maxWeek - a.maxWeek)[0]?.file || sourceFiles[0];
 
         // All rows from the primary file within reporting period
         const fileRows = allRows.filter(r => r.source_file === primaryFile && r.week <= reportCutoff);
