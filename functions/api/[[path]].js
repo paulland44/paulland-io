@@ -1979,7 +1979,7 @@ async function handleDailyReview(request, env, ctx) {
   }
 
   // 5. Write results to Supabase
-  const writeResults = await writeReviewResults(supabaseUrl, serviceKey, note_date, dailyNote, aiResult, peopleRes, productsRes, projectsRes);
+  const { results: writeResults, skipped: reviewSkipped } = await writeReviewResults(supabaseUrl, serviceKey, note_date, dailyNote, aiResult, peopleRes, productsRes, projectsRes);
 
   // 6. Create audit record
   await supabasePost(supabaseUrl, serviceKey, 'ai_reviews', {
@@ -2010,6 +2010,7 @@ async function handleDailyReview(request, env, ctx) {
         context_notes: aiResult.context_notes || [],
         review_data: aiResult,
         review_writes: writeResults,
+        review_skipped: reviewSkipped,
       },
     });
 
@@ -2030,6 +2031,7 @@ async function handleDailyReview(request, env, ctx) {
     ok: true,
     review: aiResult,
     writes: { ...writeResults, actions_summary: actionsSummary },
+    skipped: reviewSkipped,
     todays_tasks: todaysTasks,
   });
 }
@@ -2258,6 +2260,13 @@ function buildReviewUserPrompt(dailyNote, noteDate, attachedImages = [], todaysT
 
 async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, aiResult, people, products, projects) {
   const results = { people_log: 0, product_evidence: 0, product_decisions: 0, project_updates: 0, reflections: 0 };
+  // Names that don't resolve are surfaced in the response + persisted to
+  // metadata.review_skipped so fabricated entries (e.g. an extractor inventing
+  // a surname for a Teams meeting-room speaker tag) are visible rather than
+  // silently dropped. product_decisions allow null product_id, so we don't
+  // track those skips — a missing product_name there is a deliberate
+  // "general decision" case.
+  const skipped = { people: [], products: [], projects: [] };
 
   // Build lookup maps
   const peopleMap = {};
@@ -2272,7 +2281,11 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
   // Write people log entries
   for (const entry of (aiResult.people_entries || [])) {
     const personId = peopleMap[entry.person_name?.toLowerCase()];
-    if (!personId || !entry.entry) continue;
+    if (!personId) {
+      if (entry.person_name) skipped.people.push(entry.person_name);
+      continue;
+    }
+    if (!entry.entry) continue;
     await supabasePost(supabaseUrl, serviceKey, 'people_log', {
       person_id: personId,
       note_date: noteDate,
@@ -2286,7 +2299,11 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
   // Write product evidence
   for (const entry of (aiResult.product_evidence || [])) {
     const productId = productMap[entry.product_name?.toLowerCase()];
-    if (!productId || !entry.evidence) continue;
+    if (!productId) {
+      if (entry.product_name) skipped.products.push(entry.product_name);
+      continue;
+    }
+    if (!entry.evidence) continue;
     await supabasePost(supabaseUrl, serviceKey, 'product_evidence', {
       product_id: productId,
       note_date: noteDate,
@@ -2314,7 +2331,11 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
   // Write project updates
   for (const entry of (aiResult.project_updates || [])) {
     const projectId = projectMap[entry.project_name?.toLowerCase()];
-    if (!projectId || !entry.update) continue;
+    if (!projectId) {
+      if (entry.project_name) skipped.projects.push(entry.project_name);
+      continue;
+    }
+    if (!entry.update) continue;
     await supabasePost(supabaseUrl, serviceKey, 'project_updates', {
       project_id: projectId,
       note_date: noteDate,
@@ -2348,7 +2369,14 @@ async function writeReviewResults(supabaseUrl, serviceKey, noteDate, dailyNote, 
     results.reflections++;
   }
 
-  return results;
+  // De-dup — the same name often appears in multiple entries.
+  const skippedDedup = {
+    people: [...new Set(skipped.people)],
+    products: [...new Set(skipped.products)],
+    projects: [...new Set(skipped.projects)],
+  };
+
+  return { results, skipped: skippedDedup };
 }
 
 // ─── Asset Management (R2 + Supabase) ────────────────────────
