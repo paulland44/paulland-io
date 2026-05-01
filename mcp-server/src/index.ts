@@ -661,18 +661,28 @@ server.tool(
 
 server.tool(
   'upsert_daily_note',
-  'Create or update a daily note by date',
+  'Create or update a daily note by date. Metadata uses *deep-merge* semantics — pass only the keys you want to change; existing keys are preserved. Other fields (tasks/notes/meetings) replace if provided.',
   {
     date: z.string().describe('Date in YYYY-MM-DD format'),
-    tasks: z.string().optional().describe('Tasks markdown'),
-    notes: z.string().optional().describe('Notes markdown'),
-    meetings: z.string().optional().describe('Meetings markdown'),
+    tasks: z.string().optional().describe('Tasks markdown (replaces existing if provided)'),
+    notes: z.string().optional().describe('Notes markdown (replaces existing if provided)'),
+    meetings: z.string().optional().describe('Meetings markdown (replaces existing if provided)'),
+    metadata: z.record(z.any()).optional().describe('Metadata to merge into daily_notes.metadata (deep-merged at top level — pass {stoic_challenge: {...}} to update just that key without touching meetings_structured, review_data, etc.)'),
   },
-  async ({ date, tasks, notes, meetings }) => {
+  async ({ date, tasks, notes, meetings, metadata }) => {
     const data: any = { note_date: date };
     if (tasks !== undefined) data.tasks = tasks;
     if (notes !== undefined) data.notes = notes;
     if (meetings !== undefined) data.meetings = meetings;
+
+    if (metadata !== undefined) {
+      // Deep-merge: read existing, shallow-merge keys, write back. This keeps
+      // meetings_structured and other unrelated metadata intact when the
+      // caller is only updating one key (e.g. stoic_challenge).
+      const existing = await supabaseGet(`daily_notes?note_date=eq.${date}&limit=1&select=metadata`);
+      const currentMeta = (existing[0]?.metadata as Record<string, any>) || {};
+      data.metadata = { ...currentMeta, ...metadata };
+    }
 
     const result = await supabaseUpsert('daily_notes', data, 'note_date');
     if (!result.ok) {
@@ -683,7 +693,7 @@ server.tool(
 
     return {
       content: [
-        { type: 'text' as const, text: JSON.stringify({ ok: true, date }) },
+        { type: 'text' as const, text: JSON.stringify({ ok: true, date, merged_metadata_keys: metadata ? Object.keys(metadata) : [] }) },
       ],
     };
   }
@@ -1628,6 +1638,43 @@ server.tool(
   }
 );
 
+server.tool(
+  'run_daily_review',
+  "Trigger the end-of-day review for a given date. Calls POST /api/daily-review on Pages, which fetches the daily note, runs the LLM-driven extract+write flow, and persists results (review_summary in metadata, people_log entries, product_evidence, project_updates, etc.). Use this when an artifact needs to kick off the EOD review without exposing the API endpoint to the browser (which is Access-JWT-gated and can't be called directly from a Cowork iframe).",
+  {
+    note_date: z.string().describe('Date of the daily note to review, YYYY-MM-DD'),
+  },
+  async ({ note_date }) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: 'note_date must be YYYY-MM-DD' }) }], isError: true };
+    }
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    try {
+      const resp = await fetch(`${apiUrl}/daily-review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ note_date }),
+      });
+      const data = await resp.json() as any;
+      if (!resp.ok) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: data?.error || `HTTP ${resp.status}`, detail: data?.detail }) }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, note_date, ...data }, null, 2) }],
+      };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: err.message }) }], isError: true };
+    }
+  }
+);
+
 // ─── Weekly Summary Tools ────────────────────────────────────
 
 server.tool(
@@ -2228,16 +2275,18 @@ server.tool(
 
 server.tool(
   'list_assets',
-  'List assets in the knowledge base asset library with optional tag and type filters',
+  'List assets in the knowledge base asset library. Returns metadata.linked_to so callers can filter by linkage (e.g. {meeting_uid, event_date} for meeting-scoped uploads, {daily_note_date} for day-level).',
   {
     tags: z.array(z.string()).optional().describe('Filter by tags (asset must have all specified tags)'),
     mime_type: z.string().optional().describe('Filter by MIME type prefix, e.g. "image/", "application/pdf", "application/vnd"'),
     search: z.string().optional().describe('Search by filename'),
+    uploaded_since: z.string().optional().describe('ISO timestamp lower bound for uploaded_at (e.g. "2026-04-29T00:00:00Z")'),
+    uploaded_until: z.string().optional().describe('ISO timestamp upper bound for uploaded_at'),
     limit: z.number().optional().default(20).describe('Max items to return'),
     offset: z.number().optional().default(0).describe('Offset for pagination'),
   },
-  async ({ tags, mime_type, search, limit, offset }) => {
-    let path = `assets?select=id,filename,mime_type,file_size,tags,description,uploaded_at&order=uploaded_at.desc&limit=${limit}&offset=${offset}`;
+  async ({ tags, mime_type, search, uploaded_since, uploaded_until, limit, offset }) => {
+    let path = `assets?select=id,filename,mime_type,file_size,tags,description,uploaded_at,r2_key,metadata&order=uploaded_at.desc&limit=${limit}&offset=${offset}`;
     if (tags?.length) {
       path += `&tags=cs.{${tags.join(',')}}`;
     }
@@ -2246,6 +2295,12 @@ server.tool(
     }
     if (search) {
       path += `&filename=ilike.*${search}*`;
+    }
+    if (uploaded_since) {
+      path += `&uploaded_at=gte.${encodeURIComponent(uploaded_since)}`;
+    }
+    if (uploaded_until) {
+      path += `&uploaded_at=lte.${encodeURIComponent(uploaded_until)}`;
     }
     const rows = await supabaseGet(path);
     return {
