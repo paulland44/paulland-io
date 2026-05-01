@@ -742,14 +742,15 @@ server.tool(
     }
     const dailyNote = noteRes[0];
 
-    // Fetch entity context + problems + prompt + attached images
-    const [people, products, projects, problemsRes, promptRes, imageAssets] = await Promise.all([
+    // Fetch entity context + problems + prompt + attached images + denylist
+    const [people, products, projects, problemsRes, promptRes, imageAssets, denylistRes] = await Promise.all([
       supabaseGet('people?select=id,name,role,organization&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet('projects?select=id,name,product_id&order=name'),
       supabaseGet('content?type=eq.problem&select=id,title,metadata&order=title&limit=100'),
       supabaseGet('prompts?slug=eq.daily-review&limit=1'),
       supabaseGet(`assets?metadata->>daily_note_date=eq.${date}&select=id,filename,mime_type,file_size&order=uploaded_at.asc`),
+      supabaseGet('sync_state?key=eq.non_person_speakers&limit=1'),
     ]);
     const prompt = promptRes?.[0] || null;
 
@@ -760,6 +761,24 @@ server.tool(
       .filter((p: any) => p.metadata?.problem_id && !p.metadata?.is_index)
       .map((p: any) => `${p.metadata.problem_id}: ${p.title}`)
       .join(', ');
+
+    // Curated denylist of speaker tags that are NOT individuals (rooms,
+    // group accounts, the company name itself). Editable at runtime via the
+    // `sync_state` row with key `non_person_speakers`. Falls back to "(none
+    // configured)" if the row is missing — the prompt's Speaker
+    // Disambiguation section still names "Esko" explicitly.
+    // sync_state.value is a text column — denylist is stored as JSON-encoded
+    // string array (e.g. '["Esko","London Boardroom"]'). Parse defensively.
+    let nonPersonSpeakers = '(none configured)';
+    try {
+      const parsed = JSON.parse(denylistRes?.[0]?.value || '[]');
+      if (Array.isArray(parsed) && parsed.length) {
+        const cleaned = parsed.filter((s: any) => typeof s === 'string' && s.trim());
+        if (cleaned.length) nonPersonSpeakers = cleaned.join(', ');
+      }
+    } catch {
+      // malformed JSON in sync_state — fall through to default
+    }
 
     // Filter to supported image types, size-cap each, and cap total count
     const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
@@ -828,7 +847,8 @@ server.tool(
         .replace('{{people_list}}', peopleNames.join(', '))
         .replace('{{product_list}}', productNames.join(', '))
         .replace('{{project_list}}', projectNames.join(', '))
-        .replace('{{problems_list}}', problemsList || '(none loaded)');
+        .replace('{{problems_list}}', problemsList || '(none loaded)')
+        .replace('{{non_person_speakers}}', nonPersonSpeakers);
     }
 
     // Fetch today's open tasks and any overdue open tasks. The review prompt
@@ -1079,11 +1099,24 @@ server.tool(
       });
     }
 
-    // Build batch rows for each log table (filter invalid entries, map name → id)
+    // Build batch rows for each log table (filter invalid entries, map name → id).
+    // Names that don't resolve are collected in `skipped` and surfaced in the
+    // response + metadata, so the user can fix the source data instead of the
+    // entries silently disappearing.
+    const skipped: { people: string[]; products: string[]; projects: string[] } = {
+      people: [],
+      products: [],
+      projects: [],
+    };
+
     const peopleLogRows = review_data.people_entries
       .map((e: any) => {
         const pid = peopleMap[e.person_name?.toLowerCase()];
-        if (!pid || !e.entry) return null;
+        if (!pid) {
+          if (e.person_name) skipped.people.push(e.person_name);
+          return null;
+        }
+        if (!e.entry) return null;
         return { person_id: pid, note_date: date, entry: e.entry, source: 'daily_review', source_ref: sourceRef };
       })
       .filter(Boolean);
@@ -1091,11 +1124,17 @@ server.tool(
     const productEvidenceRows = review_data.product_evidence
       .map((e: any) => {
         const pid = productMap[e.product_name?.toLowerCase()];
-        if (!pid || !e.evidence) return null;
+        if (!pid) {
+          if (e.product_name) skipped.products.push(e.product_name);
+          return null;
+        }
+        if (!e.evidence) return null;
         return { product_id: pid, note_date: date, evidence: e.evidence, evidence_type: e.evidence_type || 'observation', source_ref: sourceRef };
       })
       .filter(Boolean);
 
+    // product_decisions allow a null product_id, so we don't track skips here —
+    // a missing product_name is a deliberate "general decision" case.
     const productDecisionRows = review_data.product_decisions
       .map((e: any) => {
         if (!e.decision) return null;
@@ -1107,7 +1146,11 @@ server.tool(
     const projectUpdateRows = review_data.project_updates
       .map((e: any) => {
         const pid = projectMap[e.project_name?.toLowerCase()];
-        if (!pid || !e.update) return null;
+        if (!pid) {
+          if (e.project_name) skipped.projects.push(e.project_name);
+          return null;
+        }
+        if (!e.update) return null;
         return { project_id: pid, note_date: date, update_text: e.update, source_ref: sourceRef };
       })
       .filter(Boolean);
@@ -1373,18 +1416,32 @@ server.tool(
         const refreshed = await supabaseGet(`daily_notes?note_date=eq.${date}&limit=1`);
         const meta = refreshed?.[0]?.metadata || dailyNote.metadata || {};
         await supabasePatch(`daily_notes?note_date=eq.${date}`, {
-          metadata: { ...meta, review_writes: results },
+          metadata: { ...meta, review_writes: results, review_skipped: skipped },
         });
       } catch {}
       embedItem('daily_notes', dailyNote.id).catch(() => {});
     }
+
+    // De-duplicate skipped names (extraction can mention the same name in
+    // multiple entries) so the response stays scannable.
+    const skippedDedup = {
+      people: Array.from(new Set(skipped.people)),
+      products: Array.from(new Set(skipped.products)),
+      projects: Array.from(new Set(skipped.projects)),
+    };
 
     return {
       content: [
         {
           type: 'text' as const,
           text: JSON.stringify(
-            { ok: true, writes: results, actions_summary: actionsSummary, context_seeded: contextSeeded },
+            {
+              ok: true,
+              writes: results,
+              actions_summary: actionsSummary,
+              context_seeded: contextSeeded,
+              skipped: skippedDedup,
+            },
             null,
             2
           ),
@@ -1779,11 +1836,12 @@ server.tool(
     twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14);
     const fromDate = twoWeeksAgo.toISOString().split('T')[0];
 
-    const [people, products, recentEvidence, promptRes] = await Promise.all([
+    const [people, products, recentEvidence, promptRes, denylistRes] = await Promise.all([
       supabaseGet('people?select=id,name,role,organization&order=name'),
       supabaseGet('products?select=id,name&order=name'),
       supabaseGet(`product_evidence?note_date=gte.${fromDate}&note_date=lte.${date}&select=id,product_id,evidence,evidence_type&order=note_date.desc&limit=30`),
       supabaseGet('prompts?slug=eq.show-and-tell&limit=1'),
+      supabaseGet('sync_state?key=eq.non_person_speakers&limit=1'),
     ]);
     const prompt = promptRes?.[0] || null;
 
@@ -1791,12 +1849,25 @@ server.tool(
     products.forEach((p: any) => { productMap[p.id] = p.name; });
     const enrichedEvidence = recentEvidence.map((e: any) => ({ ...e, product_name: productMap[e.product_id] || 'Unknown' }));
 
+    // Curated denylist — see daily_review_extract for the full rationale.
+    let nonPersonSpeakers = '(none configured)';
+    try {
+      const parsed = JSON.parse(denylistRes?.[0]?.value || '[]');
+      if (Array.isArray(parsed) && parsed.length) {
+        const cleaned = parsed.filter((s: any) => typeof s === 'string' && s.trim());
+        if (cleaned.length) nonPersonSpeakers = cleaned.join(', ');
+      }
+    } catch {
+      // malformed JSON in sync_state — fall through to default
+    }
+
     // Interpolate template variables into system prompt
     let systemPrompt = prompt?.system_prompt || null;
     if (systemPrompt) {
       systemPrompt = systemPrompt
         .replace('{{people_list}}', people.map((p: any) => p.name).join(', '))
-        .replace('{{product_list}}', products.map((p: any) => p.name).join(', '));
+        .replace('{{product_list}}', products.map((p: any) => p.name).join(', '))
+        .replace('{{non_person_speakers}}', nonPersonSpeakers);
     }
 
     // Build user prompt from daily note
@@ -1876,11 +1947,17 @@ server.tool(
 
     const sourceRef = { show_and_tell_date: date };
     const results = { demos: 0, decisions: 0, follow_ups: 0, people_log: 0 };
+    // Names that don't resolve are surfaced in the response so the user can
+    // fix them rather than have the entry silently disappear.
+    const skipped: { people: string[]; products: string[] } = { people: [], products: [] };
 
     // Write demo entries as product evidence
     for (const demo of review_data.demos) {
       const productId = productMap[demo.product_name?.toLowerCase()];
-      if (!productId) continue;
+      if (!productId) {
+        if (demo.product_name) skipped.products.push(demo.product_name);
+        continue;
+      }
       await supabasePost('product_evidence', {
         product_id: productId,
         note_date: date,
@@ -1901,6 +1978,8 @@ server.tool(
           source_ref: sourceRef,
         });
         results.people_log++;
+      } else if (demo.presenter) {
+        skipped.people.push(demo.presenter);
       }
     }
 
@@ -1920,7 +1999,10 @@ server.tool(
     // Write attendee observations as people log entries
     for (const obs of review_data.attendee_observations) {
       const personId = peopleMap[obs.person_name?.toLowerCase()];
-      if (!personId) continue;
+      if (!personId) {
+        if (obs.person_name) skipped.people.push(obs.person_name);
+        continue;
+      }
       await supabasePost('people_log', {
         person_id: personId,
         note_date: date,
@@ -1929,6 +2011,16 @@ server.tool(
         source_ref: sourceRef,
       });
       results.people_log++;
+    }
+
+    // Decisions can carry an `owner` (person) — log unresolved owners too.
+    for (const dec of review_data.decisions) {
+      if (dec.owner && !peopleMap[dec.owner.toLowerCase()]) skipped.people.push(dec.owner);
+    }
+    // Follow-ups can carry an `owner` and a `product_name`.
+    for (const fu of review_data.follow_ups) {
+      if (fu.owner && !peopleMap[fu.owner.toLowerCase()]) skipped.people.push(fu.owner);
+      if (fu.product_name && !productMap[fu.product_name.toLowerCase()]) skipped.products.push(fu.product_name);
     }
 
     // Build markdown body for content item
@@ -1981,10 +2073,15 @@ server.tool(
       embedItem('summaries', summaryId).catch(() => {});
     }
 
+    const skippedDedup = {
+      people: Array.from(new Set(skipped.people)),
+      products: Array.from(new Set(skipped.products)),
+    };
+
     return {
       content: [{
         type: 'text' as const,
-        text: JSON.stringify({ ok: true, summary_id: summaryId, date, writes: results, action: existing.length ? 'updated' : 'created' }, null, 2),
+        text: JSON.stringify({ ok: true, summary_id: summaryId, date, writes: results, action: existing.length ? 'updated' : 'created', skipped: skippedDedup }, null, 2),
       }],
     };
   }
