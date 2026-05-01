@@ -211,7 +211,7 @@ The MCP server runs as a **Cloudflare Worker** at `https://paulland-mcp.paul-lan
 ### Architecture
 
 ```
-mcp-server/src/index.ts    ← Shared implementation (81 tools, resources, prompts)
+mcp-server/src/index.ts    ← Shared implementation (85 tools, resources, prompts)
     exports: createServer(), initMisProxy(), registerTools(), registerResources()
 
 mcp-worker/src/index.ts    ← Cloudflare Worker entry point
@@ -232,20 +232,20 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (81 tools)
+### Tool Groups (85 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
 | Content | list_content, get_content, get_summary, list_daily_notes, get_daily_note, list_calendar_events, list_entities, get_entity | 8 |
 | Search | search_knowledge_base | 1 |
-| Write | create_content, update_content, update_tags, upsert_daily_note, add_meeting_note, create_entity, update_entity | 7 |
+| Write | create_content, update_content, update_tags, upsert_daily_note, add_meeting_note, update_meeting_note, delete_meeting_note, create_entity, update_entity | 9 |
 | Tasks | list_tasks, get_task, create_task, update_task, complete_task | 5 |
 | AI Workflows | daily_review_extract/write, weekly_summary_extract/write, monthly_review_extract/write, show_and_tell_extract/write, support_review_extract/write, sales_report_extract/write, bookings_report_extract/write | 14 |
 | Content Linking | link_content, get_content_links, link_content_to_entity | 3 |
 | Problem Intelligence | problem_extract, problem_write | 2 |
 | Strategy Intelligence | strategy_extract, strategy_write | 2 |
 | Personas & Research | list_personas, get_persona, update_persona_section, update_research | 4 |
-| Assets | list_assets, upload_asset, get_asset_content, batch_update_assets | 4 |
+| Assets | list_assets, upload_asset, mint_asset_upload_url, register_asset, get_asset_content, batch_update_assets | 6 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
 | MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product, update_product | 20 |

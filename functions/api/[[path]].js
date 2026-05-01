@@ -36,6 +36,10 @@ export async function onRequest(ctx) {
   const internalKey = request.headers.get('X-Internal-API-Key');
   const isInternalRequest = internalKey && env.PAULLAND_INTERNAL_API_KEY && internalKey === env.PAULLAND_INTERNAL_API_KEY;
 
+  // Route to handler
+  const url = new URL(request.url);
+  const path = url.pathname.replace('/api/', '');
+
   if (!isInternalRequest) {
     // Validate Cloudflare Access JWT for all other requests
     const authResult = await validateAccessJWT(request, env);
@@ -43,10 +47,6 @@ export async function onRequest(ctx) {
       return json({ error: 'Unauthorized', detail: authResult.reason }, 401);
     }
   }
-
-  // Route to handler
-  const url = new URL(request.url);
-  const path = url.pathname.replace('/api/', '');
 
   // ─── MIS Proxy Routes ───────────────────────────────────────
   if (path.startsWith('mis/')) {
@@ -2431,6 +2431,7 @@ async function handleAssetUpload(request, env) {
 
   return json({ ok: true, asset });
 }
+
 
 async function handleAssetServe(r2Key, env) {
   const bucket = env.ASSETS_BUCKET;

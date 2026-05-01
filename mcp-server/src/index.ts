@@ -777,6 +777,126 @@ server.tool(
 );
 
 server.tool(
+  'update_meeting_note',
+  "Replace the text and/or attachments of an existing meeting note in a daily note. The note is identified by (meeting_uid, event_date, note_index) — note_index is the 0-based position within the meeting's notes (since one meeting can accumulate multiple notes). Updates both the structured entry in metadata.meetings_structured and the markdown line in the meetings field. Sets updated_at on the structured entry.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid of the meeting'),
+    event_date: z.string().describe('Meeting event_date (YYYY-MM-DD); also the daily note date'),
+    note_index: z.number().describe('0-based index of the note among this meeting\'s notes for that date'),
+    text: z.string().optional().describe('New note text. If omitted, text is unchanged.'),
+    attachments: z.array(z.object({
+      asset_id: z.string(),
+      filename: z.string().optional(),
+      mime_type: z.string().optional(),
+      uploaded_at: z.string().optional(),
+    })).optional().describe('New attachments array (replaces any existing). Each entry references an assets row.'),
+  },
+  async ({ meeting_uid, event_date, note_index, text, attachments }) => {
+    const existing = await supabaseGet(`daily_notes?note_date=eq.${event_date}&limit=1&select=id,meetings,metadata`);
+    if (!existing.length) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No daily note for ${event_date}` }) }], isError: true };
+    }
+    const current: any = existing[0];
+    const meta = { ...(current.metadata || {}) };
+    const structured: any[] = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+    // Find the n-th note for this meeting
+    const matches: number[] = [];
+    structured.forEach((entry, i) => {
+      if (entry?.meeting_uid === meeting_uid) matches.push(i);
+    });
+    if (note_index < 0 || note_index >= matches.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `Note index ${note_index} out of range; meeting has ${matches.length} note(s)` }) }],
+        isError: true,
+      };
+    }
+    const targetIdx = matches[note_index];
+    const target = { ...structured[targetIdx] };
+    if (text !== undefined) target.notes = text;
+    if (attachments !== undefined) target.attachments = attachments;
+    target.updated_at = new Date().toISOString();
+    structured[targetIdx] = target;
+    meta.meetings_structured = structured;
+
+    // Rebuild the markdown meetings field from the structured array (keeps both in sync)
+    const newMarkdown = structured
+      .map((e: any) => {
+        const header = `### ${e.title}${e.time ? ` (${e.time})` : ''}${e.attendees?.length ? ` — ${e.attendees.join(', ')}` : ''}`;
+        return `${header}\n${e.notes || ''}`;
+      })
+      .join('\n\n');
+
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: event_date, meetings: newMarkdown, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, event_date, meeting_uid, note_index, updated: target }, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'delete_meeting_note',
+  "Remove a meeting note from the daily note. Identified by (meeting_uid, event_date, note_index). Deletes both the structured entry and rebuilds the meetings markdown field from what's left. Idempotent: deleting an out-of-range index returns ok:false but doesn't throw.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid of the meeting'),
+    event_date: z.string().describe('Meeting event_date (YYYY-MM-DD)'),
+    note_index: z.number().describe('0-based index of the note to remove'),
+  },
+  async ({ meeting_uid, event_date, note_index }) => {
+    const existing = await supabaseGet(`daily_notes?note_date=eq.${event_date}&limit=1&select=id,meetings,metadata`);
+    if (!existing.length) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No daily note for ${event_date}` }) }], isError: true };
+    }
+    const current: any = existing[0];
+    const meta = { ...(current.metadata || {}) };
+    const structured: any[] = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+    const matches: number[] = [];
+    structured.forEach((entry, i) => {
+      if (entry?.meeting_uid === meeting_uid) matches.push(i);
+    });
+    if (note_index < 0 || note_index >= matches.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `Note index ${note_index} out of range; meeting has ${matches.length} note(s)` }) }],
+        isError: true,
+      };
+    }
+    const targetIdx = matches[note_index];
+    const removed = structured[targetIdx];
+    structured.splice(targetIdx, 1);
+    meta.meetings_structured = structured;
+
+    const newMarkdown = structured
+      .map((e: any) => {
+        const header = `### ${e.title}${e.time ? ` (${e.time})` : ''}${e.attendees?.length ? ` — ${e.attendees.join(', ')}` : ''}`;
+        return `${header}\n${e.notes || ''}`;
+      })
+      .join('\n\n');
+
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: event_date, meetings: newMarkdown, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, event_date, meeting_uid, note_index, removed }, null, 2) }],
+    };
+  }
+);
+
+server.tool(
   'create_entity',
   'Create a new person, company, product, or project',
   {
