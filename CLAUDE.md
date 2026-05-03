@@ -57,7 +57,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `content` | Articles, thoughts, reflections, signals, problems, summaries | type, title, body, url, source, tags[], status, metadata, embedded_at |
-| `companies` | Companies & competitors | name, website, industry, notes, is_competitor, is_internal, competitor_status (`active`/`prospective`/`former`/null), battle_card (jsonb) |
+| `companies` | Companies & competitors | name, website, industry, notes, type (`customer`/`competitor`/`internal`/`partner`/`vendor`/`other`), competitor_status (`active`/`prospective`/`former`/null), battle_card (jsonb) |
 | `people` | Contacts | name, company_id, role, notes |
 | `products` | Products linked to companies | name, description, company_id, url |
 | `projects` | Internal projects | name, description, status |

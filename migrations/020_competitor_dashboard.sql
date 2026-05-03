@@ -3,16 +3,18 @@
 -- Description:
 --   Adds the fields the competitor dashboard needs:
 --
---   1. companies.competitor_status — softens the existing is_competitor
---      boolean into a tri-state. The dashboard surfaces both 'active' and
---      'prospective' competitors; 'former' rows are kept for history but
---      excluded from default views. NULL means "not a competitor".
+--   1. companies.competitor_status — softens the existing companies.type
+--      classification ('customer' | 'competitor' | 'internal' | ...) into
+--      a tri-state specifically for competitor lifecycle. The dashboard
+--      surfaces both 'active' and 'prospective' competitors; 'former'
+--      rows are kept for history but excluded from default views.
+--      NULL means "not a competitor".
 --
 --      Values: 'active' | 'prospective' | 'former' | NULL
 --
---      Backfilled from is_competitor — every row currently flagged as a
---      competitor becomes 'active'. The is_competitor boolean is kept for
---      backwards compatibility with anything that reads it.
+--      Backfilled from companies.type — every row currently classified
+--      as a competitor becomes 'active'. The type column is left
+--      untouched so existing filters (type='competitor') keep working.
 --
 --   2. companies.battle_card — structured JSONB for competitive battle
 --      card content. Each subsection is independently editable from the
@@ -44,10 +46,10 @@ ALTER TABLE companies
 ALTER TABLE companies
   ADD COLUMN IF NOT EXISTS battle_card jsonb DEFAULT '{}'::jsonb;
 
--- Backfill: every existing competitor becomes 'active'.
+-- Backfill: every existing competitor (type='competitor') becomes 'active'.
 UPDATE companies
    SET competitor_status = 'active'
- WHERE is_competitor = true
+ WHERE type = 'competitor'
    AND competitor_status IS NULL;
 
 -- Constraint on allowed values. NULL is permitted (= not a competitor).

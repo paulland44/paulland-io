@@ -10992,7 +10992,7 @@
         const weekly = dash.weekly_summary;
 
         let battleCard = JSON.parse(JSON.stringify(company.battle_card || {}));
-        const status = company.competitor_status || (company.is_competitor ? 'active' : null);
+        const status = company.competitor_status || (company.type === 'competitor' ? 'active' : null);
 
         main.innerHTML = `
             <div class="page-header">
@@ -11174,8 +11174,11 @@
         document.getElementById('compStatusSelect').addEventListener('change', async (e) => {
             const newStatus = e.target.value || null;
             const updates = { competitor_status: newStatus };
-            if (newStatus === 'active' || newStatus === 'prospective') updates.is_competitor = true;
-            if (newStatus === null || newStatus === 'former') updates.is_competitor = false;
+            // Promote into the Competition list view when activating/watching a non-competitor row.
+            // Demotion to 'former' or null leaves type alone so existing filters keep working.
+            if ((newStatus === 'active' || newStatus === 'prospective') && company.type !== 'competitor') {
+                updates.type = 'competitor';
+            }
             await fetch('/api/entity-update', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ table: 'companies', id: competitorId, updates }),
