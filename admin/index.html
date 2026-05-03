@@ -1761,18 +1761,127 @@
             text-align: center;
         }
 
-        /* ── Competitor Detail (full-page) ────────────── */
-        .competitor-detail-grid {
-            display: grid;
-            grid-template-columns: 340px 1fr;
-            gap: 1.5rem;
-            align-items: start;
+        /* ── Competitor Dashboard ─────────────────────── */
+        .comp-hero {
+            display: flex; align-items: flex-start; gap: 1rem;
+            padding: 0.9rem 1.2rem; margin-bottom: 1rem;
+            background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-md);
         }
-        @media (max-width: 900px) {
-            .competitor-detail-grid { grid-template-columns: 1fr; }
+        .comp-hero-main { flex: 1; min-width: 0; }
+        .comp-hero-meta {
+            display: flex; flex-wrap: wrap; gap: 0.6rem 1rem;
+            font-size: 0.78rem; color: var(--text-muted); margin-top: 0.4rem;
         }
-        .competitor-info-panel { position: sticky; top: 1rem; }
-        .competitor-content-panel { min-height: 400px; }
+        .comp-hero-meta a { color: var(--accent); text-decoration: none; }
+        .comp-hero-meta a:hover { text-decoration: underline; }
+        .comp-hero-actions { display: flex; gap: 0.4rem; flex-shrink: 0; align-items: center; }
+        .comp-status-pill {
+            display: inline-flex; align-items: center;
+            padding: 0.18rem 0.55rem; border-radius: var(--radius-pill);
+            font-size: 0.68rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .comp-status-active { background: var(--accent-dim); color: var(--accent); }
+        .comp-status-prospective { background: var(--void-lighter); color: var(--text-muted); border: 1px dashed var(--border); }
+        .comp-status-former { background: var(--void); color: var(--text-muted); opacity: 0.7; }
+        .comp-status-select {
+            background: var(--void); border: 1px solid var(--border); color: var(--text-body);
+            padding: 0.25rem 0.5rem; border-radius: var(--radius-sm); font-size: 0.75rem;
+        }
+
+        .comp-section {
+            padding: 0.85rem 1.1rem; margin-bottom: 1rem;
+            background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-md);
+        }
+        .comp-section-header {
+            display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
+            margin-bottom: 0.6rem;
+        }
+        .comp-section-title {
+            font-family: var(--sans); font-size: 0.72rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted);
+        }
+
+        .comp-cat-grid {
+            display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.85rem; margin-bottom: 1rem;
+        }
+        @media (max-width: 1100px) { .comp-cat-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 700px) { .comp-cat-grid { grid-template-columns: 1fr; } }
+        .comp-cat-card {
+            padding: 0.85rem 1rem;
+            background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-md);
+            display: flex; flex-direction: column; min-height: 170px;
+        }
+        .comp-cat-header {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-bottom: 0.5rem; padding-bottom: 0.45rem; border-bottom: 1px solid var(--border);
+        }
+        .comp-cat-title {
+            font-family: var(--sans); font-size: 0.75rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.05em;
+        }
+        .comp-cat-count {
+            background: var(--void-lighter); color: var(--text-muted);
+            padding: 0.08rem 0.45rem; border-radius: var(--radius-pill);
+            font-size: 0.68rem; font-weight: 600;
+        }
+        .comp-signal {
+            padding: 0.4rem 0; border-bottom: 1px solid var(--border);
+            font-size: 0.78rem; cursor: pointer;
+        }
+        .comp-signal:last-child { border-bottom: none; }
+        .comp-signal:hover .comp-signal-title { color: var(--accent); }
+        .comp-signal-title { color: var(--text-body); margin-bottom: 0.15rem; line-height: 1.3; }
+        .comp-signal-meta { font-size: 0.68rem; color: var(--text-muted); display: flex; gap: 0.5rem; }
+        .comp-cat-empty { font-size: 0.75rem; color: var(--text-muted); font-style: italic; padding: 0.4rem 0; }
+        .comp-cat-more { font-size: 0.7rem; color: var(--accent); margin-top: auto; padding-top: 0.5rem; cursor: pointer; }
+
+        .comp-bc-grid {
+            display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem;
+        }
+        @media (max-width: 800px) { .comp-bc-grid { grid-template-columns: 1fr; } }
+        .comp-bc-section {
+            padding: 0.7rem 0.85rem;
+            background: var(--void); border: 1px solid var(--border); border-radius: var(--radius-sm);
+        }
+        .comp-bc-label {
+            font-size: 0.7rem; font-weight: 600; text-transform: uppercase;
+            letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.45rem;
+        }
+        .comp-bc-section textarea, .comp-bc-section input {
+            width: 100%; background: var(--void-light); border: 1px solid var(--border);
+            color: var(--text-body); padding: 0.4rem 0.55rem; font-family: var(--sans);
+            font-size: 0.8rem; border-radius: var(--radius-sm); resize: vertical; box-sizing: border-box;
+        }
+        .comp-bc-list-row { display: flex; gap: 0.35rem; margin-bottom: 0.3rem; }
+        .comp-bc-list-row input { flex: 1; }
+        .comp-bc-list-row .obj-pair { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+        .comp-bc-remove {
+            background: none; border: 1px solid var(--border); color: var(--text-muted);
+            cursor: pointer; padding: 0 0.4rem; border-radius: var(--radius-sm); font-size: 0.85rem;
+            line-height: 1.6;
+        }
+        .comp-bc-add {
+            background: none; border: 1px dashed var(--border); color: var(--text-muted);
+            cursor: pointer; padding: 0.3rem 0.6rem; font-size: 0.72rem;
+            border-radius: var(--radius-sm); margin-top: 0.25rem;
+        }
+        .comp-bc-add:hover { color: var(--accent); border-color: var(--accent); }
+
+        .comp-week-body { font-size: 0.85rem; line-height: 1.5; color: var(--text-body); }
+        .comp-week-empty { font-size: 0.8rem; color: var(--text-muted); font-style: italic; }
+
+        .comp-bottom-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1rem; }
+        @media (max-width: 900px) { .comp-bottom-grid { grid-template-columns: 1fr; } }
+
+        .comp-edit-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 100;
+            display: flex; align-items: center; justify-content: center; padding: 2rem;
+        }
+        .comp-edit-modal {
+            background: var(--void-light); border: 1px solid var(--border); border-radius: var(--radius-md);
+            padding: 1.2rem 1.4rem; max-width: 520px; width: 100%; max-height: 90vh; overflow-y: auto;
+        }
         .back-btn {
             display: flex; align-items: center; justify-content: center;
             width: 32px; height: 32px; background: none;
@@ -1786,14 +1895,6 @@
             display: flex; flex-direction: column; gap: 0.5rem;
         }
         .add-product-inline .inline-row { display: flex; gap: 0.5rem; align-items: center; }
-        .competitor-detail-article {
-            display: flex; gap: 0.75rem; padding: 0.6rem 0.75rem;
-            border-bottom: 1px solid var(--border); cursor: pointer;
-            border-radius: var(--radius-sm); transition: background 0.15s;
-            align-items: flex-start;
-        }
-        .competitor-detail-article:hover { background: var(--hover-subtle); }
-        .competitor-detail-article:last-child { border-bottom: none; }
 
         /* ── Research report ────────────────────── */
         .research-report h2 { font-size: 1rem; color: var(--star); margin: 1.4rem 0 0.5rem; font-family: var(--sans); }
@@ -10850,85 +10951,48 @@
         });
     }
 
+
+    // ─── Competitor Dashboard ──────────────────────────────────
+    // Aggregated dashboard for a single competitor: hero with editable
+    // status, this-week summary, six category cards, structured battle
+    // card, products and assets. Reads from /api/competitor-dashboard
+    // in one round-trip; signals are grouped server-side by metadata.category.
+
+    const COMP_CATEGORIES = [
+        { key: 'product',   label: 'Product',   icon: 'box' },
+        { key: 'people',    label: 'People',    icon: 'users' },
+        { key: 'gtm',       label: 'GTM',       icon: 'megaphone' },
+        { key: 'financial', label: 'Financial', icon: 'trending-up' },
+        { key: 'tech',      label: 'Tech',      icon: 'cpu' },
+        { key: 'customer',  label: 'Customer',  icon: 'star' },
+    ];
+
+    const COMP_STATUS_LABELS = { active: 'Active', prospective: 'Prospective', former: 'Former' };
+
     async function loadCompetitorDetail(competitorId) {
         const main = document.getElementById('mainContent');
         main.innerHTML = '<div class="loading">Loading competitor</div>';
 
-        // Fetch competitor + related data in parallel
-        const [compRes, productsRes, assetsRes, contentRes, linkedContentRes] = await Promise.all([
-            db.from('companies').select('*').eq('id', competitorId).single(),
-            db.from('products').select('id, name, status, description, tags, url, company_id').eq('company_id', competitorId).order('name'),
-            db.from('assets').select('id, filename, mime_type, uploaded_at, metadata').order('uploaded_at', { ascending: false }),
-            db.from('content').select('id, title, type, tags, source, captured_at, url')
-                .order('captured_at', { ascending: false }).limit(500),
-            db.from('company_content').select('id, content_id, content(id, title, type, tags, source, captured_at, url)')
-                .eq('company_id', competitorId),
-        ]);
-
-        if (compRes.error || !compRes.data) {
-            main.innerHTML = '<div class="empty">Competitor not found.</div>';
+        let res;
+        try {
+            res = await fetch(`/api/competitor-dashboard?id=${encodeURIComponent(competitorId)}`);
+        } catch (err) {
+            main.innerHTML = `<div class="empty">Failed to load competitor: ${esc(err.message)}</div>`;
             return;
         }
+        if (!res.ok) {
+            main.innerHTML = `<div class="empty">Competitor not found.</div>`;
+            return;
+        }
+        const dash = await res.json();
+        const company = dash.company;
+        const products = dash.products || [];
+        const assets = dash.assets || [];
+        const signals = dash.signals || { counts: {}, by_category: {}, last_signal_date: null };
+        const weekly = dash.weekly_summary;
 
-        const competitor = compRes.data;
-        const compProducts = productsRes.data || [];
-
-        // Filter assets by company_id in metadata
-        const compAssets = (assetsRes.data || []).filter(a => a.metadata?.company_id === competitorId);
-
-        // Build set of explicitly linked content
-        const linkedContent = (linkedContentRes.data || []).filter(lc => lc.content).map(lc => lc.content);
-        const linkedContentIds = new Set(linkedContent.map(c => c.id));
-
-        // Smart content surfacing for this competitor (name matching, avoiding duplicates)
-        const nameLower = competitor.name.toLowerCase();
-        const nameMatched = (contentRes.data || []).filter(item => {
-            if (linkedContentIds.has(item.id)) return false; // already linked explicitly
-            const titleLower = (item.title || '').toLowerCase();
-            const sourceLower = (item.source || '').toLowerCase();
-            return titleLower.includes(nameLower) || sourceLower.includes(nameLower);
-        });
-
-        // Merge: explicit links first, then name-matched
-        const compContent = [...linkedContent, ...nameMatched];
-
-        // Render products list HTML
-        const productsListHtml = compProducts.length === 0
-            ? '<div class="empty-attention">No products linked yet.</div>'
-            : compProducts.map(p => `
-                <div class="knowledge-stat-row" data-product-id="${p.id}">
-                    ${icon('box')}
-                    <span class="knowledge-stat-name">${esc(p.name)}</span>
-                    <span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}" style="margin-left:auto">${esc(p.status || '')}</span>
-                </div>
-            `).join('');
-
-        // Render articles list HTML
-        const articlesListHtml = compContent.length === 0
-            ? '<div class="empty-attention">No articles found mentioning this competitor.</div>'
-            : compContent.map(item => `
-                <div class="competitor-detail-article" data-content-id="${item.id}">
-                    <span class="timeline-date">${formatDate(item.captured_at)}</span>
-                    <div class="timeline-body">
-                        <div class="timeline-title">${esc(item.title)}</div>
-                        <div class="timeline-source">${esc(item.source || '')}</div>
-                    </div>
-                    <div class="timeline-badges">
-                        <span class="type-badge type-${item.type}">${item.type}</span>
-                    </div>
-                </div>
-            `).join('');
-
-        // Render assets list HTML
-        const assetsListHtml = compAssets.length === 0
-            ? '<div class="empty-attention">No assets linked to this competitor.</div>'
-            : compAssets.map(a => `
-                <div class="knowledge-stat-row" data-asset-id="${a.id}">
-                    ${icon('file')}
-                    <span class="knowledge-stat-name">${esc(a.filename)}</span>
-                    <span style="font-size:0.75rem; color:var(--text-muted); margin-left:auto">${formatDate(a.uploaded_at)}</span>
-                </div>
-            `).join('');
+        let battleCard = JSON.parse(JSON.stringify(company.battle_card || {}));
+        const status = company.competitor_status || (company.type === 'competitor' ? 'active' : null);
 
         main.innerHTML = `
             <div class="page-header">
@@ -10936,136 +11000,320 @@
                     <button class="back-btn" id="backToCompetition" title="Back to Competition">
                         <i class="icon" data-lucide="arrow-left"></i>
                     </button>
-                    <h2 class="page-title" id="competitorPageTitle">${esc(competitor.name)}</h2>
-                    <span class="type-badge type-signal">competitor</span>
+                    <h2 class="page-title" id="competitorPageTitle">${esc(company.name)}</h2>
                 </div>
             </div>
 
-            <div class="competitor-detail-grid">
-                <!-- Left: editable company info -->
-                <div class="overview-section competitor-info-panel" style="padding: 1rem 1.2rem;">
-                    <div class="overview-section-title">Company Details</div>
-                    <div class="modal-edit-field">
-                        <div class="modal-edit-label">Name</div>
-                        <input class="modal-edit-input" id="editCompetitorName" value="${esc(competitor.name)}">
+            <div class="comp-hero">
+                <div class="comp-hero-main">
+                    <div style="display:flex; align-items:center; gap:0.6rem; flex-wrap:wrap;">
+                        <span class="comp-status-pill comp-status-${status || 'former'}">${esc(COMP_STATUS_LABELS[status] || 'Not classified')}</span>
+                        ${company.industry ? `<span style="font-size:0.8rem; color:var(--text-muted);">${esc(company.industry)}</span>` : ''}
+                        ${company.website ? `<a href="${esc(company.website)}" target="_blank" rel="noopener" style="font-size:0.8rem;">${esc(company.website.replace(/^https?:\/\//, '').replace(/\/$/, ''))}</a>` : ''}
                     </div>
-                    <div class="modal-edit-field">
-                        <div class="modal-edit-label">Website</div>
-                        <input class="modal-edit-input" id="editCompetitorWebsite" value="${esc(competitor.website || '')}" placeholder="https://...">
-                    </div>
-                    <div class="modal-edit-field">
-                        <div class="modal-edit-label">Industry</div>
-                        <input class="modal-edit-input" id="editCompetitorIndustry" value="${esc(competitor.industry || '')}">
-                    </div>
-                    <div class="modal-edit-field">
-                        <div class="modal-edit-label">Notes</div>
-                        <textarea class="modal-edit-input" id="editCompetitorNotes" rows="6" style="resize:vertical; font-family:var(--sans);">${esc(competitor.notes || '')}</textarea>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
-                        <button class="btn-action" id="saveCompetitorBtn" style="font-size:0.8rem;">Save</button>
-                        <span class="modal-save-status" id="competitorSaveStatus"></span>
+                    <div class="comp-hero-meta">
+                        <span>Last signal: ${signals.last_signal_date ? formatDate(signals.last_signal_date) : 'none in window'}</span>
+                        <span>${signals.counts?.total ?? 0} signals · last ${signals.window_days ?? 90}d</span>
+                        <span>${products.length} product${products.length === 1 ? '' : 's'}</span>
+                        <span>${assets.length} asset${assets.length === 1 ? '' : 's'}</span>
                     </div>
                 </div>
+                <div class="comp-hero-actions">
+                    <select class="comp-status-select" id="compStatusSelect" title="Competitor status">
+                        <option value="">– none –</option>
+                        <option value="active"      ${status === 'active' ? 'selected' : ''}>Active</option>
+                        <option value="prospective" ${status === 'prospective' ? 'selected' : ''}>Prospective</option>
+                        <option value="former"      ${status === 'former' ? 'selected' : ''}>Former</option>
+                    </select>
+                    <button class="btn-action" id="editDetailsBtn" style="font-size:0.75rem;">${icon('edit-3', 'icon-sm')} Edit details</button>
+                    <button class="btn-action" id="runResearchBtn" style="font-size:0.75rem;">${icon('globe', 'icon-sm')} Research</button>
+                </div>
+            </div>
 
-                <!-- Right: tabbed content -->
-                <div class="overview-section competitor-content-panel" style="padding: 1rem 1.2rem;">
-                    <div class="modal-tabs" style="margin-top:0;">
-                        <button class="modal-tab active" data-tab="products">Products (${compProducts.length})</button>
-                        <button class="modal-tab" data-tab="articles">Articles (${compContent.length})</button>
-                        <button class="modal-tab" data-tab="assets">Assets (${compAssets.length})</button>
-                        <button class="modal-tab" data-tab="research">${icon('search', 'icon-sm')} Research</button>
-                    </div>
+            <div class="comp-section">
+                <div class="comp-section-header">
+                    <div class="comp-section-title">This Week</div>
+                    ${weekly ? `<span style="font-size:0.7rem; color:var(--text-muted);">${formatDate(weekly.captured_at)}</span>` : ''}
+                </div>
+                <div class="comp-week-body" id="compWeekBody">
+                    ${weekly
+                        ? renderBody(weekly.body || '')
+                        : '<div class="comp-week-empty">No weekly summary yet — the competitor-watch agent will populate this once it runs.</div>'}
+                </div>
+            </div>
 
-                    <div class="modal-tab-content active" data-tab-content="products">
-                        <div style="margin-bottom: 0.75rem;">
-                            <button class="btn-action" id="addCompetitorProductBtn" style="font-size:0.8rem;">+ Add Product</button>
-                        </div>
-                        <div id="competitorProductsList">
-                            ${productsListHtml}
-                        </div>
-                    </div>
+            <div class="comp-cat-grid">
+                ${COMP_CATEGORIES.map(cat => renderCategoryCard(cat, signals.by_category?.[cat.key] || [])).join('')}
+            </div>
 
-                    <div class="modal-tab-content" data-tab-content="articles">
-                        ${articlesListHtml}
+            <div class="comp-section">
+                <div class="comp-section-header">
+                    <div class="comp-section-title">Battle Card</div>
+                    <div style="display:flex; gap:0.5rem; align-items:center;">
+                        ${battleCard.last_reviewed ? `<span style="font-size:0.7rem; color:var(--text-muted);">Reviewed ${esc(battleCard.last_reviewed)}${battleCard.reviewed_by ? ' by ' + esc(battleCard.reviewed_by) : ''}</span>` : ''}
+                        <button class="btn-action" id="saveBattleCardBtn" style="font-size:0.75rem;">Save battle card</button>
+                        <span class="modal-save-status" id="battleCardSaveStatus"></span>
                     </div>
+                </div>
+                <div class="comp-bc-grid">
+                    ${renderBcText('Positioning', 'positioning', battleCard.positioning || '', 3)}
+                    ${renderBcText('Pricing notes', 'pricing_notes', battleCard.pricing_notes || '', 3)}
+                    ${renderBcList('Our advantages', 'our_advantages', battleCard.our_advantages || [])}
+                    ${renderBcList('Their advantages', 'their_advantages', battleCard.their_advantages || [])}
+                    ${renderBcList('Win themes', 'win_themes', battleCard.win_themes || [])}
+                    ${renderBcList('Loss themes', 'loss_themes', battleCard.loss_themes || [])}
+                    ${renderBcList('Talking points', 'talking_points', battleCard.talking_points || [])}
+                    ${renderBcList('Do not say', 'do_not_say', battleCard.do_not_say || [])}
+                    ${renderBcObjections(battleCard.common_objections || [])}
+                </div>
+            </div>
 
-                    <div class="modal-tab-content" data-tab-content="assets">
-                        ${assetsListHtml}
+            <div class="comp-bottom-grid">
+                <div class="comp-section">
+                    <div class="comp-section-header">
+                        <div class="comp-section-title">Products (${products.length})</div>
+                        <button class="btn-action" id="addCompetitorProductBtn" style="font-size:0.75rem;">+ Add product</button>
                     </div>
-
-                    <div class="modal-tab-content" data-tab-content="research">
-                        <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
-                            <button class="btn-action" id="runResearchBtn" style="font-size:0.8rem;">
-                                ${icon('globe', 'icon-sm')} Run Research
-                            </button>
-                            <select class="modal-edit-input" id="researchFocus" style="width:auto; padding:0.4rem 0.6rem; font-size:0.8rem;">
-                                <option value="all">All Categories</option>
-                                <option value="jobs">Job Postings & Hiring</option>
-                                <option value="news">News & Press</option>
-                                <option value="products">Product Updates</option>
-                                <option value="partnerships">Partnerships & M&A</option>
-                                <option value="personnel">Personnel Changes</option>
-                            </select>
-                            <span class="research-timer" id="researchTimer"></span>
-                        </div>
-                        <div id="researchResults">
-                            <div class="empty-attention">Click "Run Research" to search the web for competitive intelligence on ${esc(competitor.name)}.</div>
-                        </div>
+                    <div id="competitorProductsList">
+                        ${products.length === 0
+                            ? '<div class="empty-attention">No products linked yet.</div>'
+                            : products.map(p => `
+                                <div class="knowledge-stat-row" data-product-id="${p.id}">
+                                    ${icon('box')}
+                                    <span class="knowledge-stat-name">${esc(p.name)}</span>
+                                    <span class="type-badge status-${(p.status || '').replace(/\s+/g, '_')}" style="margin-left:auto">${esc(p.status || '')}</span>
+                                </div>
+                            `).join('')}
                     </div>
+                </div>
+                <div class="comp-section">
+                    <div class="comp-section-header">
+                        <div class="comp-section-title">Assets (${assets.length})</div>
+                    </div>
+                    ${assets.length === 0
+                        ? '<div class="empty-attention">No assets linked.</div>'
+                        : assets.slice(0, 12).map(a => `
+                            <div class="knowledge-stat-row" data-asset-id="${a.id}" data-r2-key="${esc(a.r2_key || '')}">
+                                ${icon('file')}
+                                <span class="knowledge-stat-name">${esc(a.filename)}</span>
+                                <span style="font-size:0.7rem; color:var(--text-muted); margin-left:auto">${formatDate(a.uploaded_at)}</span>
+                            </div>
+                        `).join('')}
                 </div>
             </div>
         `;
 
-        // ── Wire events ──
+        function renderCategoryCard(cat, items) {
+            const top = items.slice(0, 3);
+            const more = items.length - top.length;
+            return `
+                <div class="comp-cat-card" data-category="${cat.key}">
+                    <div class="comp-cat-header">
+                        <div class="comp-cat-title">${icon(cat.icon, 'icon-sm')} ${cat.label}</div>
+                        <span class="comp-cat-count">${items.length}</span>
+                    </div>
+                    ${top.length === 0
+                        ? '<div class="comp-cat-empty">No signals in window.</div>'
+                        : top.map(s => `
+                            <div class="comp-signal" data-content-id="${s.id}">
+                                <div class="comp-signal-title">${esc(s.title || '(untitled)')}</div>
+                                <div class="comp-signal-meta">
+                                    <span>${formatDate(s.signal_date || s.captured_at)}</span>
+                                    ${s.source_type ? `<span>· ${esc(s.source_type)}</span>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    ${more > 0 ? `<div class="comp-cat-more" data-more-category="${cat.key}">View all ${items.length} →</div>` : ''}
+                </div>
+            `;
+        }
+        function renderBcText(label, key, val, rows) {
+            return `
+                <div class="comp-bc-section">
+                    <div class="comp-bc-label">${esc(label)}</div>
+                    <textarea data-bc-text="${key}" rows="${rows}" placeholder="Add ${esc(label.toLowerCase())}…">${esc(val)}</textarea>
+                </div>
+            `;
+        }
+        function renderBcList(label, key, items) {
+            const rows = (items.length ? items : ['']).map((v, i) => `
+                <div class="comp-bc-list-row" data-bc-list-row="${key}">
+                    <input data-bc-list-input="${key}" data-bc-idx="${i}" value="${esc(v)}" placeholder="${esc(label.replace(/s$/, ''))}…">
+                    <button class="comp-bc-remove" data-bc-remove="${key}" data-bc-idx="${i}" title="Remove">×</button>
+                </div>
+            `).join('');
+            return `
+                <div class="comp-bc-section" data-bc-section="${key}">
+                    <div class="comp-bc-label">${esc(label)}</div>
+                    <div data-bc-list-container="${key}">${rows}</div>
+                    <button class="comp-bc-add" data-bc-add="${key}">+ Add</button>
+                </div>
+            `;
+        }
+        function renderBcObjections(items) {
+            const rows = (items.length ? items : [{ objection: '', response: '' }]).map((o, i) => `
+                <div class="comp-bc-list-row" data-bc-list-row="common_objections">
+                    <div class="obj-pair">
+                        <input data-bc-obj-objection data-bc-idx="${i}" value="${esc(o.objection || '')}" placeholder="Objection…">
+                        <input data-bc-obj-response  data-bc-idx="${i}" value="${esc(o.response  || '')}" placeholder="Response…">
+                    </div>
+                    <button class="comp-bc-remove" data-bc-remove="common_objections" data-bc-idx="${i}" title="Remove">×</button>
+                </div>
+            `).join('');
+            return `
+                <div class="comp-bc-section" data-bc-section="common_objections" style="grid-column: 1 / -1;">
+                    <div class="comp-bc-label">Common objections</div>
+                    <div data-bc-list-container="common_objections">${rows}</div>
+                    <button class="comp-bc-add" data-bc-add="common_objections">+ Add objection</button>
+                </div>
+            `;
+        }
 
-        // Back button
         document.getElementById('backToCompetition').addEventListener('click', navigateBackToCompetition);
 
-        // Tab switching
-        main.querySelectorAll('.modal-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                main.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
-                main.querySelectorAll('.modal-tab-content').forEach(c => c.classList.remove('active'));
-                tab.classList.add('active');
-                main.querySelector(`[data-tab-content="${tab.dataset.tab}"]`).classList.add('active');
+        document.getElementById('compStatusSelect').addEventListener('change', async (e) => {
+            const newStatus = e.target.value || null;
+            const updates = { competitor_status: newStatus };
+            // Promote into the Competition list view when activating/watching a non-competitor row.
+            // Demotion to 'former' or null leaves type alone so existing filters keep working.
+            if ((newStatus === 'active' || newStatus === 'prospective') && company.type !== 'competitor') {
+                updates.type = 'competitor';
+            }
+            await fetch('/api/entity-update', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'companies', id: competitorId, updates }),
+            });
+            await loadCompetitorDetail(competitorId);
+        });
+
+        document.getElementById('editDetailsBtn').addEventListener('click', () => openEditDetailsModal(company, competitorId));
+
+        main.querySelectorAll('.comp-signal[data-content-id]').forEach(row => {
+            row.addEventListener('click', async () => {
+                const { data } = await db.from('content').select('*').eq('id', row.dataset.contentId).single();
+                if (data) openContentModal(data);
             });
         });
 
-        // Save company fields
-        document.getElementById('saveCompetitorBtn').addEventListener('click', async () => {
-            const status = document.getElementById('competitorSaveStatus');
-            status.textContent = 'saving...';
-            status.className = 'modal-save-status saving';
-            try {
-                const updates = {
-                    name: document.getElementById('editCompetitorName').value.trim(),
-                    website: document.getElementById('editCompetitorWebsite').value.trim(),
-                    industry: document.getElementById('editCompetitorIndustry').value.trim(),
-                    notes: document.getElementById('editCompetitorNotes').value.trim(),
-                };
-                const res = await fetch('/api/entity-update', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ table: 'companies', id: competitorId, updates }),
+        main.querySelectorAll('[data-more-category]').forEach(el => {
+            el.addEventListener('click', () => {
+                const cat = el.dataset.moreCategory;
+                const card = main.querySelector(`.comp-cat-card[data-category="${cat}"]`);
+                if (!card) return;
+                const items = signals.by_category?.[cat] || [];
+                const meta = COMP_CATEGORIES.find(c => c.key === cat);
+                card.outerHTML = `
+                    <div class="comp-cat-card" data-category="${cat}" style="grid-column: 1 / -1;">
+                        <div class="comp-cat-header">
+                            <div class="comp-cat-title">${icon(meta.icon, 'icon-sm')} ${meta.label} — all ${items.length}</div>
+                            <span class="comp-cat-count">${items.length}</span>
+                        </div>
+                        ${items.map(s => `
+                            <div class="comp-signal" data-content-id="${s.id}">
+                                <div class="comp-signal-title">${esc(s.title || '(untitled)')}</div>
+                                <div class="comp-signal-meta">
+                                    <span>${formatDate(s.signal_date || s.captured_at)}</span>
+                                    ${s.source_type ? `<span>· ${esc(s.source_type)}</span>` : ''}
+                                    ${s.source_url ? `<a href="${esc(s.source_url)}" target="_blank" rel="noopener" style="color:var(--accent);">source</a>` : ''}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                refreshIcons();
+                main.querySelectorAll(`.comp-cat-card[data-category="${cat}"] .comp-signal`).forEach(r => {
+                    r.addEventListener('click', async (ev) => {
+                        if (ev.target.tagName === 'A') return;
+                        const { data } = await db.from('content').select('*').eq('id', r.dataset.contentId).single();
+                        if (data) openContentModal(data);
+                    });
                 });
-                if (!res.ok) throw new Error(await res.text());
-                Object.assign(competitor, updates);
-                document.getElementById('competitorPageTitle').textContent = updates.name;
-                status.textContent = 'saved';
-                status.className = 'modal-save-status saved';
-                setTimeout(() => { status.textContent = ''; }, 2000);
-            } catch (err) {
-                status.textContent = 'failed';
-                status.className = 'modal-save-status error';
-                console.error('Competitor save failed:', err);
+            });
+        });
+
+        function wireBattleCardEvents() {
+            main.querySelectorAll('[data-bc-add]').forEach(btn => {
+                btn.onclick = () => {
+                    const key = btn.dataset.bcAdd;
+                    const container = main.querySelector(`[data-bc-list-container="${key}"]`);
+                    if (!container) return;
+                    const idx = container.querySelectorAll('[data-bc-list-row]').length;
+                    if (key === 'common_objections') {
+                        container.insertAdjacentHTML('beforeend', `
+                            <div class="comp-bc-list-row" data-bc-list-row="common_objections">
+                                <div class="obj-pair">
+                                    <input data-bc-obj-objection data-bc-idx="${idx}" value="" placeholder="Objection…">
+                                    <input data-bc-obj-response  data-bc-idx="${idx}" value="" placeholder="Response…">
+                                </div>
+                                <button class="comp-bc-remove" data-bc-remove="common_objections" data-bc-idx="${idx}" title="Remove">×</button>
+                            </div>
+                        `);
+                    } else {
+                        container.insertAdjacentHTML('beforeend', `
+                            <div class="comp-bc-list-row" data-bc-list-row="${key}">
+                                <input data-bc-list-input="${key}" data-bc-idx="${idx}" value="" placeholder="…">
+                                <button class="comp-bc-remove" data-bc-remove="${key}" data-bc-idx="${idx}" title="Remove">×</button>
+                            </div>
+                        `);
+                    }
+                    wireBattleCardEvents();
+                };
+            });
+            main.querySelectorAll('[data-bc-remove]').forEach(btn => {
+                btn.onclick = () => btn.closest('[data-bc-list-row]')?.remove();
+            });
+        }
+        wireBattleCardEvents();
+
+        document.getElementById('saveBattleCardBtn').addEventListener('click', async () => {
+            const statusEl = document.getElementById('battleCardSaveStatus');
+            statusEl.textContent = 'saving...';
+            statusEl.className = 'modal-save-status saving';
+
+            const collectList = (key) =>
+                Array.from(main.querySelectorAll(`[data-bc-list-input="${key}"]`))
+                    .map(i => i.value.trim()).filter(Boolean);
+
+            const objections = [];
+            main.querySelectorAll('[data-bc-list-row="common_objections"]').forEach(row => {
+                const o = row.querySelector('[data-bc-obj-objection]')?.value.trim() || '';
+                const r = row.querySelector('[data-bc-obj-response]')?.value.trim() || '';
+                if (o || r) objections.push({ objection: o, response: r });
+            });
+
+            const newCard = {
+                positioning:       main.querySelector('[data-bc-text="positioning"]')?.value.trim() || '',
+                pricing_notes:     main.querySelector('[data-bc-text="pricing_notes"]')?.value.trim() || '',
+                our_advantages:    collectList('our_advantages'),
+                their_advantages:  collectList('their_advantages'),
+                win_themes:        collectList('win_themes'),
+                loss_themes:       collectList('loss_themes'),
+                talking_points:    collectList('talking_points'),
+                do_not_say:        collectList('do_not_say'),
+                common_objections: objections,
+                last_reviewed:     new Date().toISOString().split('T')[0],
+                reviewed_by:       battleCard.reviewed_by || 'Paul Land',
+            };
+
+            const r = await fetch('/api/entity-update', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'companies', id: competitorId, updates: { battle_card: newCard } }),
+            });
+            if (r.ok) {
+                battleCard = newCard;
+                statusEl.textContent = 'saved';
+                statusEl.className = 'modal-save-status saved';
+                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+            } else {
+                statusEl.textContent = 'failed';
+                statusEl.className = 'modal-save-status error';
             }
         });
 
-        // Add Product button → inline form
         document.getElementById('addCompetitorProductBtn').addEventListener('click', () => {
             if (document.getElementById('inlineAddProductForm')) return;
             const container = document.getElementById('competitorProductsList');
-            const formHtml = `
+            container.insertAdjacentHTML('beforebegin', `
                 <div class="add-product-inline" id="inlineAddProductForm">
                     <div class="modal-edit-field" style="margin-bottom:0;">
                         <input class="modal-edit-input" id="newProductName" placeholder="Product name">
@@ -11083,35 +11331,28 @@
                         <button class="btn-action" id="cancelAddProduct" style="font-size:0.8rem; background:var(--void-lighter); color:var(--text-muted);">Cancel</button>
                     </div>
                 </div>
-            `;
-            container.insertAdjacentHTML('beforebegin', formHtml);
+            `);
             document.getElementById('newProductName').focus();
-
             document.getElementById('confirmAddProduct').addEventListener('click', async () => {
                 const name = document.getElementById('newProductName').value.trim();
                 if (!name) return;
                 const statusVal = document.getElementById('newProductStatus').value;
                 const urlVal = document.getElementById('newProductUrl').value.trim() || null;
                 const insertRes = await fetch('/api/entity-log', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ table: 'products', data: { name, status: statusVal, url: urlVal, company_id: competitorId } }),
                 });
                 if (!insertRes.ok) {
-                    const err = await insertRes.json().catch(() => ({}));
-                    console.error('Failed to create product:', err);
+                    console.error('Failed to create product:', await insertRes.json().catch(() => ({})));
                     return;
                 }
-                // Reload the detail page to show the new product
                 await loadCompetitorDetail(competitorId);
             });
-
             document.getElementById('cancelAddProduct').addEventListener('click', () => {
                 document.getElementById('inlineAddProductForm')?.remove();
             });
         });
 
-        // Product row clicks → open product modal
         main.querySelectorAll('.knowledge-stat-row[data-product-id]').forEach(row => {
             row.addEventListener('click', async () => {
                 const { data } = await db.from('products').select('*').eq('id', row.dataset.productId).single();
@@ -11119,169 +11360,190 @@
             });
         });
 
-        // Article row clicks → open content modal
-        main.querySelectorAll('.competitor-detail-article[data-content-id]').forEach(row => {
-            row.addEventListener('click', async () => {
-                const { data } = await db.from('content').select('*').eq('id', row.dataset.contentId).single();
-                if (data) openContentModal(data);
+        main.querySelectorAll('.knowledge-stat-row[data-asset-id]').forEach(row => {
+            row.addEventListener('click', () => {
+                const r2Key = row.dataset.r2Key;
+                if (r2Key) window.open(`/api/assets/file/${encodeURIComponent(r2Key)}`, '_blank');
             });
         });
 
-        // ── Research tab ──
-        let lastResearchReport = '';
-        document.getElementById('runResearchBtn')?.addEventListener('click', async () => {
-            const btn = document.getElementById('runResearchBtn');
+        document.getElementById('runResearchBtn').addEventListener('click', () => openResearchModal(company, competitorId));
+
+        refreshIcons();
+    }
+
+    function openEditDetailsModal(company, competitorId) {
+        const overlay = document.createElement('div');
+        overlay.className = 'comp-edit-overlay';
+        overlay.innerHTML = `
+            <div class="comp-edit-modal">
+                <h3 style="margin:0 0 1rem; font-size:1rem;">Edit competitor details</h3>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Name</div>
+                    <input class="modal-edit-input" id="editCompetitorName" value="${esc(company.name)}">
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Website</div>
+                    <input class="modal-edit-input" id="editCompetitorWebsite" value="${esc(company.website || '')}" placeholder="https://...">
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Industry</div>
+                    <input class="modal-edit-input" id="editCompetitorIndustry" value="${esc(company.industry || '')}">
+                </div>
+                <div class="modal-edit-field">
+                    <div class="modal-edit-label">Notes</div>
+                    <textarea class="modal-edit-input" id="editCompetitorNotes" rows="6" style="resize:vertical; font-family:var(--sans);">${esc(company.notes || '')}</textarea>
+                </div>
+                <div style="display:flex; gap:0.5rem; justify-content:flex-end; margin-top:0.75rem;">
+                    <button class="btn-action" id="cancelEditDetails" style="background:var(--void-lighter); color:var(--text-muted); font-size:0.8rem;">Cancel</button>
+                    <button class="btn-action" id="saveEditDetails" style="font-size:0.8rem;">Save</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+        document.getElementById('cancelEditDetails').addEventListener('click', close);
+        document.getElementById('saveEditDetails').addEventListener('click', async () => {
+            const updates = {
+                name: document.getElementById('editCompetitorName').value.trim(),
+                website: document.getElementById('editCompetitorWebsite').value.trim(),
+                industry: document.getElementById('editCompetitorIndustry').value.trim(),
+                notes: document.getElementById('editCompetitorNotes').value.trim(),
+            };
+            await fetch('/api/entity-update', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ table: 'companies', id: competitorId, updates }),
+            });
+            close();
+            await loadCompetitorDetail(competitorId);
+        });
+    }
+
+    function openResearchModal(company, competitorId) {
+        const overlay = document.createElement('div');
+        overlay.className = 'comp-edit-overlay';
+        overlay.innerHTML = `
+            <div class="comp-edit-modal" style="max-width:780px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem;">
+                    <h3 style="margin:0; font-size:1rem;">${icon('globe', 'icon-sm')} Research: ${esc(company.name)}</h3>
+                    <button class="comp-bc-remove" id="closeResearchModal" style="font-size:1rem;">×</button>
+                </div>
+                <div style="display:flex; align-items:center; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap;">
+                    <select class="modal-edit-input" id="researchFocus" style="width:auto; padding:0.4rem 0.6rem; font-size:0.8rem;">
+                        <option value="all">All categories</option>
+                        <option value="jobs">Job postings & hiring</option>
+                        <option value="news">News & press</option>
+                        <option value="products">Product updates</option>
+                        <option value="partnerships">Partnerships & M&A</option>
+                        <option value="personnel">Personnel changes</option>
+                    </select>
+                    <button class="btn-action" id="runResearchBtn2" style="font-size:0.8rem;">Run research</button>
+                    <span class="research-timer" id="researchTimer"></span>
+                </div>
+                <div id="researchResults">
+                    <div class="empty-attention">Pick a focus and click "Run research" to search the web.</div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        const close = () => overlay.remove();
+        document.getElementById('closeResearchModal').addEventListener('click', close);
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
+        refreshIcons();
+
+        let lastReport = '';
+        document.getElementById('runResearchBtn2').addEventListener('click', async () => {
+            const btn = document.getElementById('runResearchBtn2');
             const resultsEl = document.getElementById('researchResults');
             const timerEl = document.getElementById('researchTimer');
             const focus = document.getElementById('researchFocus').value;
 
             btn.disabled = true;
             btn.innerHTML = `<span class="spinner" style="width:14px;height:14px;"></span> Researching...`;
-            resultsEl.innerHTML = '<div class="empty-attention" id="researchStatus">Connecting to AI...</div><div class="research-report" id="researchReportLive" style="display:none;"></div>';
+            resultsEl.innerHTML = '<div class="empty-attention" id="researchStatus">Connecting…</div><div class="research-report" id="researchReportLive" style="display:none;"></div>';
 
-            // Elapsed timer
             const startTime = Date.now();
             const timerInterval = setInterval(() => {
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                timerEl.textContent = `${elapsed}s`;
+                timerEl.textContent = `${Math.round((Date.now() - startTime) / 1000)}s`;
             }, 1000);
 
             try {
                 const res = await fetch('/api/competitor-research', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        name: competitor.name,
-                        website: competitor.website || '',
-                        industry: competitor.industry || '',
-                        notes: competitor.notes || '',
-                        focus,
+                        name: company.name, website: company.website || '',
+                        industry: company.industry || '', notes: company.notes || '', focus,
                     }),
                 });
-
-                // Check if response is SSE stream or error JSON
-                const contentType = res.headers.get('content-type') || '';
-                if (!contentType.includes('text/event-stream')) {
+                const ct = res.headers.get('content-type') || '';
+                if (!ct.includes('text/event-stream')) {
                     clearInterval(timerInterval);
-                    let errMsg = 'Unknown error';
-                    try {
-                        const errData = await res.json();
-                        errMsg = errData.error || errData.detail || errMsg;
-                    } catch (_) {
-                        errMsg = `Server returned ${res.status}`;
-                    }
+                    let errMsg = `Server returned ${res.status}`;
+                    try { const e = await res.json(); errMsg = e.error || e.detail || errMsg; } catch {}
                     resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(errMsg)}</div>`;
                     return;
                 }
 
-                // Read the SSE stream progressively
                 const reader = res.body.getReader();
                 const decoder = new TextDecoder();
-                let reportText = '';
-                let buffer = '';
-                let renderTimer = null;
+                let reportText = '', buffer = '', renderTimer = null;
                 const liveEl = document.getElementById('researchReportLive');
-
-                function scheduleRender() {
+                const scheduleRender = () => {
                     if (renderTimer) return;
                     renderTimer = setTimeout(() => {
                         renderTimer = null;
                         if (liveEl) liveEl.innerHTML = renderBody(reportText);
                     }, 400);
-                }
+                };
 
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) break;
-
                     buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-
+                    const lines = buffer.split('\n'); buffer = lines.pop();
                     for (const line of lines) {
                         if (!line.startsWith('data: ')) continue;
                         try {
                             const event = JSON.parse(line.slice(6));
                             if (event.type === 'status') {
-                                // Update status text while waiting for Claude
-                                const statusEl = document.getElementById('researchStatus');
-                                if (statusEl) statusEl.textContent = event.text;
+                                document.getElementById('researchStatus').textContent = event.text;
                             } else if (event.type === 'delta' && event.text) {
-                                // Hide status, show report area on first delta
-                                const statusEl = document.getElementById('researchStatus');
-                                if (statusEl) statusEl.style.display = 'none';
-                                if (liveEl) liveEl.style.display = 'block';
+                                document.getElementById('researchStatus').style.display = 'none';
+                                liveEl.style.display = 'block';
                                 reportText += event.text;
                                 scheduleRender();
                             } else if (event.type === 'error') {
-                                const statusEl = document.getElementById('researchStatus');
-                                if (statusEl) statusEl.style.display = 'none';
-                                if (liveEl) { liveEl.style.display = 'block'; }
+                                document.getElementById('researchStatus').style.display = 'none';
+                                liveEl.style.display = 'block';
                                 reportText += `\n\n**Error:** ${event.message}`;
                                 scheduleRender();
                             }
-                        } catch (_) {}
+                        } catch {}
                     }
                 }
-
-                // Final render
-                clearTimeout(renderTimer);
-                clearInterval(timerInterval);
-                lastResearchReport = reportText;
-                const elapsed = Math.round((Date.now() - startTime) / 1000);
-                timerEl.textContent = `Completed in ${elapsed}s`;
-
+                clearTimeout(renderTimer); clearInterval(timerInterval);
+                lastReport = reportText;
+                timerEl.textContent = `Completed in ${Math.round((Date.now() - startTime) / 1000)}s`;
                 resultsEl.innerHTML = `
                     <div class="research-report">${renderBody(reportText)}</div>
                     <div class="research-actions">
-                        <button class="btn-action" id="saveResearchToNotes" style="font-size:0.8rem;">
-                            ${icon('file-text', 'icon-sm')} Append to Notes
-                        </button>
-                        <button class="btn-action" id="saveResearchAsContent" style="font-size:0.8rem; background:var(--void-lighter); color:var(--text-body);">
-                            ${icon('bookmark', 'icon-sm')} Save as Article
-                        </button>
+                        <button class="btn-action" id="saveResearchAsContent" style="font-size:0.8rem;">${icon('bookmark', 'icon-sm')} Save as Article</button>
                     </div>
                 `;
-
-                // Wire save buttons
-                document.getElementById('saveResearchToNotes')?.addEventListener('click', async () => {
-                    const saveBtn = document.getElementById('saveResearchToNotes');
-                    saveBtn.textContent = 'Saving...';
-                    const existingNotes = document.getElementById('editCompetitorNotes').value;
-                    const datestamp = new Date().toLocaleDateString('en-GB');
-                    const updatedNotes = existingNotes
-                        ? existingNotes + '\n\n---\n## Research (' + datestamp + ')\n\n' + lastResearchReport
-                        : '## Research (' + datestamp + ')\n\n' + lastResearchReport;
-                    const saveRes = await fetch('/api/entity-update', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ table: 'companies', id: competitorId, updates: { notes: updatedNotes } }),
-                    });
-                    if (saveRes.ok) {
-                        document.getElementById('editCompetitorNotes').value = updatedNotes;
-                        competitor.notes = updatedNotes;
-                        saveBtn.textContent = 'Saved to notes ✓';
-                        saveBtn.disabled = true;
-                    } else {
-                        saveBtn.textContent = 'Failed — try again';
-                    }
-                });
-
-                document.getElementById('saveResearchAsContent')?.addEventListener('click', async () => {
+                document.getElementById('saveResearchAsContent').addEventListener('click', async () => {
                     const saveBtn = document.getElementById('saveResearchAsContent');
                     saveBtn.textContent = 'Saving...';
                     const datestamp = new Date().toLocaleDateString('en-GB');
                     const createRes = await fetch('/api/entity-log', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
                             table: 'content',
                             data: {
                                 type: 'note',
-                                title: `Competitive Research: ${competitor.name} (${datestamp})`,
-                                body: lastResearchReport,
-                                source: 'AI Research',
-                                tags: ['competitive-intelligence', competitor.name.toLowerCase()],
+                                title: `Competitive Research: ${company.name} (${datestamp})`,
+                                body: lastReport, source: 'AI Research',
+                                tags: ['competitive-intelligence', company.name.toLowerCase()],
                                 status: 'new',
                                 metadata: { company_id: competitorId, research_focus: focus },
                             },
@@ -11291,32 +11553,27 @@
                     const createResult = await createRes.json();
                     if (createRes.ok && createResult.row) {
                         await fetch('/api/entity-log', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
                             body: JSON.stringify({
                                 table: 'company_content',
                                 data: { company_id: competitorId, content_id: createResult.row.id },
                             }),
                         });
-                        saveBtn.textContent = 'Saved as article ✓';
+                        saveBtn.textContent = 'Saved ✓';
                         saveBtn.disabled = true;
                     } else {
                         saveBtn.textContent = 'Failed — try again';
                     }
                 });
-
                 refreshIcons();
             } catch (err) {
                 clearInterval(timerInterval);
                 resultsEl.innerHTML = `<div class="empty-attention" style="color:#ef4444;">Research failed: ${esc(err.message)}</div>`;
             } finally {
                 btn.disabled = false;
-                btn.innerHTML = `${icon('globe', 'icon-sm')} Run Research`;
-                refreshIcons();
+                btn.textContent = 'Run research';
             }
         });
-
-        refreshIcons();
     }
 
     // ─── Projects ──────────────────────────────────────────────

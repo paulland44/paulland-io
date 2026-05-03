@@ -6686,6 +6686,232 @@ server.tool(
   }
 );
 
+// ─── Group 15: YouTube ─────────────────────────────────────
+
+const YT_VIDEO_ID_RE = /^[A-Za-z0-9_-]{11}$/;
+
+function extractYouTubeVideoId(input: string): string | null {
+  const trimmed = input.trim();
+  if (YT_VIDEO_ID_RE.test(trimmed)) return trimmed;
+  try {
+    const url = new URL(trimmed);
+    if (url.hostname === 'youtu.be') {
+      const id = url.pathname.slice(1).split('/')[0];
+      return YT_VIDEO_ID_RE.test(id) ? id : null;
+    }
+    if (url.hostname.endsWith('youtube.com') || url.hostname.endsWith('youtube-nocookie.com')) {
+      const v = url.searchParams.get('v');
+      if (v && YT_VIDEO_ID_RE.test(v)) return v;
+      const m = url.pathname.match(/\/(shorts|embed|v|live)\/([A-Za-z0-9_-]{11})/);
+      if (m) return m[2];
+    }
+  } catch {
+    // not a URL, fall through
+  }
+  return null;
+}
+
+/** Find a marker in HTML, then balanced-brace parse the JSON object that follows.
+ *  Handles string escapes so braces inside string literals don't throw off the depth count. */
+function extractJsonAfterMarker(html: string, markers: string[]): any | null {
+  for (const marker of markers) {
+    const start = html.indexOf(marker);
+    if (start === -1) continue;
+    const objStart = html.indexOf('{', start + marker.length);
+    if (objStart === -1) continue;
+    let depth = 0;
+    let inStr = false;
+    let escape = false;
+    for (let i = objStart; i < html.length; i++) {
+      const ch = html[i];
+      if (escape) { escape = false; continue; }
+      if (inStr) {
+        if (ch === '\\') escape = true;
+        else if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') inStr = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          try { return JSON.parse(html.slice(objStart, i + 1)); }
+          catch { break; }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+}
+
+interface YtCaptionTrack {
+  baseUrl: string;
+  languageCode: string;
+  kind?: string;
+  name?: { simpleText?: string };
+}
+
+function pickCaptionTrack(tracks: YtCaptionTrack[], lang: string): YtCaptionTrack | null {
+  if (!tracks?.length) return null;
+  return (
+    tracks.find(t => t.languageCode === lang && t.kind !== 'asr') ||
+    tracks.find(t => t.languageCode === lang) ||
+    tracks.find(t => t.languageCode?.startsWith(lang) && t.kind !== 'asr') ||
+    tracks.find(t => t.languageCode?.startsWith(lang)) ||
+    tracks.find(t => t.kind !== 'asr') ||
+    tracks[0] ||
+    null
+  );
+}
+
+interface YtTranscriptSegment { start: number; duration: number; text: string; }
+
+function parseTimedTextXml(xml: string): YtTranscriptSegment[] {
+  const segments: YtTranscriptSegment[] = [];
+  const re = /<text\s+([^>]*?)>([\s\S]*?)<\/text>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) {
+    const startMatch = m[1].match(/start="([^"]+)"/);
+    const durMatch = m[1].match(/dur="([^"]+)"/);
+    const text = decodeHtmlEntities(m[2]).replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    segments.push({
+      start: startMatch ? parseFloat(startMatch[1]) : 0,
+      duration: durMatch ? parseFloat(durMatch[1]) : 0,
+      text,
+    });
+  }
+  return segments;
+}
+
+const YT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
+server.tool(
+  'get_youtube_transcript',
+  'Fetch a YouTube video\'s transcript and metadata (title, channel, description, published date, duration). Use this when an article/signal references a YouTube URL or when researching what a competitor said in a video. Returns the spoken text plus per-segment timing. Falls back to title/description if no captions are available.',
+  {
+    video_url: z.string().describe('YouTube URL (youtube.com/watch?v=..., youtu.be/..., shorts/...) or 11-character video ID'),
+    lang: z.string().optional().default('en').describe('Preferred caption language code (e.g. "en", "fr"). Falls back to any available track if the requested language is not present.'),
+  },
+  async ({ video_url, lang }) => {
+    const videoId = extractYouTubeVideoId(video_url);
+    if (!videoId) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Could not parse video ID from "${video_url}"` }) }] };
+    }
+
+    const watchUrl = `https://www.youtube.com/watch?v=${videoId}&hl=en&persist_hl=1`;
+    let html: string;
+    try {
+      const resp = await fetch(watchUrl, {
+        headers: {
+          'User-Agent': YT_USER_AGENT,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Cookie': 'CONSENT=YES+cb; PREF=hl=en',
+        },
+      });
+      if (!resp.ok) {
+        return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `YouTube returned ${resp.status}`, video_id: videoId }) }] };
+      }
+      html = await resp.text();
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Fetch failed: ${err.message}`, video_id: videoId }) }] };
+    }
+
+    const player = extractJsonAfterMarker(html, [
+      'var ytInitialPlayerResponse = ',
+      'ytInitialPlayerResponse = ',
+    ]);
+    if (!player) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: 'Could not parse ytInitialPlayerResponse — video may be private, deleted, or region-locked', video_id: videoId }) }] };
+    }
+
+    const status = player?.playabilityStatus?.status;
+    if (status && status !== 'OK') {
+      const reason = player?.playabilityStatus?.reason || status;
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Video unavailable: ${reason}`, video_id: videoId, status }) }] };
+    }
+
+    const details = player?.videoDetails || {};
+    const microformat = player?.microformat?.playerMicroformatRenderer || {};
+    const tracks: YtCaptionTrack[] = player?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+
+    const meta = {
+      video_id: videoId,
+      url: `https://www.youtube.com/watch?v=${videoId}`,
+      title: details.title || microformat.title?.simpleText || null,
+      channel: details.author || microformat.ownerChannelName || null,
+      channel_id: details.channelId || null,
+      channel_url: details.channelId ? `https://www.youtube.com/channel/${details.channelId}` : null,
+      published_at: microformat.publishDate || microformat.uploadDate || null,
+      duration_seconds: details.lengthSeconds ? parseInt(details.lengthSeconds, 10) : null,
+      view_count: details.viewCount ? parseInt(details.viewCount, 10) : null,
+      description: details.shortDescription || microformat.description?.simpleText || '',
+      category: microformat.category || null,
+      is_live: !!details.isLiveContent,
+    };
+
+    const available_languages = tracks.map(t => ({ code: t.languageCode, name: t.name?.simpleText, auto: t.kind === 'asr' }));
+    const track = pickCaptionTrack(tracks, lang);
+
+    if (!track) {
+      return {
+        content: [{
+          type: 'text' as const,
+          text: JSON.stringify({
+            ...meta,
+            has_captions: false,
+            available_languages,
+            transcript: null,
+            transcript_text: null,
+            note: 'No captions available — only metadata returned',
+          }, null, 2),
+        }],
+      };
+    }
+
+    let segments: YtTranscriptSegment[] = [];
+    let trackError: string | null = null;
+    try {
+      const trackResp = await fetch(track.baseUrl, { headers: { 'User-Agent': YT_USER_AGENT } });
+      if (!trackResp.ok) {
+        trackError = `Caption fetch returned ${trackResp.status}`;
+      } else {
+        segments = parseTimedTextXml(await trackResp.text());
+      }
+    } catch (err: any) {
+      trackError = `Caption fetch failed: ${err.message}`;
+    }
+
+    return {
+      content: [{
+        type: 'text' as const,
+        text: JSON.stringify({
+          ...meta,
+          has_captions: segments.length > 0,
+          language: track.languageCode,
+          language_name: track.name?.simpleText || null,
+          auto_generated: track.kind === 'asr',
+          available_languages,
+          transcript: segments,
+          transcript_text: segments.map(s => s.text).join(' '),
+          ...(trackError ? { caption_fetch_error: trackError } : {}),
+        }, null, 2),
+      }],
+    };
+  }
+);
+
 } // end registerTools
 
 function registerResources(server: McpServer) {
