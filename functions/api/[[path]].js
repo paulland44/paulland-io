@@ -117,6 +117,8 @@ export async function onRequest(ctx) {
         return handleCalendarEvents(request, env);
       case 'usage-errors':
         return handleListUsageErrors(request, env);
+      case 'competitor-dashboard':
+        return handleCompetitorDashboard(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -5003,6 +5005,133 @@ async function handleCalendarEvents(request, env) {
   } catch (err) {
     return json({ error: 'Calendar fetch failed', detail: err.message }, 500);
   }
+}
+
+// ─── Competitor Dashboard ────────────────────────────────────
+//
+// Aggregates everything the competitor dashboard needs in one round-trip:
+// company + battle_card, products, assets (filtered to this company),
+// signals grouped by metadata.category over the last 90 days, and the
+// latest weekly competitor-watch summary if present.
+
+const COMPETITOR_CATEGORIES = ['product', 'people', 'gtm', 'financial', 'tech', 'customer'];
+const SIGNAL_WINDOW_DAYS = 90;
+
+async function handleCompetitorDashboard(request, env) {
+  const { SUPABASE_URL: url, SUPABASE_SERVICE_KEY: key } = env;
+  if (!url || !key) return json({ error: 'Supabase not configured' }, 500);
+
+  const id = new URL(request.url).searchParams.get('id');
+  if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
+    return json({ error: 'Missing or invalid id (UUID required)' }, 400);
+  }
+
+  const sinceIso = new Date(Date.now() - SIGNAL_WINDOW_DAYS * 86400_000).toISOString();
+
+  // Fetch everything in parallel — five round-trips collapsed into one client call.
+  const [companyRows, products, assets, junctionRows, weeklySummary] = await Promise.all([
+    supabaseGet(url, key, `companies?id=eq.${id}&limit=1`),
+    supabaseGet(url, key, `products?company_id=eq.${id}&select=id,name,status,description,tags,url&order=name.asc`),
+    supabaseGet(url, key, `assets?metadata->>company_id=eq.${id}&select=id,filename,mime_type,uploaded_at,metadata,r2_key&order=uploaded_at.desc`),
+    supabaseGet(
+      url,
+      key,
+      `company_content?company_id=eq.${id}&select=content(id,type,title,body,tags,source,url,captured_at,metadata)`
+    ),
+    supabaseGet(
+      url,
+      key,
+      `content?type=eq.summary&metadata->>competitor_id=eq.${id}&order=captured_at.desc&limit=1&select=id,title,body,captured_at,metadata`
+    ),
+  ]);
+
+  if (!companyRows.length) return json({ error: 'Competitor not found' }, 404);
+  const company = companyRows[0];
+
+  // Flatten junction → content; drop nulls (orphaned links).
+  const linkedContent = (junctionRows || [])
+    .map(row => row.content)
+    .filter(Boolean);
+
+  // Signals = type=signal within the window.
+  const recentSignals = linkedContent.filter(
+    c => c.type === 'signal' && c.captured_at && c.captured_at >= sinceIso
+  );
+
+  // Group by metadata.category. Anything missing/unknown lands in 'uncategorised'.
+  const signalsByCategory = Object.fromEntries(COMPETITOR_CATEGORIES.map(c => [c, []]));
+  signalsByCategory.uncategorised = [];
+  for (const sig of recentSignals) {
+    const cat = sig.metadata?.category;
+    const bucket = COMPETITOR_CATEGORIES.includes(cat) ? cat : 'uncategorised';
+    signalsByCategory[bucket].push({
+      id: sig.id,
+      title: sig.title,
+      summary: sig.metadata?.summary || null,
+      source_url: sig.metadata?.source_url || sig.url || null,
+      source_type: sig.metadata?.source_type || null,
+      signal_date: sig.metadata?.signal_date || sig.captured_at,
+      captured_at: sig.captured_at,
+      confidence: sig.metadata?.confidence || null,
+      material: sig.metadata?.material ?? null,
+      tags: sig.tags || [],
+    });
+  }
+  // Sort each bucket newest-first by signal_date (falls back to captured_at).
+  for (const cat of Object.keys(signalsByCategory)) {
+    signalsByCategory[cat].sort((a, b) => (b.signal_date || '').localeCompare(a.signal_date || ''));
+  }
+
+  // Counts per category for badges.
+  const counts = Object.fromEntries(
+    Object.entries(signalsByCategory).map(([cat, items]) => [cat, items.length])
+  );
+  counts.total = recentSignals.length;
+
+  // Last signal date (for hero "last activity").
+  const lastSignalDate = recentSignals.reduce(
+    (max, s) => ((s.metadata?.signal_date || s.captured_at) > max ? (s.metadata?.signal_date || s.captured_at) : max),
+    ''
+  );
+
+  // Other linked content (non-signal: articles, thoughts, reflections etc.)
+  // Keep for the asset/article tab fallback.
+  const otherContent = linkedContent
+    .filter(c => c.type !== 'signal')
+    .map(c => ({
+      id: c.id,
+      type: c.type,
+      title: c.title,
+      source: c.source,
+      url: c.url,
+      captured_at: c.captured_at,
+      tags: c.tags || [],
+    }));
+
+  return json({
+    ok: true,
+    company: {
+      id: company.id,
+      name: company.name,
+      website: company.website,
+      industry: company.industry,
+      notes: company.notes,
+      is_competitor: company.is_competitor,
+      competitor_status: company.competitor_status || (company.is_competitor ? 'active' : null),
+      battle_card: company.battle_card || {},
+      created_at: company.created_at,
+    },
+    products,
+    assets,
+    signals: {
+      window_days: SIGNAL_WINDOW_DAYS,
+      counts,
+      last_signal_date: lastSignalDate || null,
+      by_category: signalsByCategory,
+    },
+    weekly_summary: weeklySummary?.[0] || null,
+    other_content: otherContent,
+  });
 }
 
 /**

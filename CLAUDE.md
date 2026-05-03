@@ -57,7 +57,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
 | `content` | Articles, thoughts, reflections, signals, problems, summaries | type, title, body, url, source, tags[], status, metadata, embedded_at |
-| `companies` | Companies & competitors | name, website, industry, notes, is_competitor, is_internal |
+| `companies` | Companies & competitors | name, website, industry, notes, is_competitor, is_internal, competitor_status (`active`/`prospective`/`former`/null), battle_card (jsonb) |
 | `people` | Contacts | name, company_id, role, notes |
 | `products` | Products linked to companies | name, description, company_id, url |
 | `projects` | Internal projects | name, description, status |
@@ -85,6 +85,7 @@ Cron ──→ Cloudflare Worker (Capture Worker)
 | `assets/r2-list` | `handleR2List` | List R2 bucket objects |
 | `assets/file/:key` | `handleAssetServe` | Serve file from R2 |
 | `assets/:id/content` | `handleAssetContent` | Fetch asset content (text or base64) |
+| `competitor-dashboard?id=:uuid` | `handleCompetitorDashboard` | Aggregated competitor view (company, battle_card, products, assets, signals grouped by category, weekly summary) |
 
 **POST:**
 | Route | Handler | Purpose |
