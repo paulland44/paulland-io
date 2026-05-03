@@ -232,7 +232,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (84 tools)
+### Tool Groups (85 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -253,6 +253,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Revenue | import_revenue | 1 |
 | WCR Pack Pipeline | wcr_pack_opps_extract, wcr_pack_opps_write | 2 |
 | Utility | get_system_status, list_usage_events | 2 |
+| YouTube | get_youtube_transcript | 1 |
 
 ### Content Types
 
