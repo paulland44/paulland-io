@@ -312,6 +312,33 @@ server.tool(
 );
 
 server.tool(
+  'list_calendar_events',
+  "List Outlook-synced calendar events for a date range. Capture worker syncs from the ICS feed every 30 minutes; this tool just reads. Returns each meeting's uid + event_date (the natural identifier for add_meeting_note).",
+  {
+    date_from: z.string().optional().describe('Start date (YYYY-MM-DD). Defaults to today.'),
+    date_to: z.string().optional().describe('End date (YYYY-MM-DD). Defaults to date_from.'),
+    limit: z.number().optional().default(50).describe('Max events to return'),
+  },
+  async ({ date_from, date_to, limit }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const from = date_from || today;
+    const to = date_to || from;
+
+    const path = `calendar_events?event_date=gte.${from}&event_date=lte.${to}&order=event_date.asc,start_time.asc&select=uid,event_date,title,start_time,end_time,all_day,location,organizer,attendees&limit=${limit}`;
+    const rows = await supabaseGet(path);
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ count: rows.length, from, to, items: rows }, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+server.tool(
   'list_entities',
   'List entities from people, companies, products, or projects tables',
   {
@@ -634,18 +661,28 @@ server.tool(
 
 server.tool(
   'upsert_daily_note',
-  'Create or update a daily note by date',
+  'Create or update a daily note by date. Metadata uses *deep-merge* semantics — pass only the keys you want to change; existing keys are preserved. Other fields (tasks/notes/meetings) replace if provided.',
   {
     date: z.string().describe('Date in YYYY-MM-DD format'),
-    tasks: z.string().optional().describe('Tasks markdown'),
-    notes: z.string().optional().describe('Notes markdown'),
-    meetings: z.string().optional().describe('Meetings markdown'),
+    tasks: z.string().optional().describe('Tasks markdown (replaces existing if provided)'),
+    notes: z.string().optional().describe('Notes markdown (replaces existing if provided)'),
+    meetings: z.string().optional().describe('Meetings markdown (replaces existing if provided)'),
+    metadata: z.record(z.any()).optional().describe('Metadata to merge into daily_notes.metadata (deep-merged at top level — pass {stoic_challenge: {...}} to update just that key without touching meetings_structured, review_data, etc.)'),
   },
-  async ({ date, tasks, notes, meetings }) => {
+  async ({ date, tasks, notes, meetings, metadata }) => {
     const data: any = { note_date: date };
     if (tasks !== undefined) data.tasks = tasks;
     if (notes !== undefined) data.notes = notes;
     if (meetings !== undefined) data.meetings = meetings;
+
+    if (metadata !== undefined) {
+      // Deep-merge: read existing, shallow-merge keys, write back. This keeps
+      // meetings_structured and other unrelated metadata intact when the
+      // caller is only updating one key (e.g. stoic_challenge).
+      const existing = await supabaseGet(`daily_notes?note_date=eq.${date}&limit=1&select=metadata`);
+      const currentMeta = (existing[0]?.metadata as Record<string, any>) || {};
+      data.metadata = { ...currentMeta, ...metadata };
+    }
 
     const result = await supabaseUpsert('daily_notes', data, 'note_date');
     if (!result.ok) {
@@ -656,8 +693,215 @@ server.tool(
 
     return {
       content: [
-        { type: 'text' as const, text: JSON.stringify({ ok: true, date }) },
+        { type: 'text' as const, text: JSON.stringify({ ok: true, date, merged_metadata_keys: metadata ? Object.keys(metadata) : [] }) },
       ],
+    };
+  }
+);
+
+server.tool(
+  'add_meeting_note',
+  "Append a note to a calendar meeting in the daily note for that meeting's date. Looks up the meeting from calendar_events by (uid, event_date), upserts the daily note, and appends both: (a) a structured entry to metadata.meetings_structured with title/time/attendees/note (the daily_review_extract picks this up), and (b) a markdown line to the meetings field for human readability in admin views. Idempotent in spirit: each call adds a new entry; a single meeting can accumulate multiple notes across the day.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid (the iCal UID; the natural meeting identifier from list_calendar_events)'),
+    event_date: z.string().optional().describe('The meeting\'s event_date (YYYY-MM-DD). Defaults to today. Required only for events that recur on multiple dates.'),
+    text: z.string().describe('The note text to append to this meeting'),
+  },
+  async ({ meeting_uid, event_date, text }) => {
+    const today = new Date().toISOString().slice(0, 10);
+    const date = event_date || today;
+
+    // 1. Resolve the meeting
+    const events = await supabaseGet(
+      `calendar_events?uid=eq.${encodeURIComponent(meeting_uid)}&event_date=eq.${date}&limit=1&select=uid,event_date,title,start_time,end_time,all_day,location,attendees`
+    );
+    if (!events.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No calendar event with uid=${meeting_uid} on ${date}` }) }],
+      };
+    }
+    const meeting = events[0];
+
+    // 2. Fetch existing daily note (so we can merge metadata)
+    const existing = await supabaseGet(
+      `daily_notes?note_date=eq.${date}&limit=1&select=id,meetings,metadata`
+    );
+    const current: any = existing[0] || { meetings: '', metadata: {} };
+
+    // 3. Build the structured entry
+    // start_time is stored as "HH:MM" (clock time, not a full timestamp)
+    // by the capture worker's ICS parser — use it directly.
+    const time = meeting.all_day ? 'All day' : (meeting.start_time || '');
+    const attendeeNames: string[] = Array.isArray(meeting.attendees)
+      ? meeting.attendees
+          .map((a: any) => typeof a === 'string' ? a : (a?.name || a?.email || ''))
+          .filter(Boolean)
+      : [];
+
+    const structuredEntry = {
+      meeting_uid,
+      event_date: date,
+      title: meeting.title,
+      time,
+      attendees: attendeeNames,
+      notes: text,
+      added_at: new Date().toISOString(),
+    };
+
+    // 4. Merge into metadata.meetings_structured (append)
+    const meta = { ...(current.metadata || {}) };
+    meta.meetings_structured = [...(meta.meetings_structured || []), structuredEntry];
+
+    // 5. Append a markdown line to the meetings field for human readability
+    const header = `### ${meeting.title}${time ? ` (${time})` : ''}${attendeeNames.length ? ` — ${attendeeNames.join(', ')}` : ''}`;
+    const newMeetings = (current.meetings || '').trim()
+      ? `${current.meetings.trim()}\n\n${header}\n${text}\n`
+      : `${header}\n${text}\n`;
+
+    // 6. Upsert
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: date, meetings: newMeetings, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }],
+      };
+    }
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({
+            ok: true,
+            date,
+            meeting: { title: meeting.title, time, attendees: attendeeNames },
+            structured_count: meta.meetings_structured.length,
+          }, null, 2),
+        },
+      ],
+    };
+  }
+);
+
+server.tool(
+  'update_meeting_note',
+  "Replace the text and/or attachments of an existing meeting note in a daily note. The note is identified by (meeting_uid, event_date, note_index) — note_index is the 0-based position within the meeting's notes (since one meeting can accumulate multiple notes). Updates both the structured entry in metadata.meetings_structured and the markdown line in the meetings field. Sets updated_at on the structured entry.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid of the meeting'),
+    event_date: z.string().describe('Meeting event_date (YYYY-MM-DD); also the daily note date'),
+    note_index: z.number().describe('0-based index of the note among this meeting\'s notes for that date'),
+    text: z.string().optional().describe('New note text. If omitted, text is unchanged.'),
+    attachments: z.array(z.object({
+      asset_id: z.string(),
+      filename: z.string().optional(),
+      mime_type: z.string().optional(),
+      uploaded_at: z.string().optional(),
+    })).optional().describe('New attachments array (replaces any existing). Each entry references an assets row.'),
+  },
+  async ({ meeting_uid, event_date, note_index, text, attachments }) => {
+    const existing = await supabaseGet(`daily_notes?note_date=eq.${event_date}&limit=1&select=id,meetings,metadata`);
+    if (!existing.length) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No daily note for ${event_date}` }) }], isError: true };
+    }
+    const current: any = existing[0];
+    const meta = { ...(current.metadata || {}) };
+    const structured: any[] = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+    // Find the n-th note for this meeting
+    const matches: number[] = [];
+    structured.forEach((entry, i) => {
+      if (entry?.meeting_uid === meeting_uid) matches.push(i);
+    });
+    if (note_index < 0 || note_index >= matches.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `Note index ${note_index} out of range; meeting has ${matches.length} note(s)` }) }],
+        isError: true,
+      };
+    }
+    const targetIdx = matches[note_index];
+    const target = { ...structured[targetIdx] };
+    if (text !== undefined) target.notes = text;
+    if (attachments !== undefined) target.attachments = attachments;
+    target.updated_at = new Date().toISOString();
+    structured[targetIdx] = target;
+    meta.meetings_structured = structured;
+
+    // Rebuild the markdown meetings field from the structured array (keeps both in sync)
+    const newMarkdown = structured
+      .map((e: any) => {
+        const header = `### ${e.title}${e.time ? ` (${e.time})` : ''}${e.attendees?.length ? ` — ${e.attendees.join(', ')}` : ''}`;
+        return `${header}\n${e.notes || ''}`;
+      })
+      .join('\n\n');
+
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: event_date, meetings: newMarkdown, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, event_date, meeting_uid, note_index, updated: target }, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'delete_meeting_note',
+  "Remove a meeting note from the daily note. Identified by (meeting_uid, event_date, note_index). Deletes both the structured entry and rebuilds the meetings markdown field from what's left. Idempotent: deleting an out-of-range index returns ok:false but doesn't throw.",
+  {
+    meeting_uid: z.string().describe('calendar_events.uid of the meeting'),
+    event_date: z.string().describe('Meeting event_date (YYYY-MM-DD)'),
+    note_index: z.number().describe('0-based index of the note to remove'),
+  },
+  async ({ meeting_uid, event_date, note_index }) => {
+    const existing = await supabaseGet(`daily_notes?note_date=eq.${event_date}&limit=1&select=id,meetings,metadata`);
+    if (!existing.length) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `No daily note for ${event_date}` }) }], isError: true };
+    }
+    const current: any = existing[0];
+    const meta = { ...(current.metadata || {}) };
+    const structured: any[] = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+    const matches: number[] = [];
+    structured.forEach((entry, i) => {
+      if (entry?.meeting_uid === meeting_uid) matches.push(i);
+    });
+    if (note_index < 0 || note_index >= matches.length) {
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: `Note index ${note_index} out of range; meeting has ${matches.length} note(s)` }) }],
+        isError: true,
+      };
+    }
+    const targetIdx = matches[note_index];
+    const removed = structured[targetIdx];
+    structured.splice(targetIdx, 1);
+    meta.meetings_structured = structured;
+
+    const newMarkdown = structured
+      .map((e: any) => {
+        const header = `### ${e.title}${e.time ? ` (${e.time})` : ''}${e.attendees?.length ? ` — ${e.attendees.join(', ')}` : ''}`;
+        return `${header}\n${e.notes || ''}`;
+      })
+      .join('\n\n');
+
+    const result = await supabaseUpsert(
+      'daily_notes',
+      { note_date: event_date, meetings: newMarkdown, metadata: meta },
+      'note_date'
+    );
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: result.error }) }], isError: true };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, event_date, meeting_uid, note_index, removed }, null, 2) }],
     };
   }
 );
@@ -1451,6 +1695,43 @@ server.tool(
   }
 );
 
+server.tool(
+  'run_daily_review',
+  "Trigger the end-of-day review for a given date. Calls POST /api/daily-review on Pages, which fetches the daily note, runs the LLM-driven extract+write flow, and persists results (review_summary in metadata, people_log entries, product_evidence, project_updates, etc.). Use this when an artifact needs to kick off the EOD review without exposing the API endpoint to the browser (which is Access-JWT-gated and can't be called directly from a Cowork iframe).",
+  {
+    note_date: z.string().describe('Date of the daily note to review, YYYY-MM-DD'),
+  },
+  async ({ note_date }) => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: 'note_date must be YYYY-MM-DD' }) }], isError: true };
+    }
+    const apiUrl = _misApiUrl || process.env.PAULLAND_API_URL || 'https://paulland.io/api';
+    const internalApiKey = _misInternalApiKey || process.env.PAULLAND_INTERNAL_API_KEY;
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (internalApiKey) headers['X-Internal-API-Key'] = internalApiKey;
+
+    try {
+      const resp = await fetch(`${apiUrl}/daily-review`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ note_date }),
+      });
+      const data = await resp.json() as any;
+      if (!resp.ok) {
+        return {
+          content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: data?.error || `HTTP ${resp.status}`, detail: data?.detail }) }],
+          isError: true,
+        };
+      }
+      return {
+        content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, note_date, ...data }, null, 2) }],
+      };
+    } catch (err: any) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: false, error: err.message }) }], isError: true };
+    }
+  }
+);
+
 // ─── Weekly Summary Tools ────────────────────────────────────
 
 server.tool(
@@ -2091,16 +2372,18 @@ server.tool(
 
 server.tool(
   'list_assets',
-  'List assets in the knowledge base asset library with optional tag and type filters',
+  'List assets in the knowledge base asset library. Returns metadata.linked_to so callers can filter by linkage (e.g. {meeting_uid, event_date} for meeting-scoped uploads, {daily_note_date} for day-level).',
   {
     tags: z.array(z.string()).optional().describe('Filter by tags (asset must have all specified tags)'),
     mime_type: z.string().optional().describe('Filter by MIME type prefix, e.g. "image/", "application/pdf", "application/vnd"'),
     search: z.string().optional().describe('Search by filename'),
+    uploaded_since: z.string().optional().describe('ISO timestamp lower bound for uploaded_at (e.g. "2026-04-29T00:00:00Z")'),
+    uploaded_until: z.string().optional().describe('ISO timestamp upper bound for uploaded_at'),
     limit: z.number().optional().default(20).describe('Max items to return'),
     offset: z.number().optional().default(0).describe('Offset for pagination'),
   },
-  async ({ tags, mime_type, search, limit, offset }) => {
-    let path = `assets?select=id,filename,mime_type,file_size,tags,description,uploaded_at&order=uploaded_at.desc&limit=${limit}&offset=${offset}`;
+  async ({ tags, mime_type, search, uploaded_since, uploaded_until, limit, offset }) => {
+    let path = `assets?select=id,filename,mime_type,file_size,tags,description,uploaded_at,r2_key,metadata&order=uploaded_at.desc&limit=${limit}&offset=${offset}`;
     if (tags?.length) {
       path += `&tags=cs.{${tags.join(',')}}`;
     }
@@ -2109,6 +2392,12 @@ server.tool(
     }
     if (search) {
       path += `&filename=ilike.*${search}*`;
+    }
+    if (uploaded_since) {
+      path += `&uploaded_at=gte.${encodeURIComponent(uploaded_since)}`;
+    }
+    if (uploaded_until) {
+      path += `&uploaded_at=lte.${encodeURIComponent(uploaded_until)}`;
     }
     const rows = await supabaseGet(path);
     return {
@@ -4507,6 +4796,99 @@ server.tool(
 
     return {
       content: [{ type: 'text' as const, text: JSON.stringify(status, null, 2) }],
+    };
+  }
+);
+
+server.tool(
+  'list_usage_events',
+  'Cost / quality observability for paulland.io LLM calls. Returns totals, per-feature breakdown, per-day trend, and recent rows from the usage_events table for the cost panel Live Artifact and the Skill Auditor agent. Single round-trip: an artifact can render the whole panel from one call.',
+  {
+    since: z
+      .string()
+      .optional()
+      .default('7d')
+      .describe('Time window: "24h", "7d", "30d", "90d", or an ISO timestamp'),
+    feature: z
+      .string()
+      .optional()
+      .describe('Filter to a single feature (e.g. "ask_stream", "signal_synthesis")'),
+    limit: z
+      .number()
+      .optional()
+      .default(50)
+      .describe('Max recent rows to return'),
+  },
+  async ({ since, feature, limit }) => {
+    const sinceISO = (() => {
+      const m = /^(\d+)([hdwm])$/.exec(since);
+      if (!m) return new Date(since).toISOString();
+      const n = parseInt(m[1], 10);
+      const unitMap: Record<string, number> = { h: 3600e3, d: 86400e3, w: 7 * 86400e3, m: 30 * 86400e3 };
+      const unitMs = unitMap[m[2]] ?? 86400e3;
+      return new Date(Date.now() - n * unitMs).toISOString();
+    })();
+
+    let path = `usage_events?created_at=gte.${encodeURIComponent(sinceISO)}&select=created_at,surface,feature,prompt_id,model,tokens_in,tokens_out,cache_creation_tokens,cache_read_tokens,cost_est,duration_ms,quality_flag,output_excerpt&order=created_at.desc&limit=2000`;
+    if (feature) path += `&feature=eq.${encodeURIComponent(feature)}`;
+
+    const rows = await supabaseGet(path);
+
+    const totals = {
+      since: sinceISO,
+      count: rows.length,
+      cost_est_total: 0,
+      tokens_in_total: 0,
+      tokens_out_total: 0,
+      cache_creation_total: 0,
+      cache_read_total: 0,
+    };
+    const byFeature: Record<string, { count: number; cost_est: number; tokens_in: number; tokens_out: number }> = {};
+    const byDay: Record<string, { count: number; cost_est: number }> = {};
+
+    for (const r of rows) {
+      const cost = Number(r.cost_est) || 0;
+      const tin  = Number(r.tokens_in) || 0;
+      const tout = Number(r.tokens_out) || 0;
+      totals.cost_est_total       += cost;
+      totals.tokens_in_total      += tin;
+      totals.tokens_out_total     += tout;
+      totals.cache_creation_total += Number(r.cache_creation_tokens) || 0;
+      totals.cache_read_total     += Number(r.cache_read_tokens) || 0;
+
+      const f = r.feature || 'unknown';
+      if (!byFeature[f]) byFeature[f] = { count: 0, cost_est: 0, tokens_in: 0, tokens_out: 0 };
+      byFeature[f].count += 1;
+      byFeature[f].cost_est += cost;
+      byFeature[f].tokens_in += tin;
+      byFeature[f].tokens_out += tout;
+
+      const day = (r.created_at || '').slice(0, 10);
+      if (day) {
+        if (!byDay[day]) byDay[day] = { count: 0, cost_est: 0 };
+        byDay[day].count += 1;
+        byDay[day].cost_est += cost;
+      }
+    }
+
+    // Round to 6dp to match column scale
+    totals.cost_est_total = Math.round(totals.cost_est_total * 1_000_000) / 1_000_000;
+    for (const k of Object.keys(byFeature)) {
+      byFeature[k].cost_est = Math.round(byFeature[k].cost_est * 1_000_000) / 1_000_000;
+    }
+    for (const k of Object.keys(byDay)) {
+      byDay[k].cost_est = Math.round(byDay[k].cost_est * 1_000_000) / 1_000_000;
+    }
+
+    const recent = rows.slice(0, limit);
+
+    return {
+      content: [
+        {
+          type: 'text' as const,
+          text: JSON.stringify({ totals, by_feature: byFeature, by_day: byDay, recent }, null, 2),
+        },
+      ],
     };
   }
 );

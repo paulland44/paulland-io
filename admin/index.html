@@ -5130,6 +5130,7 @@
         tools: { tabs: [
             { view: 'mcp-overview', label: 'MCP' },
             { view: 'prompts', label: 'Prompts' },
+            { view: 'costs', label: 'Costs' },
         ]},
         mis: { tabs: [
             { view: 'mis-monitor', label: 'Jobs' },
@@ -5541,6 +5542,7 @@
             case 'tasks':       await loadTasks(); break;
             case 'mcp-overview': await loadMcpOverview(); break;
             case 'prompts': await loadPrompts(); break;
+            case 'costs': await loadCosts(); break;
             case 'mis-overview': await loadMisMonitor(); break; // redirected to Jobs
             case 'mis-create': await loadMisJobForm('create'); break;
             case 'mis-edit': await loadMisJobForm('edit', currentSubView?.id); break;
@@ -16086,6 +16088,11 @@
             { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
             { name: 'id', type: 'string', desc: 'Entity UUID' },
         ]},
+        { name: 'list_calendar_events', desc: 'List Outlook-synced calendar events for a date range (read from calendar_events; capture worker keeps it fresh)', group: 'Content', params: 3, paramDetails: [
+            { name: 'date_from', type: 'string?', desc: 'Start date (YYYY-MM-DD). Defaults to today.' },
+            { name: 'date_to', type: 'string?', desc: 'End date (YYYY-MM-DD). Defaults to date_from.' },
+            { name: 'limit', type: 'number?', desc: 'Max events (default 50)' },
+        ]},
         { name: 'search_knowledge_base', desc: 'Semantic vector search across KB', group: 'Search', params: 6, paramDetails: [
             { name: 'query', type: 'string', desc: 'Search query text' },
             { name: 'tables', type: 'string[]?', desc: 'Limit to specific tables' },
@@ -16111,11 +16118,29 @@
             { name: 'id', type: 'string', desc: 'Content item UUID' },
             { name: 'tags', type: 'string[]', desc: 'New tags array' },
         ]},
-        { name: 'upsert_daily_note', desc: 'Create or update daily note by date', group: 'Write', params: 4, paramDetails: [
+        { name: 'upsert_daily_note', desc: 'Create or update daily note by date. Metadata uses deep-merge — pass only the keys to change.', group: 'Write', params: 5, paramDetails: [
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
-            { name: 'tasks', type: 'string?', desc: 'Tasks markdown' },
-            { name: 'notes', type: 'string?', desc: 'Notes markdown' },
-            { name: 'meetings', type: 'string?', desc: 'Meetings markdown' },
+            { name: 'tasks', type: 'string?', desc: 'Tasks markdown (replaces existing if provided)' },
+            { name: 'notes', type: 'string?', desc: 'Notes markdown (replaces existing if provided)' },
+            { name: 'meetings', type: 'string?', desc: 'Meetings markdown (replaces existing if provided)' },
+            { name: 'metadata', type: 'object?', desc: 'Deep-merged into daily_notes.metadata at top level' },
+        ]},
+        { name: 'add_meeting_note', desc: 'Append a note to a calendar meeting in the daily note for that date. Updates metadata.meetings_structured + meetings markdown.', group: 'Write', params: 3, paramDetails: [
+            { name: 'meeting_uid', type: 'string', desc: 'calendar_events.uid (from list_calendar_events)' },
+            { name: 'text', type: 'string', desc: 'Note text to append' },
+            { name: 'event_date', type: 'string?', desc: 'Meeting event_date (YYYY-MM-DD). Defaults to today.' },
+        ]},
+        { name: 'update_meeting_note', desc: 'Replace text/attachments of an existing meeting note, identified by (meeting_uid, event_date, note_index).', group: 'Write', params: 5, paramDetails: [
+            { name: 'meeting_uid', type: 'string', desc: 'calendar_events.uid' },
+            { name: 'event_date', type: 'string', desc: 'YYYY-MM-DD' },
+            { name: 'note_index', type: 'number', desc: '0-based index of the note among this meeting' },
+            { name: 'text', type: 'string?', desc: 'New note text (unchanged if omitted)' },
+            { name: 'attachments', type: 'object[]?', desc: 'Replaces existing attachments. Each: {asset_id, filename?, mime_type?, uploaded_at?}' },
+        ]},
+        { name: 'delete_meeting_note', desc: 'Remove a meeting note by (meeting_uid, event_date, note_index). Idempotent on out-of-range index.', group: 'Write', params: 3, paramDetails: [
+            { name: 'meeting_uid', type: 'string', desc: 'calendar_events.uid' },
+            { name: 'event_date', type: 'string', desc: 'YYYY-MM-DD' },
+            { name: 'note_index', type: 'number', desc: '0-based index to remove' },
         ]},
         { name: 'create_entity', desc: 'Create person, company, product, or project', group: 'Write', params: 2, paramDetails: [
             { name: 'table', type: 'string', desc: 'people, companies, products, projects' },
@@ -16128,6 +16153,9 @@
         ]},
         { name: 'daily_review_extract', desc: 'Fetch daily note + entity context + prompt for review', group: 'AI Workflows', params: 1, paramDetails: [
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
+        ]},
+        { name: 'run_daily_review', desc: 'Trigger end-of-day review via /api/daily-review (server-side LLM extract+write). Used when an artifact or workflow needs to kick off the review without exposing the Access-gated API.', group: 'AI Workflows', params: 1, paramDetails: [
+            { name: 'note_date', type: 'string', desc: 'YYYY-MM-DD' },
         ]},
         { name: 'daily_review_write', desc: 'Write structured review results to database', group: 'AI Workflows', params: 2, paramDetails: [
             { name: 'date', type: 'string', desc: 'Date in YYYY-MM-DD' },
@@ -16193,6 +16221,11 @@
             { name: 'tables', type: 'string[]?', desc: 'Limit to specific tables' },
         ]},
         { name: 'get_system_status', desc: 'Overview of KB health and counts', group: 'Utility', params: 0, paramDetails: [] },
+        { name: 'list_usage_events', desc: 'Cost / quality observability for paulland.io LLM calls — totals, per-feature, per-day, recent rows from usage_events.', group: 'Utility', params: 3, paramDetails: [
+            { name: 'since', type: 'string?', desc: 'Time window: "24h", "7d", "30d", "90d", or ISO timestamp (default 7d)' },
+            { name: 'feature', type: 'string?', desc: 'Filter to a feature slug (e.g. "ask_stream")' },
+            { name: 'limit', type: 'number?', desc: 'Max recent rows (default 50)' },
+        ]},
         { name: 'list_prompts', desc: 'List all prompt templates with metadata', group: 'Prompts', params: 0, paramDetails: [] },
         { name: 'get_prompt', desc: 'Get full prompt template by slug', group: 'Prompts', params: 1, paramDetails: [
             { name: 'slug', type: 'string', desc: 'Prompt slug (e.g. "daily-review")' },
@@ -16963,6 +16996,150 @@
         });
     }
 
+    // ─── Costs (LLM usage_events) ──────────────────────────────
+
+    const COSTS_PERIODS = [
+        { id: '24h', label: '24h', cutoff: () => Date.now() - 24 * 60 * 60 * 1000 },
+        { id: '7d',  label: '7d',  cutoff: () => Date.now() - 7 * 24 * 60 * 60 * 1000 },
+        { id: '30d', label: '30d', cutoff: () => Date.now() - 30 * 24 * 60 * 60 * 1000 },
+        { id: '90d', label: '90d', cutoff: () => Date.now() - 90 * 24 * 60 * 60 * 1000 },
+    ];
+    let costsCurrentPeriod = '7d';
+
+    async function loadCosts() {
+        const main = document.getElementById('mainContent');
+        main.innerHTML = `
+            <div class="page-header">
+                <h2 class="page-title">Costs</h2>
+                <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                    paulland.io LLM call cost &amp; usage from the <code>usage_events</code> table.
+                </p>
+                <div style="display: flex; gap: 0.4rem; margin-top: 0.75rem;" id="costsPeriodPicker">
+                    ${COSTS_PERIODS.map(p => `
+                        <button class="type-badge" data-period="${p.id}" style="cursor: pointer; padding: 0.3rem 0.7rem; ${p.id === costsCurrentPeriod ? 'border-color: var(--accent); color: var(--accent);' : ''}">${p.label}</button>
+                    `).join('')}
+                </div>
+            </div>
+            <div id="costsBody"><div class="loading">Loading usage</div></div>
+        `;
+        document.getElementById('costsPeriodPicker').addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-period]');
+            if (!btn) return;
+            costsCurrentPeriod = btn.dataset.period;
+            loadCosts();
+        });
+        await renderCosts();
+        refreshIcons();
+    }
+
+    async function renderCosts() {
+        const period = COSTS_PERIODS.find(p => p.id === costsCurrentPeriod) || COSTS_PERIODS[1];
+        const sinceISO = new Date(period.cutoff()).toISOString();
+        const body = document.getElementById('costsBody');
+
+        const { data, error } = await db
+            .from('usage_events')
+            .select('created_at, surface, feature, model, tokens_in, tokens_out, cache_creation_tokens, cache_read_tokens, cost_est, duration_ms, output_excerpt, error')
+            .gte('created_at', sinceISO)
+            .order('created_at', { ascending: false })
+            .limit(500);
+
+        if (error) {
+            body.innerHTML = `<div class="empty">Error: ${esc(error.message)}</div>`;
+            return;
+        }
+        if (!data.length) {
+            body.innerHTML = `<div class="empty">No paulland.io API calls in the last ${period.label}</div>`;
+            return;
+        }
+
+        // Aggregates
+        const totals = data.reduce((acc, r) => {
+            acc.count++;
+            acc.cost_est += Number(r.cost_est || 0);
+            acc.tokens_in += r.tokens_in || 0;
+            acc.tokens_out += r.tokens_out || 0;
+            return acc;
+        }, { count: 0, cost_est: 0, tokens_in: 0, tokens_out: 0 });
+
+        const byFeature = {};
+        for (const r of data) {
+            const k = r.feature || '(unset)';
+            if (!byFeature[k]) byFeature[k] = { count: 0, cost_est: 0, tokens_in: 0, tokens_out: 0 };
+            byFeature[k].count++;
+            byFeature[k].cost_est += Number(r.cost_est || 0);
+            byFeature[k].tokens_in += r.tokens_in || 0;
+            byFeature[k].tokens_out += r.tokens_out || 0;
+        }
+        const featureRows = Object.entries(byFeature)
+            .sort((a, b) => b[1].cost_est - a[1].cost_est);
+
+        const fmtUSD = (n) => `$${Number(n).toFixed(4)}`;
+        const fmtInt = (n) => Number(n).toLocaleString('en-GB');
+        const fmtDate = (iso) => new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+        body.innerHTML = `
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0.75rem; margin-bottom: 1.5rem;">
+                <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Total cost</div>
+                    <div style="font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem;">${fmtUSD(totals.cost_est)}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">last ${period.label}</div>
+                </div>
+                <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">API calls</div>
+                    <div style="font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem;">${fmtInt(totals.count)}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-muted); margin-top: 0.15rem;">${totals.count === 1 ? 'call' : 'calls'} logged</div>
+                </div>
+                <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Tokens in</div>
+                    <div style="font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem;">${fmtInt(totals.tokens_in)}</div>
+                </div>
+                <div style="background: var(--void-lighter); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 1rem;">
+                    <div style="font-size: 0.7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em;">Tokens out</div>
+                    <div style="font-size: 1.6rem; font-weight: 600; margin-top: 0.25rem;">${fmtInt(totals.tokens_out)}</div>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 1.25rem;">
+                <section>
+                    <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 0.5rem;">By feature</h3>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>Feature</th><th style="text-align:right;">Calls</th><th style="text-align:right;">Cost</th></tr></thead>
+                            <tbody>
+                                ${featureRows.map(([k, v]) => `
+                                    <tr>
+                                        <td><span class="type-badge">${esc(k)}</span></td>
+                                        <td style="text-align:right; font-size: 0.8rem; color: var(--text-muted);">${fmtInt(v.count)}</td>
+                                        <td style="text-align:right; font-size: 0.8rem;">${fmtUSD(v.cost_est)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+                <section>
+                    <h3 style="font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin-bottom: 0.5rem;">Recent calls</h3>
+                    <div class="table-wrap">
+                        <table>
+                            <thead><tr><th>When</th><th>Feature</th><th>Model</th><th style="text-align:right;">Tokens</th><th style="text-align:right;">Cost</th></tr></thead>
+                            <tbody>
+                                ${data.slice(0, 25).map(r => `
+                                    <tr title="${esc((r.output_excerpt || '').slice(0, 200))}">
+                                        <td style="font-size: 0.8rem; color: var(--text-muted); white-space: nowrap;">${fmtDate(r.created_at)}</td>
+                                        <td><span class="type-badge">${esc(r.feature || '(unset)')}</span></td>
+                                        <td style="font-size: 0.8rem; color: var(--text-muted);">${esc((r.model || '').replace('claude-', ''))}</td>
+                                        <td style="text-align:right; font-size: 0.8rem; color: var(--text-muted);">${fmtInt((r.tokens_in || 0) + (r.tokens_out || 0))}</td>
+                                        <td style="text-align:right; font-size: 0.8rem;">${fmtUSD(r.cost_est)}</td>
+                                    </tr>
+                                `).join('')}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+        `;
+    }
+
     // ─── Ask AI (RAG) ──────────────────────────────────────────
 
     async function loadAsk() {
@@ -17190,7 +17367,6 @@
                         <option value="low">Low</option>
                     </select>
                     <button class="btn-action" id="tasksAddBtn" type="button">+ Add task</button>
-                    <button class="btn-ghost-sm" id="tasksBackfillBtn" type="button" title="Import - [ ] bullets from existing daily notes">Backfill from daily notes</button>
                 </div>
             </div>
             <form class="tasks-new-form" id="tasksNewForm" style="display:none">
@@ -17249,8 +17425,6 @@
             refreshTasks();
             loadCounts();
         });
-        document.getElementById('tasksBackfillBtn').addEventListener('click', runTasksBackfill);
-
         refreshTasks();
     }
 
@@ -17514,52 +17688,6 @@
                 showToast(err.message, 'error');
             }
         });
-    }
-
-    async function runTasksBackfill() {
-        if (!confirm('Preview what would be imported from your daily-note task bullets?')) return;
-        const btn = document.getElementById('tasksBackfillBtn');
-        btn.textContent = 'Running…'; btn.disabled = true;
-        try {
-            // Always dry-run first so the user sees the breakdown and the
-            // defaults (skip done, dedupe open, last 90 days) in action.
-            const dryRes = await fetch('/api/tasks/backfill-from-daily-notes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ dry_run: true }),
-            });
-            const dry = await dryRes.json();
-            if (!dryRes.ok) throw new Error(dry.error || 'Dry-run failed');
-            const s = dry.stats || {};
-            const preview = [
-                `Dry-run result (last ${s.days_back || 90} days):`,
-                ``,
-                `  Parsed bullets:          ${s.parsed_bullets ?? 0}`,
-                `  Done lines skipped:      ${s.done_skipped_by_default ?? 0} (include_done=false)`,
-                `  Open duplicates merged:  ${s.open_deduped ?? 0}`,
-                `  Already imported:        ${s.already_imported_skipped ?? 0}`,
-                ``,
-                `  → Would insert:          ${dry.wouldInsert ?? 0}`,
-                ``,
-                `Click OK to commit this import, or Cancel to adjust.`,
-            ].join('\n');
-            if (!confirm(preview)) return;
-            const res = await fetch('/api/tasks/backfill-from-daily-notes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Backfill failed');
-            alert(`Imported ${data.inserted} tasks. You can now review them in the Tasks view.`);
-            refreshTasks();
-            loadCounts();
-        } catch (err) {
-            alert(`Error: ${err.message}`);
-        } finally {
-            btn.textContent = 'Backfill from daily notes';
-            btn.disabled = false;
-        }
     }
 
     // ─── Ask Home (conversational RAG) ─────────────────────────
