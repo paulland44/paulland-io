@@ -276,7 +276,7 @@ async function vectorizeHasSource(sourceTable, sourceId) {
   // Uses getByIds (cheap, no vector math).
   const ids = [`${sourceTable}:${sourceId}:0`];
   const res = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/get-by-ids`,
+    `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/vectorize/v2/indexes/${VECTORIZE_INDEX}/get_by_ids`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${CF_API_TOKEN}`, 'Content-Type': 'application/json' },

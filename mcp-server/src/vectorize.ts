@@ -111,7 +111,7 @@ export async function replaceSourceVectors(
     await _binding.deleteByIds(staleIds);
     if (vectors.length) await _binding.upsert(vectors);
   } else {
-    await restCall('delete-by-ids', { ids: staleIds });
+    await restCall('delete_by_ids', { ids: staleIds });
     if (vectors.length) {
       const ndjson = vectors.map((v) => JSON.stringify(v)).join('\n');
       await restCall('upsert', ndjson, 'application/x-ndjson');
@@ -163,7 +163,7 @@ export async function deleteSourceVectors(
   if (bindingAvailable()) {
     await _binding.deleteByIds(ids);
   } else {
-    await restCall('delete-by-ids', { ids });
+    await restCall('delete_by_ids', { ids });
   }
 }
 
