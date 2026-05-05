@@ -577,11 +577,31 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // POST /customers/list — filter-body list (e.g. { partnerId: "3900??", partnerName: "MIS*" })
+  if (subPath === 'customers/list' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/customers/list?${paginationQS}`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
   if (subPath === 'customers' && request.method === 'POST') {
     const body = await request.text();
     const resp = await fetch(
       `${s2Base}/MIS/v0/${repoId}/customers`,
       { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // PUT /customers — fail-loud update. Body keyed by partnerId. Returns 404 if missing.
+  if (subPath === 'customers' && request.method === 'PUT') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/customers`,
+      { method: 'PUT', headers: s2Headers, body }
     );
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
@@ -600,6 +620,28 @@ async function handleS2Route(subPath, request, conn, env) {
     const resp = await fetch(
       `${s2Base}/MIS/v0/${repoId}/projects?${paginationQS}`,
       { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // POST /projects/list — filter-body list. Best for exact lookup by { jobId, jobPartId }
+  // and for dotted-path filters like { "generalIDs.ConverterMIS": "..." }.
+  if (subPath === 'projects/list' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/projects/list?${paginationQS}`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // PUT /projects — fail-loud update. Body keyed by properties.{MISId, jobId, jobPartId}.
+  // Returns 404 if the project doesn't exist (vs POST upsert which would silently create).
+  if (subPath === 'projects' && request.method === 'PUT') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/projects`,
+      { method: 'PUT', headers: s2Headers, body }
     );
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
@@ -674,6 +716,26 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // POST /products/list — filter-body list (e.g. { name: "2020040?", partnerId: "38000" })
+  if (subPath === 'products/list' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/products/list?${paginationQS}`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // PUT /products — fail-loud update. Body keyed by `name`. Returns 404 if missing.
+  if (subPath === 'products' && request.method === 'PUT') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/products`,
+      { method: 'PUT', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
   // Upsert: S2 matches on `name`. If the name already exists, the body is a
   // partial update; otherwise a new product is created. There is no separate
   // PUT/PATCH on /products/:id — this is the only write route.
@@ -735,6 +797,16 @@ async function handleS2Route(subPath, request, conn, env) {
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
 
+  // POST /workflow-templates/list — filter-body list (e.g. { name: "Proba*" })
+  if (subPath === 'workflow-templates/list' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/workflowTemplates/list?${paginationQS}`,
+      { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
   if (subPath.match(/^workflow-templates\/[^/]+$/) && request.method === 'GET') {
     const templateId = subPath.replace('workflow-templates/', '');
     const resp = await fetch(
@@ -759,6 +831,16 @@ async function handleS2Route(subPath, request, conn, env) {
     const resp = await fetch(
       `${s2Base}/MIS/v0/${repoId}/workflowInstances?${paginationQS}`,
       { headers: s2Headers }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // POST /workflow-instances/list — filter-body list (e.g. { projectName: "LaunchTest" })
+  if (subPath === 'workflow-instances/list' && request.method === 'POST') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/workflowInstances/list?${paginationQS}`,
+      { method: 'POST', headers: s2Headers, body }
     );
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }
@@ -797,6 +879,16 @@ async function handleS2Route(subPath, request, conn, env) {
     const resp = await fetch(
       `${s2Base}/MIS/v0/${repoId}/media`,
       { method: 'POST', headers: s2Headers, body }
+    );
+    return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
+  }
+
+  // PUT /media — fail-loud update. Body keyed by `id`. Returns 404 if missing.
+  if (subPath === 'media' && request.method === 'PUT') {
+    const body = await request.text();
+    const resp = await fetch(
+      `${s2Base}/MIS/v0/${repoId}/media`,
+      { method: 'PUT', headers: s2Headers, body }
     );
     return new Response(resp.body, { status: resp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders() } });
   }

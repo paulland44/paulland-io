@@ -118,25 +118,48 @@ async function enrichOne(
     return 'failed';
   }
 
-  // Step 1: search WCP for the project by jobId
+  // Step 1: search WCP for the project by exact {jobId, jobPartId} via POST /projects/list.
+  // This is the new S2 filter-body endpoint — exact match server-side, no near-miss
+  // filtering needed. Falls back to GET /projects?searchValue= if /list returns 404
+  // (older S2 deployments that haven't picked up the v1.0 Alpha API).
   const s2Headers: Record<string, string> = {
     'Accept': 'application/json',
     'X-Internal-API-Key': internalKey,
     'X-MIS-Connection-Id': s2ConnectionId,
   };
 
-  const searchResp = await fetch(
-    `${apiUrl}/mis/projects?searchValue=${encodeURIComponent(row.job_id)}&pageSize=5`,
-    { headers: s2Headers }
-  );
-  if (!searchResp.ok) {
-    await scheduleRetry(env, row, `Search failed: HTTP ${searchResp.status}`);
+  const jobPartId = row.enrichment_payload?.properties?.jobPartId;
+  const filterBody: Record<string, string> = { jobId: row.job_id };
+  if (jobPartId) filterBody.jobPartId = jobPartId;
+
+  let match: any = null;
+  const listResp = await fetch(`${apiUrl}/mis/projects/list?pageSize=5`, {
+    method: 'POST',
+    headers: { ...s2Headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify(filterBody),
+  });
+
+  if (listResp.ok) {
+    const listData = await listResp.json().catch(() => null) as any;
+    const items = listData?.items || listData?.data || (Array.isArray(listData) ? listData : []);
+    match = items.find((p: any) => p?.properties?.jobId === row.job_id);
+  } else if (listResp.status === 404) {
+    // Fallback: older S2 without /projects/list — use legacy fuzzy search
+    const searchResp = await fetch(
+      `${apiUrl}/mis/projects?searchValue=${encodeURIComponent(row.job_id)}&pageSize=5`,
+      { headers: s2Headers }
+    );
+    if (!searchResp.ok) {
+      await scheduleRetry(env, row, `Search failed: HTTP ${searchResp.status}`);
+      return 'deferred';
+    }
+    const searchData = await searchResp.json().catch(() => null) as any;
+    const items = searchData?.items || searchData?.data || (Array.isArray(searchData) ? searchData : []);
+    match = items.find((p: any) => p?.properties?.jobId === row.job_id);
+  } else {
+    await scheduleRetry(env, row, `Lookup failed: HTTP ${listResp.status}`);
     return 'deferred';
   }
-  const searchData = await searchResp.json().catch(() => null) as any;
-  const items = searchData?.items || searchData?.data || (Array.isArray(searchData) ? searchData : []);
-  // S2 searchValue can return near-matches; require exact jobId match on properties.
-  const match = items.find((p: any) => p?.properties?.jobId === row.job_id);
 
   if (!match) {
     await scheduleRetry(env, row, 'WCP project not yet visible');

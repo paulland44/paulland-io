@@ -5342,12 +5342,13 @@ server.tool(
 
 server.tool(
   'list_customers',
-  'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs. Not available for AE connections.',
+  'List customers/partners from WCP. Useful for finding valid customer codes before creating MIS jobs. Not available for AE connections. Supports filter-body lookup for S2 connections via the `filter` parameter (e.g. { partnerId: "3900??", partnerName: "MIS*" }).',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
-    searchValue: z.string().optional().describe('Search by partnerName or partnerID (wildcard, case-insensitive)'),
+    searchValue: z.string().optional().describe('Search by partnerName or partnerID (wildcard, case-insensitive). GET-list path.'),
+    filter: z.record(z.any()).optional().describe('S2 filter-body object (e.g. { partnerId: "3900??", partnerName: "MIS*" }). When provided, uses POST /customers/list. S2 only.'),
   },
-  async ({ connection_id, searchValue }) => {
+  async ({ connection_id, searchValue, filter }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) {
       return {
@@ -5361,8 +5362,13 @@ server.tool(
       };
     }
 
-    const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
-    const result = await callMisProxy('GET', `customers${qs}`, conn.id);
+    let result;
+    if (filter) {
+      result = await callMisProxy('POST', 'customers/list', conn.id, filter);
+    } else {
+      const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
+      result = await callMisProxy('GET', `customers${qs}`, conn.id);
+    }
     if (!result.ok) {
       return {
         content: [{
@@ -5380,13 +5386,38 @@ server.tool(
 );
 
 server.tool(
+  'update_customer',
+  'Update an existing S2 customer (partner) via PUT /customers. S2 matches the record on partnerId — must match an existing customer. Returns 404 if missing (fail-loud). Body fields: partnerName, description, address, contacts, additionalInfo, partnerManager*. S2 connections only.',
+  {
+    partner_id: z.string().describe('Existing partnerId — must match the value used at creation'),
+    properties: z.record(z.any()).describe('Fields to update: partnerName, description, address, contacts, additionalInfo, partnerManager, partnerManagerName, partnerManagerEmail. partnerId is merged in automatically.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ partner_id, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+    if (conn.type === 'ae') {
+      return { content: [{ type: 'text' as const, text: 'Automation Engine connections do not support customer management.' }], isError: true };
+    }
+
+    const payload = { ...properties, partnerId: partner_id };
+    const result = await callMisProxy('PUT', 'customers', conn.id, payload);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update customer (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, partner_id, response: result.data }, null, 2) }] };
+  }
+);
+
+server.tool(
   'list_task_templates',
-  'List task templates from WCP. Returns template names and node IDs needed for creating MIS job tasks. Not available for AE connections.',
+  'List task templates (workflow templates on S2) from WCP. Returns template names and node IDs needed for creating MIS job tasks. Not available for AE connections. Supports filter-body lookup for S2 connections via the `filter` parameter (e.g. { name: "Proba*" }).',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     searchValue: z.string().optional().describe('Search by template name (wildcard, case-insensitive). S2 connections only.'),
+    filter: z.record(z.any()).optional().describe('S2 filter-body object (e.g. { name: "Proba*" }). When provided, uses POST /workflow-templates/list. S2 only.'),
   },
-  async ({ connection_id, searchValue }) => {
+  async ({ connection_id, searchValue, filter }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) {
       return {
@@ -5400,8 +5431,13 @@ server.tool(
       };
     }
 
-    const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
-    const result = await callMisProxy('GET', `task-templates${qs}`, conn.id);
+    let result;
+    if (filter) {
+      result = await callMisProxy('POST', 'workflow-templates/list', conn.id, filter);
+    } else {
+      const qs = searchValue ? `?searchValue=${encodeURIComponent(searchValue)}` : '';
+      result = await callMisProxy('GET', `task-templates${qs}`, conn.id);
+    }
     if (!result.ok) {
       return {
         content: [{
@@ -5422,24 +5458,27 @@ server.tool(
 
 server.tool(
   'list_projects',
-  'List projects (jobs) from S2. Returns paginated list with project names, IDs, and modification dates. Requires an S2 connection.',
+  'List projects (jobs) from S2. Returns paginated list with project names, IDs, and modification dates. Requires an S2 connection. For exact lookup by jobId/jobPartId or dotted-path filters (e.g. generalIDs.ConverterMIS), pass `filter` to use POST /projects/list — much more reliable than fuzzy `searchValue`.',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
     searchValue: z.string().optional().describe('Search by name, jobID, generalIDs.Project or PrintBuyerReference (wildcard, case-insensitive)'),
+    filter: z.record(z.any()).optional().describe('S2 filter-body object — best for exact { jobId, jobPartId } lookup or dotted-path filters like { "generalIDs.ConverterMIS": "GetWell Pharma" }. When provided, uses POST /projects/list.'),
   },
-  async ({ connection_id, from, pageSize, searchValue }) => {
+  async ({ connection_id, from, pageSize, searchValue, filter }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
-    if (searchValue) params.set('searchValue', searchValue);
+    if (searchValue && !filter) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
-    const result = await callMisProxy('GET', `projects${qs}`, conn.id);
+    const result = filter
+      ? await callMisProxy('POST', `projects/list${qs}`, conn.id, filter)
+      : await callMisProxy('GET', `projects${qs}`, conn.id);
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list projects (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
@@ -5468,15 +5507,16 @@ server.tool(
 
 server.tool(
   'update_project',
-  'Partial-update an existing S2 project. S2 matches the record on properties.{MISId, jobId, jobPartId} — all three must match an existing project. Only the fields present in `properties` are changed; everything else is preserved. Use update_project_status to change status, and the link/asset tools to change products/assets.',
+  'Partial-update an existing S2 project. S2 matches the record on properties.{MISId, jobId, jobPartId} — all three must match an existing project. Only the fields present in `properties` are changed; everything else is preserved. By default uses POST (upsert) — pass strict_update:true to use PUT, which returns 404 if the project does not exist (recommended when you want a typo to fail loud). Use update_project_status to change status, and the link/asset tools to change products/assets.',
   {
     job_id: z.string().describe('Existing project jobId (e.g. "MIS-0042") — must match the value used at creation'),
     job_part_id: z.string().optional().describe('Existing jobPartId, if the project was created with one'),
     mis_id: z.string().optional().describe('MISId used at creation (default: "MyMIS")'),
     properties: z.record(z.any()).describe('Partial properties to update: description, descriptiveName, attributes, dueDate, generalIDs, etc. Identifier fields (MISId, jobId, jobPartId) are merged in automatically.'),
+    strict_update: z.boolean().optional().describe('When true, uses PUT /projects (fail-loud — 404 if missing). When false/omitted, uses POST upsert.'),
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
   },
-  async ({ job_id, job_part_id, mis_id, properties, connection_id }) => {
+  async ({ job_id, job_part_id, mis_id, properties, strict_update, connection_id }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
@@ -5489,11 +5529,12 @@ server.tool(
       },
     };
 
-    const result = await callMisProxy('POST', 'projects', conn.id, payload);
+    const method = strict_update ? 'PUT' : 'POST';
+    const result = await callMisProxy(method, 'projects', conn.id, payload);
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update project (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
-    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, job_id, response: result.data }, null, 2) }] };
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, job_id, method, response: result.data }, null, 2) }] };
   }
 );
 
@@ -5514,6 +5555,37 @@ server.tool(
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update project status (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
     return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, project_node_id, new_status: status }, null, 2) }] };
+  }
+);
+
+server.tool(
+  'update_product_status',
+  'Update the status of an S2 product, optionally for a specific part/side. Drives the canonical product lifecycle (WaitingForFiles → DigitalArtArrived → Approved, etc.). When part_name is provided, the status applies to that part only. authorName/authorComment are recorded in the product audit history. Requires an S2 connection.',
+  {
+    product_node_id: z.string().describe('S2 node ID of the product'),
+    status: z.string().describe('New status value (e.g. "WaitingForFiles", "DigitalArtArrived", "Approved")'),
+    part_name: z.string().optional().describe('Name of the part to update (e.g. "CartonLumiGreen_part"). When set, status applies per-part.'),
+    side: z.enum(['Front', 'Back']).optional().describe('Side of the part (Front/Back). Only meaningful with part_name.'),
+    author_name: z.string().optional().describe('Author of the status change — recorded in audit history.'),
+    author_comment: z.string().optional().describe('Comment about the status change — recorded in audit history.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ product_node_id, status, part_name, side, author_name, author_comment, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const params = new URLSearchParams();
+    params.set('status', status);
+    if (part_name) params.set('partName', part_name);
+    if (side) params.set('side', side);
+    if (author_name) params.set('authorName', author_name);
+    if (author_comment) params.set('authorComment', author_comment);
+
+    const result = await callMisProxy('POST', `products/${product_node_id}/status?${params.toString()}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update product status (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, product_node_id, new_status: status, part_name, side }, null, 2) }] };
   }
 );
 
@@ -5544,10 +5616,12 @@ async function s2UploadAsset(
   createPath: string,
   relURL: string,
   fileContentBase64: string,
-  mimeType: string
+  mimeType: string,
+  bodyKey: 'relUrl' | 'relURL' = 'relURL'
 ): Promise<{ ok: boolean; data?: any; error?: string }> {
   // Step 1: Create asset placeholder — returns { id, contentUri, contentId, version }
-  const step1 = await callMisProxy('POST', createPath, connectionId, { relURL });
+  // Per S2 spec: project assets use `relUrl` (lowercase rl); product shape/graphic assets use `relURL`.
+  const step1 = await callMisProxy('POST', createPath, connectionId, { [bodyKey]: relURL });
   if (!step1.ok) {
     return { ok: false, error: `Step 1 failed (create placeholder): HTTP ${step1.status} — ${JSON.stringify(step1.data)}` };
   }
@@ -5598,7 +5672,7 @@ server.tool(
     const relURL = `${dir}/${encodeURIComponent(file_name)}`;
     const mimeType = mime_type || guessMimeType(file_name);
 
-    const result = await s2UploadAsset(conn.id, `projects/${project_node_id}/assets`, relURL, file_content, mimeType);
+    const result = await s2UploadAsset(conn.id, `projects/${project_node_id}/assets`, relURL, file_content, mimeType, 'relUrl');
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: result.error }, null, 2) }], isError: true };
     }
@@ -5666,24 +5740,27 @@ server.tool(
 
 server.tool(
   'list_workflow_instances',
-  'List running and completed workflow instances. Useful for monitoring workflow progress. Requires an S2 connection.',
+  'List running and completed workflow instances. Useful for monitoring workflow progress. Requires an S2 connection. Pass `filter` to use POST /workflow-instances/list (e.g. { projectName: "LaunchTest" }).',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
     searchValue: z.string().optional().describe('Search by name, workflow template name or project name (wildcard, case-insensitive)'),
+    filter: z.record(z.any()).optional().describe('S2 filter-body object (e.g. { projectName: "LaunchTest" }). When provided, uses POST /workflow-instances/list.'),
   },
-  async ({ connection_id, from, pageSize, searchValue }) => {
+  async ({ connection_id, from, pageSize, searchValue, filter }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
-    if (searchValue) params.set('searchValue', searchValue);
+    if (searchValue && !filter) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
-    const result = await callMisProxy('GET', `workflow-instances${qs}`, conn.id);
+    const result = filter
+      ? await callMisProxy('POST', `workflow-instances/list${qs}`, conn.id, filter)
+      : await callMisProxy('GET', `workflow-instances${qs}`, conn.id);
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list workflow instances (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
@@ -5731,24 +5808,27 @@ server.tool(
 
 server.tool(
   'list_products',
-  'List products from S2. Returns paginated list with product names, types, and node IDs. Requires an S2 connection.',
+  'List products from S2. Returns paginated list with product names, types, and node IDs. Requires an S2 connection. For pattern lookup pass `filter` to use POST /products/list (e.g. { name: "2020040?", partnerId: "38000" }).',
   {
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
     from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
     pageSize: z.number().optional().describe('Max items to return (default: 20)'),
     searchValue: z.string().optional().describe('Search by name, generalIDs.ConverterMIS or GTIN (wildcard, case-insensitive)'),
+    filter: z.record(z.any()).optional().describe('S2 filter-body object (e.g. { name: "2020040?", partnerId: "38000" }). When provided, uses POST /products/list.'),
   },
-  async ({ connection_id, from, pageSize, searchValue }) => {
+  async ({ connection_id, from, pageSize, searchValue, filter }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
     const params = new URLSearchParams();
     if (from !== undefined) params.set('from', String(from));
     if (pageSize !== undefined) params.set('pageSize', String(pageSize));
-    if (searchValue) params.set('searchValue', searchValue);
+    if (searchValue && !filter) params.set('searchValue', searchValue);
     const qs = params.toString() ? `?${params.toString()}` : '';
 
-    const result = await callMisProxy('GET', `products${qs}`, conn.id);
+    const result = filter
+      ? await callMisProxy('POST', `products/list${qs}`, conn.id, filter)
+      : await callMisProxy('GET', `products${qs}`, conn.id);
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list products (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
@@ -5778,21 +5858,123 @@ server.tool(
 
 server.tool(
   'update_product',
-  'Partial-update an existing S2 product. S2 matches the record on `name` — it must match an existing product. Only the fields present in `properties` are changed. Use update_project_status for per-part status changes, and the upload_product_asset tool to attach graphic/shape assets.',
+  'Partial-update an existing S2 product. S2 matches the record on `name` — it must match an existing product. Only the fields present in `properties` are changed. By default uses POST (upsert) — pass strict_update:true to use PUT, which returns 404 if the product does not exist. Use update_product_status for per-part status changes, and the upload_product_asset tool to attach graphic/shape assets.',
   {
     name: z.string().describe('Existing product name — must match the value used at creation'),
     properties: z.record(z.any()).describe('Partial properties to update: description, descriptiveName, parts, customers, etc.'),
+    strict_update: z.boolean().optional().describe('When true, uses PUT /products (fail-loud — 404 if missing). When false/omitted, uses POST upsert.'),
     connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
   },
-  async ({ name, properties, connection_id }) => {
+  async ({ name, properties, strict_update, connection_id }) => {
     const conn = await resolveConnectionId(connection_id);
     if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
 
-    const result = await callMisProxy('POST', 'products', conn.id, { name, properties });
+    const method = strict_update ? 'PUT' : 'POST';
+    const result = await callMisProxy(method, 'products', conn.id, { name, properties });
     if (!result.ok) {
       return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update product (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
     }
-    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, name, response: result.data }, null, 2) }] };
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, name, method, response: result.data }, null, 2) }] };
+  }
+);
+
+// ─── S2 Media (substrate) tools ─────────────────────────────
+// Media nodes are referenced by parts[].mediaIntent[].ref when creating products.
+
+server.tool(
+  'list_media',
+  'List media (substrates) from S2. Returns paginated list of media node IDs and properties — needed when creating products that reference media via parts[].mediaIntent[].ref. Pass predefined:true to filter to predefined substrates only. Pass `filter` to use POST /media/list (filter-body lookup). Requires an S2 connection.',
+  {
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+    from: z.number().optional().describe('Zero-based start index for pagination (default: 0)'),
+    pageSize: z.number().optional().describe('Max items to return (default: 20)'),
+    predefined: z.boolean().optional().describe('If true, filter to predefined substrates only.'),
+  },
+  async ({ connection_id, from, pageSize, predefined }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const params = new URLSearchParams();
+    if (from !== undefined) params.set('from', String(from));
+    if (pageSize !== undefined) params.set('pageSize', String(pageSize));
+    if (predefined) params.set('predefined', 'true');
+    const qs = params.toString() ? `?${params.toString()}` : '';
+
+    const result = await callMisProxy('GET', `media${qs}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to list media (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'get_media',
+  'Get details of a single media (substrate) node by ID. Useful for inspecting media properties before referencing it in product creation.',
+  {
+    media_node_id: z.string().describe('S2 node ID of the media item'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ media_node_id, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const result = await callMisProxy('GET', `media/${media_node_id}`, conn.id);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to get media (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'create_media',
+  'Create a new media (substrate) in S2. Body shape: { mediaPath: "Corrugated"|..., properties: { descriptiveName, mediaType, mediaTypeDetails, thickness, weight, flute, ... } }. Returns the created node ID. Requires an S2 connection with media-management permissions.',
+  {
+    name: z.string().describe('Media name (used as URL path segment, e.g. "MyCorrugated")'),
+    media_path: z.string().describe('Folder/category for the media (e.g. "Corrugated", "Carton")'),
+    properties: z.record(z.any()).describe('Media properties: descriptiveName, mediaType (e.g. CorrugatedBoard), mediaTypeDetails (e.g. DoubleWall), thickness, weight, flute, etc.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ name, media_path, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const payload = { mediaPath: media_path, properties };
+    const result = await callMisProxy('POST', `media/${encodeURIComponent(name)}`, conn.id, payload);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to create media (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify(result.data, null, 2) }] };
+  }
+);
+
+server.tool(
+  'update_media',
+  'Update an existing S2 media (substrate) via PUT /media. Body keyed by `id`. Returns 404 if missing (fail-loud). Use list_media or get_media to discover the node ID first.',
+  {
+    media_node_id: z.string().describe('S2 node ID of the media to update'),
+    media_path: z.string().optional().describe('Folder/category (preserved if omitted)'),
+    node_type: z.string().optional().describe('Node type identifier (default: "PDM:Media")'),
+    properties: z.record(z.any()).describe('Properties to update: descriptiveName, mediaType, mediaTypeDetails, mediaQuality, thickness, weight, flute, etc.'),
+    connection_id: z.string().optional().describe('MIS connection UUID (uses active connection if omitted)'),
+  },
+  async ({ media_node_id, media_path, node_type, properties, connection_id }) => {
+    const conn = await resolveConnectionId(connection_id);
+    if (!conn) return { content: [{ type: 'text' as const, text: 'No MIS connection found.' }], isError: true };
+
+    const payload: Record<string, any> = {
+      id: media_node_id,
+      nodeType: node_type || 'PDM:Media',
+      properties,
+    };
+    if (media_path) payload.mediaPath = media_path;
+
+    const result = await callMisProxy('PUT', 'media', conn.id, payload);
+    if (!result.ok) {
+      return { content: [{ type: 'text' as const, text: JSON.stringify({ error: `Failed to update media (HTTP ${result.status})`, detail: result.data }, null, 2) }], isError: true };
+    }
+    return { content: [{ type: 'text' as const, text: JSON.stringify({ ok: true, media_node_id, response: result.data }, null, 2) }] };
   }
 );
 

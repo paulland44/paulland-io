@@ -149,25 +149,36 @@ S2 MIS API Routes (S2 connections, proxied to Esko S2 `/MISapi/v0/` endpoints):
 |--------|-------|---------|
 | GET | `mis/customers`, `mis/customers/:id` | List/get customers |
 | POST | `mis/customers` | **Upsert** customer (keyed by identifier in body — creates or updates) |
+| POST | `mis/customers/list` | **Filter-body** list customers (e.g. `{ partnerId: "3900??", partnerName: "MIS*" }`) |
+| PUT | `mis/customers` | **Strict update** customer (keyed by `partnerId` — 404 if missing) |
 | GET | `mis/projects`, `mis/projects/:id` | List/get projects (jobs) |
 | POST | `mis/projects` | **Upsert** project (keyed by `properties.{MISId, jobId, jobPartId}` — creates if new, partial-update if exists). There is no `POST /projects/:id`. |
+| POST | `mis/projects/list` | **Filter-body** list projects — best for exact `{ jobId, jobPartId }` lookup or dotted-path filters like `{ "generalIDs.ConverterMIS": "..." }` |
+| PUT | `mis/projects` | **Strict update** project (keyed by `properties.{MISId, jobId, jobPartId}` — 404 if missing) |
 | POST | `mis/projects/:id/status` | Update project status |
 | POST | `mis/projects/:id/products` | Link products to project |
-| GET/POST | `mis/projects/:id/assets` | List/create project assets |
+| GET/POST | `mis/projects/:id/assets` | List/create project assets (POST body uses `relUrl`) |
 | GET | `mis/products`, `mis/products/:id` | List/get products |
 | POST | `mis/products` | **Upsert** product (keyed by `name` — creates if new, partial-update if exists) |
-| POST | `mis/products/:id/status` | Update product status (per-part) |
-| POST | `mis/products/:id/shapeAsset` | Attach shape asset to product |
-| POST | `mis/products/:id/graphicAssets` | Attach graphic asset to product |
+| POST | `mis/products/list` | **Filter-body** list products (e.g. `{ name: "2020040?", partnerId: "38000" }`) |
+| PUT | `mis/products` | **Strict update** product (keyed by `name` — 404 if missing) |
+| POST | `mis/products/:id/status` | Update product status (per-part: query params `partName`, `side`, `authorName`, `authorComment`) |
+| POST | `mis/products/:id/shapeAsset` | Attach shape asset to product (body uses `relURL`) |
+| POST | `mis/products/:id/graphicAssets` | Attach graphic asset to product (body uses `relURL`) |
 | GET | `mis/workflow-templates`, `mis/workflow-templates/:id` | List/get workflow templates |
-| POST | `mis/workflow-templates/:id/launch` | Launch workflow on project |
+| POST | `mis/workflow-templates/list` | **Filter-body** list workflow templates (e.g. `{ name: "Proba*" }`) |
+| POST | `mis/workflow-templates/:id/launch` | Launch workflow on project (body: `{ jobId, inputs[] }` — inputs are asset node IDs) |
 | GET | `mis/workflow-instances`, `mis/workflow-instances/:id` | List/get workflow instances |
+| POST | `mis/workflow-instances/list` | **Filter-body** list workflow instances (e.g. `{ projectName: "LaunchTest" }`) |
 | POST | `mis/workflow-instances/:id/cancel` | Cancel running workflow |
-| GET/POST | `mis/media`, `mis/media/:id` | List/create/get media (substrates) |
+| GET/POST | `mis/media`, `mis/media/:id` | List/create/get media (substrates). GET supports `?predefined=true` |
+| PUT | `mis/media` | **Strict update** media (keyed by `id` in body — 404 if missing) |
 | GET | `mis/assets/:id`, `mis/assets/:id/thumbnail`, `mis/assets/:id/content` | Asset info/preview/download |
 | POST | `mis/assets/:id/content` | Upload asset content (legacy single-step) |
 | PUT | `mis/assets/:id/content` | Upload asset content via PUT (3-step flow) |
 | POST | `mis/assets/:id/contentUploadStatus` | Finalize 3-step asset upload (query: contentId, version, status) |
+
+Note on body-key casing for the 3-step asset upload: project assets (`POST /mis/projects/:id/assets`) use `relUrl` (lowercase `rl`); product shape and graphic assets (`POST /mis/products/:id/{shapeAsset,graphicAssets}`) use `relURL` (uppercase `RL`). The shared `s2UploadAsset` helper in `mcp-server/src/index.ts` takes a `bodyKey` parameter to send the right one.
 
 ## Frontend
 
@@ -233,7 +244,7 @@ cd mcp-worker && npx wrangler deploy
 
 Both steps are required when tools change. The Worker imports from `../../mcp-server/src/index.js`.
 
-### Tool Groups (85 tools)
+### Tool Groups (90 tools)
 
 | Group | Tools | Count |
 |-------|-------|-------|
@@ -249,7 +260,7 @@ Both steps are required when tools change. The Worker imports from `../../mcp-se
 | Assets | list_assets, upload_asset, get_asset_content, batch_update_assets | 4 |
 | Embeddings | generate_embedding, batch_embed | 2 |
 | Prompts | list_prompts, get_prompt, update_prompt | 3 |
-| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, list_task_templates, list_projects, get_project_info, update_project, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product, update_product | 20 |
+| MIS | list_mis_connections, list_mis_jobs, create_mis_job, submit_mis_job, list_customers, update_customer, list_task_templates, list_projects, get_project_info, update_project, update_project_status, list_project_assets, upload_project_asset, upload_product_asset, launch_workflow, list_workflow_instances, get_workflow_instance, cancel_workflow, list_products, create_product, update_product, update_product_status, list_media, get_media, create_media, update_media | 25 |
 | Bookings | import_bookings | 1 |
 | Revenue | import_revenue | 1 |
 | WCR Pack Pipeline | wcr_pack_opps_extract, wcr_pack_opps_write | 2 |
@@ -377,7 +388,7 @@ Jasper uses a **second retrieval channel** alongside Vectorize: a Cloudflare AI 
 An inbound email routed to an AE connection (by `email_prefix` on `mis_connections` where `type='ae'`) runs a two-stage flow:
 
 1. **Stage 1 — email worker** (`email-to-mis-job`): sends a **minimal** job to Automation Engine via `PUT /api/mis/create-job` (jobName, jobId, jobPartId, customerCode, brief description, category). Writes a `mis_jobs` row with `status='AE-Submitted'`, the **full** enrichment payload stashed in `enrichment_payload`, R2 attachment keys in `pending_attachments`, and `enrichment_next_at` set to now + 2 min. AE provisions the downstream WCP project, preserving our `jobId`/`jobPartId`.
-2. **Stage 2 — enrichment poller** (`capture-worker/src/enrichment-sync.ts`): every 30 min sweeps rows where `status='AE-Submitted' AND enrichment_next_at <= now()`. For each, resolves the S2 connection via `mis_connections.enrichment_connection_id` (falls back to sibling S2 by cluster), searches WCP via `GET /mis/projects?searchValue=<jobId>`, uploads any `pending_attachments` via the 3-step S2 flow, and POSTs the enrichment payload — S2 upserts on `{MISId, jobId, jobPartId}` so the AE-created project gets partial-updated, not duplicated. On success the row flips to `status='WCP-Enriched'` and R2 objects are deleted. Not-yet-visible rows back off via `[2, 5, 10, 30, 60, 120×7]` minutes, then transition to `Enrichment-Failed` after 12 attempts (~16 h).
+2. **Stage 2 — enrichment poller** (`capture-worker/src/enrichment-sync.ts`): every 30 min sweeps rows where `status='AE-Submitted' AND enrichment_next_at <= now()`. For each, resolves the S2 connection via `mis_connections.enrichment_connection_id` (falls back to sibling S2 by cluster), looks up the WCP project via `POST /mis/projects/list` with body `{ jobId, jobPartId? }` (exact filter-body match — falls back to legacy `GET /mis/projects?searchValue=<jobId>` only if `/list` returns 404), uploads any `pending_attachments` via the 3-step S2 flow, and POSTs the enrichment payload — S2 upserts on `{MISId, jobId, jobPartId}` so the AE-created project gets partial-updated, not duplicated. On success the row flips to `status='WCP-Enriched'` and R2 objects are deleted. Not-yet-visible rows back off via `[2, 5, 10, 30, 60, 120×7]` minutes, then transition to `Enrichment-Failed` after 12 attempts (~16 h).
 
 Statuses: `AE-Submitted` → `WCP-Enriched` (success) | `Enrichment-Failed` (poller exhausted) | `AE-Failed` (AE itself rejected). Manual trigger: `POST https://<capture-worker>/trigger-enrichment`.
 
