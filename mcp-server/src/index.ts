@@ -3951,6 +3951,43 @@ async function parseWcrPackXlsx(assetId: string): Promise<ParsedWcrPackXlsx> {
     }
     if (headerIdx < 0) return { opportunities, grandTotalParsed, grandTotalPrinted, runAt, parseError: 'Could not locate header row ("Account Regional Division")' };
 
+    const headerRow = rows[headerIdx] || [];
+    const headerMap = new Map<string, number>();
+    headerRow.forEach((cell, idx) => {
+      if (cell == null) return;
+      const key = String(cell).trim().toLowerCase().replace(/\s+/g, ' ');
+      if (key) headerMap.set(key, idx);
+    });
+    const colByName = (...aliases: string[]): number | null => {
+      for (const a of aliases) {
+        const idx = headerMap.get(a.toLowerCase());
+        if (idx != null) return idx;
+      }
+      return null;
+    };
+    const idxStage          = colByName('stage', 'stage mapping', 'opportunity stage', 'sales stage');
+    const idxAccount        = colByName('account name: account name', 'account name', 'account');
+    const idxRegDiv         = colByName('account regional division', 'regional division');
+    const idxRegion         = colByName('account region', 'region');
+    const idxOwner          = colByName('opportunity owner: full name', 'opportunity owner', 'owner');
+    const idxOppId          = colByName('opportunity id', 'opportunity name', 'opportunity');
+    const idxSoftware       = colByName('software', 'main products', 'product');
+    const idxAmount         = colByName('amount (converted)', 'amount converted', 'amount');
+    const idxAmountSw       = colByName('amount of software (converted)', 'amount software (converted)', 'amount of software', 'amount software converted', 'amount software');
+    const idxNextAction     = colByName('next action');
+    const idxCreated        = colByName('created date');
+    const idxCloseReason    = colByName('close reason');
+    const idxCloseReasonDet = colByName('close reason detail');
+    const idxCloseComment   = colByName('close comment');
+    const idxMgo            = colByName('marketing generated opportunity', 'marketing generated', 'mgo');
+
+    if (idxStage == null || idxAmountSw == null || idxOppId == null) {
+      return {
+        opportunities, grandTotalParsed, grandTotalPrinted, runAt,
+        parseError: `Missing required columns (stage / amount software / opportunity id). Found headers: ${[...headerMap.keys()].join(' | ')}`,
+      };
+    }
+
     const parseGroupCloseDate = (label: string): string | null => {
       const m = label.match(/Close Date:\s*([A-Za-z]+)\s+(?:FY\s*)?(\d{4})/);
       if (!m) return null;
@@ -3979,37 +4016,37 @@ async function parseWcrPackXlsx(assetId: string): Promise<ParsedWcrPackXlsx> {
         continue;
       }
       if (c0.startsWith('Grand Totals')) {
-        const raw = r[7] ?? rows[i + 1]?.[7];
+        const raw = r[idxAmountSw] ?? rows[i + 1]?.[idxAmountSw];
         grandTotalPrinted = parseEuroUsd(raw);
         continue;
       }
       if (!c0) continue;
-      if (r[4] == null || String(r[4]).trim() === '') continue;
+      if (r[idxOppId] == null || String(r[idxOppId]).trim() === '') continue;
 
-      const software = r[5] == null ? '' : String(r[5]);
-      const amountUsd = parseEuroUsd(r[6]);
-      const amountSoftwareUsd = parseEuroUsd(r[7]);
+      const software = idxSoftware != null && r[idxSoftware] != null ? String(r[idxSoftware]) : '';
+      const amountUsd = idxAmount != null ? parseEuroUsd(r[idxAmount]) : null;
+      const amountSoftwareUsd = parseEuroUsd(r[idxAmountSw]);
       if (amountSoftwareUsd != null) grandTotalParsed += amountSoftwareUsd;
 
       opportunities.push({
-        opportunity_id: cleanDash(r[4]),
-        opportunity_name: cleanDash(r[4]),
-        account_name: cleanDash(r[3]),
-        regional_division: cleanDash(r[0]),
-        region: cleanDash(r[1]),
-        opportunity_owner: cleanDash(r[2]),
-        software: cleanDash(r[5]),
+        opportunity_id: cleanDash(r[idxOppId]),
+        opportunity_name: cleanDash(r[idxOppId]),
+        account_name: idxAccount != null ? cleanDash(r[idxAccount]) : null,
+        regional_division: idxRegDiv != null ? cleanDash(r[idxRegDiv]) : null,
+        region: idxRegion != null ? cleanDash(r[idxRegion]) : null,
+        opportunity_owner: idxOwner != null ? cleanDash(r[idxOwner]) : null,
+        software: idxSoftware != null ? cleanDash(r[idxSoftware]) : null,
         main_products: software ? software.split(/[;,]/).map(s => s.trim()).filter(Boolean) : [],
         amount_usd: amountUsd,
         amount_software_usd: amountSoftwareUsd,
-        stage: cleanDash(r[10]),
+        stage: cleanDash(r[idxStage]),
         close_date: currentGroupCloseDate,
-        close_reason: cleanDash(r[11]),
-        close_reason_detail: cleanDash(r[12]),
-        close_comment: cleanDash(r[13]),
-        next_action: cleanDash(r[8]),
-        created_date: toIsoDate(r[9]),
-        marketing_generated: r[14] == null ? null : String(r[14]).trim() === '1',
+        close_reason: idxCloseReason != null ? cleanDash(r[idxCloseReason]) : null,
+        close_reason_detail: idxCloseReasonDet != null ? cleanDash(r[idxCloseReasonDet]) : null,
+        close_comment: idxCloseComment != null ? cleanDash(r[idxCloseComment]) : null,
+        next_action: idxNextAction != null ? cleanDash(r[idxNextAction]) : null,
+        created_date: idxCreated != null ? toIsoDate(r[idxCreated]) : null,
+        marketing_generated: idxMgo != null && r[idxMgo] != null ? String(r[idxMgo]).trim() === '1' : null,
       });
     }
   } catch (err: any) {
@@ -4235,7 +4272,7 @@ server.tool(
     const [prompts, priorSnapshots, existingSignals, competitors] = await Promise.all([
       supabaseGet('prompts?slug=eq.wcr-pack-opps-report&select=system_prompt,user_prompt_template'),
       supabaseGet(`wcr_pack_opportunities?report_date=lt.${reportDate}&order=report_date.desc&limit=2000&select=report_date,opportunity_id,stage,amount_software_usd,close_date,close_reason_detail`),
-      supabaseGet(`content?type=eq.signal&metadata->>product_area=eq.${encodeURIComponent('WCR Pack')}&status=neq.archived&select=id,title,metadata&order=created_at.desc&limit=100`),
+      supabaseGet(`content?type=eq.signal&metadata->>product_area=eq.${encodeURIComponent('WCR Pack')}&status=neq.archived&select=id,title,metadata&order=captured_at.desc&limit=100`),
       supabaseGet('companies?type=eq.competitor&select=id,name&order=name'),
     ]);
     const prompt = prompts?.[0];
