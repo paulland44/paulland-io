@@ -20782,7 +20782,7 @@
         // cluster — swap only the leading `ae.` subdomain so other parts of
         // the URL (and bases that already use w2p) are left alone.
         const base = profile.baseUrl.replace(/\/+$/, '').replace(/^(https?:\/\/)ae\./, '$1w2p.');
-        return `${base}/sites/${encodeURIComponent(profile.repoId)}/Home/jobs/${encodeURIComponent(job.project_node_id)}`;
+        return `${base}/sites/${encodeURIComponent(profile.repoId)}/Home/jobs/${encodeURIComponent(job.project_node_id)}/tasks`;
     }
 
     // Workflow-instance pill for the Status cell. Returns '' when there's no
