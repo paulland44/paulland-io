@@ -5603,6 +5603,9 @@
 
     async function loadView(view) {
         closeContentModal();
+        // Stop any view-scoped pollers before switching. The mis-monitor view
+        // restarts its own poll at the end of loadMisMonitor.
+        if (typeof stopMisWorkflowPoll === 'function') stopMisWorkflowPoll();
         switch (view) {
             case 'overview': await loadOverview(); break;
             case 'daily-note': await loadDailyNote(); break;
@@ -19331,9 +19334,10 @@
 
     async function storeMisJob(job) {
         try {
-            await fetch(`${MIS_API_BASE}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job) });
+            const resp = await fetch(`${MIS_API_BASE}/jobs`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(job) });
             _cachedMisJobs = null;
-        } catch (e) { console.error('Failed to store job:', e); }
+            return await resp.json().catch(() => null);
+        } catch (e) { console.error('Failed to store job:', e); return null; }
     }
 
     function createSearchableSelect(containerId, options, config = {}) {
@@ -19876,7 +19880,8 @@
                 storePayload.enrichment_attempts = 0;
                 storePayload.enrichment_next_at = new Date().toISOString(); // due now
             }
-            await storeMisJob(storePayload);
+            const insertedRow = await storeMisJob(storePayload);
+            const misRowId = insertedRow?.id || null;
             showToast(`${isS2 ? 'Project' : 'Job'} "${jobIdVal}" created!`, 'success');
 
             // Demo-grade latency: kick the enrichment poller immediately so
@@ -19898,6 +19903,23 @@
                             credentials: 'same-origin', body: JSON.stringify({ jobId: result.id, inputs: [] }),
                         });
                         if (wfResp.ok) {
+                            // Capture the workflow instance ID so the monitor's
+                            // polling tick can track its state. Best-effort —
+                            // a missing ID just means no pill until the next
+                            // page load (or a backfill follow-up).
+                            const wfResult = await wfResp.json().catch(() => null);
+                            const instanceId = wfResult?.id || wfResult?.nodeId || null;
+                            if (instanceId && misRowId) {
+                                fetch(`${MIS_API_BASE}/jobs/${misRowId}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        workflow_instance_id: instanceId,
+                                        workflow_instance_status: 'Running',
+                                        workflow_instance_checked_at: new Date().toISOString(),
+                                    }),
+                                }).catch((e) => console.warn('[MIS] failed to persist workflow_instance_id:', e));
+                            }
                             showToast('Workflow launched!', 'success');
                         } else {
                             const wfErr = await wfResp.text().catch(() => '');
@@ -20679,6 +20701,21 @@
                             credentials: 'same-origin', body: JSON.stringify({ jobId: data.id, inputs: [] }),
                         });
                         if (wfResp.ok) {
+                            // Capture the workflow instance ID so the monitor's
+                            // polling tick can track its state.
+                            const wfResult = await wfResp.json().catch(() => null);
+                            const instanceId = wfResult?.id || wfResult?.nodeId || null;
+                            if (instanceId && jobId) {
+                                fetch(`${MIS_API_BASE}/jobs/${jobId}`, {
+                                    method: 'PATCH',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        workflow_instance_id: instanceId,
+                                        workflow_instance_status: 'Running',
+                                        workflow_instance_checked_at: new Date().toISOString(),
+                                    }),
+                                }).catch((e) => console.warn('[MIS] failed to persist workflow_instance_id:', e));
+                            }
                             showToast('Workflow launched!', 'success');
                         } else {
                             showToast('Project submitted but workflow launch failed', 'error');
@@ -20728,6 +20765,24 @@
             : display === 'Error' ? 'mis-badge-failed'
             : '';
         return `<span class="mis-badge ${cls}">${esc(display)}</span>`;
+    }
+
+    // Workflow-instance pill for the Status cell. Returns '' when there's no
+    // instance ID (most jobs that never launched a workflow), so the cell
+    // stays uncluttered. Reuses the .mis-badge-* classes the job-status
+    // badge already uses.
+    function misWorkflowStatusBadge(status) {
+        if (!status) return '';
+        const map = {
+            Running:   { cls: 'mis-badge-active',    icon: 'play' },
+            Completed: { cls: 'mis-badge-completed', icon: 'check' },
+            Failed:    { cls: 'mis-badge-failed',    icon: 'alert-circle' },
+            Cancelled: { cls: 'mis-badge-draft',     icon: 'x' },
+        };
+        const m = map[status] || { cls: 'mis-badge-draft', icon: 'circle' };
+        return `<span class="mis-badge ${m.cls}" title="Workflow ${esc(status)}" style="display:inline-flex;align-items:center;gap:4px;">
+            <i data-lucide="${m.icon}" style="width:10px;height:10px;"></i>${esc(status)}
+        </span>`;
     }
 
     async function loadMisMonitor() {
@@ -20802,7 +20857,12 @@
                             <td class="title-text"><a href="#" onclick="event.preventDefault();misOpenJob('${j.id}','${j.status}')" style="color:var(--accent);text-decoration:none;">${esc(j.job_name || '-')}</a></td>
                             <td style="font-size:0.85rem;">${esc(j.customer_name || j.customer_code || '-')}</td>
                             <td><span class="type-badge">${esc((j.solution || 'wcp').toUpperCase())}</span></td>
-                            <td><span class="mis-editable" onclick="misEditField('${j.id}','status','${esc(j.status || '')}')" title="Click to edit">${statusBadge(j.status)}</span></td>
+                            <td>
+                                <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
+                                    <span class="mis-editable" onclick="misEditField('${j.id}','status','${esc(j.status || '')}')" title="Click to edit">${statusBadge(j.status)}</span>
+                                    ${misWorkflowStatusBadge(j.workflow_instance_status)}
+                                </div>
+                            </td>
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;white-space:nowrap;">
@@ -20835,7 +20895,94 @@
             const sw = document.getElementById('misConnSwitcher');
             if (dd && sw && !sw.contains(e.target)) dd.classList.remove('open');
         }, { once: false });
+
+        // Kick off workflow-instance polling for any rows with a non-terminal
+        // S2 workflow attached. Tick is paused while the tab is hidden and
+        // stopped when the user navigates away (loadView calls stopMisWorkflowPoll).
+        startMisWorkflowPoll();
     }
+
+    // ─── MIS: Workflow-instance polling ──────────────────────────
+    // Polls S2 for each visible job's workflow state, updates the row in
+    // place, and PATCHes the new state back so a fresh page load shows the
+    // right pill without waiting for the first tick.
+
+    let _misWorkflowPollHandle = null;
+
+    function startMisWorkflowPoll() {
+        stopMisWorkflowPoll();
+        _misWorkflowPollHandle = setInterval(pollMisWorkflows, 30_000);
+        // Run an immediate pass so jobs in non-terminal states refresh on
+        // page load without waiting 30s for the first tick.
+        pollMisWorkflows();
+    }
+
+    function stopMisWorkflowPoll() {
+        if (_misWorkflowPollHandle) {
+            clearInterval(_misWorkflowPollHandle);
+            _misWorkflowPollHandle = null;
+        }
+    }
+
+    async function pollMisWorkflows() {
+        if (document.visibilityState !== 'visible') return;
+        const jobs = await getMisStoredJobs();
+        const TERMINAL = new Set(['Completed', 'Failed', 'Cancelled']);
+        const pollable = (jobs || []).filter(j =>
+            j.workflow_instance_id &&
+            j.connection_id &&
+            !TERMINAL.has(j.workflow_instance_status)
+        );
+        if (!pollable.length) return;
+
+        await Promise.allSettled(pollable.map(async (job) => {
+            try {
+                const inst = await misGetForConnection(`workflow-instances/${job.workflow_instance_id}`, job.connection_id);
+                // S2 response shape isn't pinned — try the project-style nested
+                // status first, then a flat status, then state. The first poll
+                // against staging will tell us which one is real and we can
+                // narrow this in a follow-up.
+                const newStatus = inst?.status?.status || inst?.status || inst?.state;
+                if (!newStatus || newStatus === job.workflow_instance_status) return;
+
+                await fetch(`${MIS_API_BASE}/jobs/${job.id}`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workflow_instance_status: newStatus,
+                        workflow_instance_checked_at: new Date().toISOString(),
+                    }),
+                });
+
+                // In-place pill swap so the user sees the change without a
+                // full table re-render.
+                const row = document.querySelector(`tr[data-job-row="${job.id}"]`);
+                if (row && row.children[5]) {
+                    row.children[5].innerHTML = `
+                        <div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start;">
+                            <span class="mis-editable" onclick="misEditField('${job.id}','status','${esc(job.status || '')}')" title="Click to edit">${misStatusBadge(job.status)}</span>
+                            ${misWorkflowStatusBadge(newStatus)}
+                        </div>`;
+                    if (window.lucide) window.lucide.createIcons({ nameAttr: 'data-lucide' });
+                }
+                job.workflow_instance_status = newStatus;
+            } catch (err) {
+                console.warn('[mis-poll]', job.id, err.message);
+            }
+        }));
+
+        // Drop the cache so the next loadMisMonitor() rebuild reflects the
+        // freshly-PATCHed statuses.
+        _cachedMisJobs = null;
+    }
+
+    // Resume polling immediately when the user comes back to the tab so they
+    // don't see a stale pill for up to 30s after switching back.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && _misWorkflowPollHandle) {
+            pollMisWorkflows();
+        }
+    });
 
     window.misUpdateSelection = function() {
         const selected = document.querySelectorAll('.mis-job-select:checked');
