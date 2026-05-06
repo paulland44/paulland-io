@@ -20011,6 +20011,7 @@
                         <h2 class="page-title">${title}</h2>
                     </div>
                     <div style="display:flex;align-items:center;gap:0.75rem;">
+                        ${(() => { const wcpUrl = hasJob ? misJobWcpUrl(job, formConnProfile) : null; return wcpUrl ? `<a class="mis-btn" href="${wcpUrl}" target="_blank" rel="noopener" title="Open this job in WebCenter Pack"><i class="icon" data-lucide="external-link" style="width:14px;height:14px;"></i> Open in WCP</a>` : ''; })()}
                         ${!isView ? `
                         <span style="font-size:0.82rem;color:var(--text-muted);">Connection:</span>
                         <select class="modal-edit-select" id="misTargetConnection" style="width:auto;min-width:160px;font-size:0.82rem;">
@@ -20767,6 +20768,19 @@
         return `<span class="mis-badge ${cls}">${esc(display)}</span>`;
     }
 
+    // Build a deep link to the job in WebCenter Pack. S2 only — legacy WCP
+    // has a different URL pattern and we're not exposing it for now. Returns
+    // null when any required piece is missing (no project_node_id yet, no
+    // base_url on the connection, or non-S2 connection) so callers can hide
+    // the link cleanly.
+    function misJobWcpUrl(job, profile) {
+        if (!job || !profile) return null;
+        if (profile.apiVersion !== 's2') return null;
+        if (!job.project_node_id || !profile.baseUrl || !profile.repoId) return null;
+        const base = profile.baseUrl.replace(/\/+$/, '');
+        return `${base}/sites/${encodeURIComponent(profile.repoId)}/Home/jobs/${encodeURIComponent(job.project_node_id)}`;
+    }
+
     // Workflow-instance pill for the Status cell. Returns '' when there's no
     // instance ID (most jobs that never launched a workflow), so the cell
     // stays uncluttered. Reuses the .mis-badge-* classes the job-status
@@ -20866,6 +20880,7 @@
                             <td><span class="mis-editable" onclick="misEditField('${j.id}','phase','${esc(j.phase || '')}')" title="Click to edit" style="font-size:0.82rem;color:var(--text-muted);">${esc(j.phase || '-')}</span></td>
                             <td style="font-size:0.78rem;">${j.due_date ? new Date(j.due_date).toLocaleDateString() : '-'}</td>
                             <td style="text-align:right;white-space:nowrap;">
+                                ${(() => { const wcpUrl = misJobWcpUrl(j, connProf); return wcpUrl ? `<a class="icon-btn" href="${wcpUrl}" target="_blank" rel="noopener" title="Open in WebCenter Pack"><i class="icon" data-lucide="external-link"></i></a>` : ''; })()}
                                 ${hasS2Preview ? `<button class="icon-btn" onclick="misToggleThumbnails('${j.id}','${s2NodeId}','${j.connection_id}')" title="Preview assets"><i class="icon" data-lucide="eye"></i></button>` : ''}
                                 ${j.status === 'Draft' ? `<button class="icon-btn icon-btn-accent" onclick="misSubmitDraftJob('${j.id}')" title="Submit job"><i class="icon" data-lucide="upload"></i></button>` : ''}
                                 <button class="icon-btn icon-btn-danger" onclick="misDeleteJob('${j.id}')" title="Delete"><i class="icon" data-lucide="trash-2"></i></button>
