@@ -8,6 +8,10 @@
  * Routes:
  *   POST /api/content/tags     — Update tags on a content item
  *   POST /api/daily-notes      — Create or update a daily note (upsert by date)
+ *   GET  /api/daily-notes/:date                              — Fetch one daily note
+ *   POST /api/daily-notes/:date/meetings                     — Add a meeting note
+ *   PATCH /api/daily-notes/:date/meetings/:uid/:index        — Edit a meeting note
+ *   DELETE /api/daily-notes/:date/meetings/:uid/:index       — Delete a meeting note
  *   POST /api/daily-review     — AI end-of-day review (extract & distribute content)
  *   GET  /api/calendar-events  — Fetch calendar events for a date from ICS feed
  *   POST /api/entity-update    — Update any entity (people, products, projects)
@@ -108,6 +112,34 @@ export async function onRequest(ctx) {
     }
     if (request.method === 'GET' && idMatch) {
       return handleTaskGet(idMatch[1], env);
+    }
+  }
+
+  // ─── Daily Notes routes (read + meeting-note CRUD for native clients) ──
+  if (path.startsWith('daily-notes/')) {
+    const segments = path.split('/');
+    const date = segments[1];
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      // GET /api/daily-notes/:date
+      if (request.method === 'GET' && segments.length === 2) {
+        return handleGetDailyNote(date, env);
+      }
+      // POST /api/daily-notes/:date/meetings
+      if (request.method === 'POST' && segments.length === 3 && segments[2] === 'meetings') {
+        return handleAddMeetingNote(date, request, env, ctx);
+      }
+      // PATCH or DELETE /api/daily-notes/:date/meetings/:uid/:index
+      if ((request.method === 'PATCH' || request.method === 'DELETE') && segments.length === 5 && segments[2] === 'meetings') {
+        const uid = decodeURIComponent(segments[3]);
+        const idx = parseInt(segments[4], 10);
+        if (!Number.isInteger(idx) || idx < 0) {
+          return json({ error: 'Invalid note_index' }, 400);
+        }
+        if (request.method === 'PATCH') {
+          return handleUpdateMeetingNote(date, uid, idx, request, env, ctx);
+        }
+        return handleDeleteMeetingNote(date, uid, idx, env, ctx);
+      }
     }
   }
 
@@ -1786,6 +1818,252 @@ async function handleUpsertDailyNote(request, env, ctx) {
   }
 
   return json({ ok: true, daily_note: data[0] });
+}
+
+// ─── Daily Note read + meeting-note CRUD ─────────────────────
+
+async function handleGetDailyNote(date, env) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes?note_date=eq.${date}&limit=1&select=id,note_date,notes,meetings,tasks,metadata,embedded_at`,
+    {
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+      },
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    return json({ error: 'Supabase error', detail: text }, res.status);
+  }
+  const rows = await res.json();
+  return json({ ok: true, daily_note: rows[0] || null });
+}
+
+function rebuildMeetingsMarkdown(structured) {
+  return structured
+    .map(e => {
+      const header = `### ${e.title}${e.time ? ` (${e.time})` : ''}${e.attendees?.length ? ` — ${e.attendees.join(', ')}` : ''}`;
+      return `${header}\n${e.notes || ''}`;
+    })
+    .join('\n\n');
+}
+
+async function upsertDailyNoteRow(env, ctx, body) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes?on_conflict=note_date`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(body),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text();
+    return { ok: false, status: res.status, detail: text };
+  }
+  const data = await res.json();
+  if (data[0]?.id && env.AI) {
+    ctx.waitUntil(embedItem(env, 'daily_notes', data[0].id).catch(() => {}));
+  }
+  return { ok: true, row: data[0] };
+}
+
+async function handleAddMeetingNote(date, request, env, ctx) {
+  const body = await request.json().catch(() => ({}));
+  const { meeting_uid, event_date, text } = body;
+  if (!meeting_uid || typeof meeting_uid !== 'string') {
+    return json({ error: 'meeting_uid is required' }, 400);
+  }
+  if (typeof text !== 'string' || !text.length) {
+    return json({ error: 'text is required' }, 400);
+  }
+  const eventDate = event_date || date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(eventDate)) {
+    return json({ error: 'Invalid event_date (YYYY-MM-DD)' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  // Resolve the meeting from calendar_events
+  const evRes = await fetch(
+    `${supabaseUrl}/rest/v1/calendar_events?uid=eq.${encodeURIComponent(meeting_uid)}&event_date=eq.${eventDate}&limit=1&select=uid,event_date,title,start_time,end_time,all_day,location,attendees`,
+    { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+  );
+  if (!evRes.ok) {
+    const t = await evRes.text();
+    return json({ error: 'Supabase error', detail: t }, evRes.status);
+  }
+  const events = await evRes.json();
+  if (!events.length) {
+    return json({ error: `No calendar event with uid=${meeting_uid} on ${eventDate}` }, 404);
+  }
+  const meeting = events[0];
+
+  // Fetch existing daily note (so we can merge metadata)
+  const dnRes = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes?note_date=eq.${date}&limit=1&select=id,meetings,metadata`,
+    { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+  );
+  if (!dnRes.ok) {
+    const t = await dnRes.text();
+    return json({ error: 'Supabase error', detail: t }, dnRes.status);
+  }
+  const existingRows = await dnRes.json();
+  const current = existingRows[0] || { meetings: '', metadata: {} };
+
+  const time = meeting.all_day ? 'All day' : (meeting.start_time || '');
+  const attendeeNames = Array.isArray(meeting.attendees)
+    ? meeting.attendees
+        .map(a => typeof a === 'string' ? a : (a?.name || a?.email || ''))
+        .filter(Boolean)
+    : [];
+
+  const structuredEntry = {
+    meeting_uid,
+    event_date: eventDate,
+    title: meeting.title,
+    time,
+    attendees: attendeeNames,
+    notes: text,
+    added_at: new Date().toISOString(),
+  };
+
+  const meta = { ...(current.metadata || {}) };
+  meta.meetings_structured = [...(meta.meetings_structured || []), structuredEntry];
+
+  const header = `### ${meeting.title}${time ? ` (${time})` : ''}${attendeeNames.length ? ` — ${attendeeNames.join(', ')}` : ''}`;
+  const newMeetings = (current.meetings || '').trim()
+    ? `${current.meetings.trim()}\n\n${header}\n${text}\n`
+    : `${header}\n${text}\n`;
+
+  const result = await upsertDailyNoteRow(env, ctx, { note_date: date, meetings: newMeetings, metadata: meta });
+  if (!result.ok) {
+    return json({ error: 'Supabase error', detail: result.detail }, result.status);
+  }
+
+  // note_index = 0-based position among this meeting's notes (the entry just added is the last one)
+  const meetingNotesCount = meta.meetings_structured.filter(e => e?.meeting_uid === meeting_uid).length;
+  return json({
+    ok: true,
+    daily_note: result.row,
+    meeting: { meeting_uid, event_date: eventDate, title: meeting.title, time, attendees: attendeeNames },
+    note_index: meetingNotesCount - 1,
+    structured: structuredEntry,
+  });
+}
+
+async function handleUpdateMeetingNote(date, meetingUid, noteIndex, request, env, ctx) {
+  const body = await request.json().catch(() => ({}));
+  const { text, attachments } = body;
+  if (text === undefined && attachments === undefined) {
+    return json({ error: 'Provide text and/or attachments' }, 400);
+  }
+
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const dnRes = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes?note_date=eq.${date}&limit=1&select=id,meetings,metadata`,
+    { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+  );
+  if (!dnRes.ok) {
+    const t = await dnRes.text();
+    return json({ error: 'Supabase error', detail: t }, dnRes.status);
+  }
+  const rows = await dnRes.json();
+  if (!rows.length) {
+    return json({ error: `No daily note for ${date}` }, 404);
+  }
+  const current = rows[0];
+  const meta = { ...(current.metadata || {}) };
+  const structured = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+  const matches = [];
+  structured.forEach((entry, i) => {
+    if (entry?.meeting_uid === meetingUid) matches.push(i);
+  });
+  if (noteIndex < 0 || noteIndex >= matches.length) {
+    return json({ error: `note_index ${noteIndex} out of range; meeting has ${matches.length} note(s)` }, 404);
+  }
+  const targetIdx = matches[noteIndex];
+  const target = { ...structured[targetIdx] };
+  if (text !== undefined) target.notes = text;
+  if (attachments !== undefined) target.attachments = attachments;
+  target.updated_at = new Date().toISOString();
+  structured[targetIdx] = target;
+  meta.meetings_structured = structured;
+
+  const newMarkdown = rebuildMeetingsMarkdown(structured);
+  const result = await upsertDailyNoteRow(env, ctx, { note_date: date, meetings: newMarkdown, metadata: meta });
+  if (!result.ok) {
+    return json({ error: 'Supabase error', detail: result.detail }, result.status);
+  }
+
+  return json({ ok: true, daily_note: result.row, updated: target });
+}
+
+async function handleDeleteMeetingNote(date, meetingUid, noteIndex, env, ctx) {
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return json({ error: 'Server misconfigured' }, 500);
+  }
+
+  const dnRes = await fetch(
+    `${supabaseUrl}/rest/v1/daily_notes?note_date=eq.${date}&limit=1&select=id,meetings,metadata`,
+    { headers: { 'apikey': serviceKey, 'Authorization': `Bearer ${serviceKey}` } }
+  );
+  if (!dnRes.ok) {
+    const t = await dnRes.text();
+    return json({ error: 'Supabase error', detail: t }, dnRes.status);
+  }
+  const rows = await dnRes.json();
+  if (!rows.length) {
+    return json({ error: `No daily note for ${date}` }, 404);
+  }
+  const current = rows[0];
+  const meta = { ...(current.metadata || {}) };
+  const structured = Array.isArray(meta.meetings_structured) ? [...meta.meetings_structured] : [];
+
+  const matches = [];
+  structured.forEach((entry, i) => {
+    if (entry?.meeting_uid === meetingUid) matches.push(i);
+  });
+  if (noteIndex < 0 || noteIndex >= matches.length) {
+    return json({ error: `note_index ${noteIndex} out of range; meeting has ${matches.length} note(s)` }, 404);
+  }
+  const targetIdx = matches[noteIndex];
+  const removed = structured[targetIdx];
+  structured.splice(targetIdx, 1);
+  meta.meetings_structured = structured;
+
+  const newMarkdown = rebuildMeetingsMarkdown(structured);
+  const result = await upsertDailyNoteRow(env, ctx, { note_date: date, meetings: newMarkdown, metadata: meta });
+  if (!result.ok) {
+    return json({ error: 'Supabase error', detail: result.detail }, result.status);
+  }
+
+  return json({ ok: true, daily_note: result.row, removed });
 }
 
 // ─── AI Summary Generation ───────────────────────────────────
