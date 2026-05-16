@@ -8,6 +8,11 @@ export interface Env {
   DEFAULT_MIS_API_VERSION?: string; // 'legacy' | 's2' (deprecated, use email_prefix on connections)
   SUPABASE_URL?: string;
   SUPABASE_SERVICE_KEY?: string;
+  // APNS push notifications (paulland-mis arrival notifications).
+  // All three secrets required for fanoutPush to fire.
+  APNS_KEY_P8?: string;     // PEM-encoded PKCS#8 private key
+  APNS_KEY_ID?: string;     // 10-char Apple Key ID
+  APPLE_TEAM_ID?: string;   // 10-char Apple Team ID
 }
 
 export interface ParsedEmail {

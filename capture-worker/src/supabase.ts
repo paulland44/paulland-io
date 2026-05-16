@@ -12,6 +12,10 @@ export interface Env {
   PAULLAND_API_URL?: string;
   PAULLAND_INTERNAL_API_KEY?: string;
   R2_BUCKET: R2Bucket;
+  // APNS push notifications (paulland-mis Phase 3). All three required to send.
+  APNS_KEY_P8?: string;     // PEM-encoded PKCS#8 private key (.p8 file contents)
+  APNS_KEY_ID?: string;     // 10-char Apple Key ID
+  APPLE_TEAM_ID?: string;   // 10-char Apple Team ID
 }
 
 function headers(key: string, extra?: Record<string, string>) {

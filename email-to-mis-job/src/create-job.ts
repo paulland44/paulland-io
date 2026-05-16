@@ -1,4 +1,7 @@
 import type { Env, ExtractedJob, R2Upload, ClassifiedAttachment } from './types.js';
+import { fanoutPush } from './apns.js';
+
+const PAULLAND_MIS_BUNDLE_ID = 'io.paulland.misapp';
 
 const DEFAULT_WCP_CONNECTION_ID = '49178064-6e4e-45b3-b7eb-f066b445d323';
 const DEFAULT_WCP_CONNECTION_NAME = 'Production-Demo-PALA';
@@ -609,6 +612,19 @@ async function createAeJob(
     } catch (err: any) {
       console.warn(`[email-to-mis] Enrichment trigger failed (non-blocking): ${err.message}`);
     }
+
+    // Push: notify paulland-mis devices that a new email job has just landed.
+    // Pairs with the WCP-Enriched push fired by the capture-worker once
+    // enrichment completes — gives the user an arrival heads-up and a
+    // ready-to-act heads-up on the same job. Fire-and-forget.
+    const customerLabel = extracted.customer_match?.partnerName
+      ? ` from ${extracted.customer_match.partnerName}`
+      : '';
+    fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
+      title: 'New job from email',
+      body: `${extracted.job_name}${customerLabel}`,
+      jobId: storedJob?.id || jobId,
+    }).catch((err: any) => console.warn(`[apns] arrival fanout failed: ${err.message}`));
   }
 
   return storedJob;

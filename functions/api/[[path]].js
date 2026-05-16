@@ -160,6 +160,8 @@ export async function onRequest(ctx) {
         return handleSignalSynthesis(request, env, ctx);
       case 'reflection-synthesis':
         return handleReflectionSynthesis(request, env, ctx);
+      case 'devices/register':
+        return handleDeviceRegister(request, env);
       default:
         return json({ error: 'Not found' }, 404);
     }
@@ -443,6 +445,60 @@ async function handleMisJobs(path, request, env) {
   }
 
   return json({ error: 'Not found' }, 404);
+}
+
+// ─── Device tokens (APNS) ─────────────────────────────────────
+//
+// paulland-mis (iOS / macOS) POSTs its APNS device token here on launch so the
+// capture-worker enrichment poller can fire pushes on AE → WCP transitions.
+// Tokens are upserted by their unique token string; re-registering updates
+// last_seen_at + environment without creating duplicate rows.
+async function handleDeviceRegister(request, env) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return json({ error: 'Invalid JSON body' }, 400);
+  }
+
+  const { token, platform, bundle_id, environment } = body || {};
+  if (!token || typeof token !== 'string' || token.length < 16) {
+    return json({ error: 'token (string, ≥16 chars) is required' }, 400);
+  }
+  if (!platform || !['ios', 'macos'].includes(platform)) {
+    return json({ error: "platform must be 'ios' or 'macos'" }, 400);
+  }
+  if (!bundle_id) return json({ error: 'bundle_id is required' }, 400);
+
+  const env_ = (environment === 'production') ? 'production' : 'development';
+  const row = {
+    token,
+    platform,
+    bundle_id,
+    environment: env_,
+    last_seen_at: new Date().toISOString(),
+  };
+
+  // Supabase REST: upsert by `token` using on_conflict + Prefer=resolution=merge.
+  const res = await fetch(
+    `${env.SUPABASE_URL}/rest/v1/device_tokens?on_conflict=token`,
+    {
+      method: 'POST',
+      headers: {
+        'apikey': env.SUPABASE_SERVICE_KEY,
+        'Authorization': `Bearer ${env.SUPABASE_SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=representation',
+      },
+      body: JSON.stringify(row),
+    }
+  );
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    return json({ error: 'upsert failed', detail: text.slice(0, 300) }, res.status);
+  }
+  const created = await res.json();
+  return json({ ok: true, registered: Array.isArray(created) ? created[0] : created });
 }
 
 // Helper: Get decrypted token for a connection by ID
