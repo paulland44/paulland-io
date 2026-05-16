@@ -14,6 +14,9 @@
 
 import type { Env } from './supabase';
 import { supabaseGet, supabasePatch } from './supabase';
+import { fanoutPush } from './apns';
+
+const PAULLAND_MIS_BUNDLE_ID = 'io.paulland.misapp';
 
 const ENRICHMENT_BACKOFF_MIN = [2, 5, 10, 30, 60, 120, 120, 120, 120, 120, 120, 120];
 const MAX_ROWS_PER_TICK = 20;
@@ -204,6 +207,14 @@ async function enrichOne(
     pending_attachments: null,
   });
 
+  // Push: notify paulland-mis devices that the AE → WCP cycle has completed.
+  // Fire-and-forget so an APNS hiccup doesn't fail the enrichment itself.
+  fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
+    title: 'Job ready',
+    body: `${row.job_id} is now in WebCenter Pack`,
+    jobId: row.id,
+  }).catch((err: any) => console.warn(`[apns] fanout failed: ${err.message}`));
+
   // Step 5: clean up R2 for uploaded attachments
   if (uploadedFilenames.length && row.pending_attachments) {
     const toDelete = row.pending_attachments.filter((a) => uploadedFilenames.includes(a.filename));
@@ -331,6 +342,14 @@ async function scheduleRetry(env: Env, row: JobRow, reason: string): Promise<voi
       wcp_response: { error: `Enrichment exhausted after ${nextAttempt - 1} attempts. Last reason: ${reason}` },
     });
     console.warn(`[enrichment] ${row.job_id}: exhausted after ${nextAttempt - 1} attempts`);
+
+    // Push: tell paulland-mis devices that the AE → WCP cycle gave up so the
+    // user can investigate. Fire-and-forget.
+    fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
+      title: 'Job failed',
+      body: `${row.job_id} couldn't be enriched in WebCenter Pack`,
+      jobId: row.id,
+    }).catch((err: any) => console.warn(`[apns] fanout failed: ${err.message}`));
     return;
   }
 
