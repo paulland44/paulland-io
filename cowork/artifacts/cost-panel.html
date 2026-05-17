@@ -1,0 +1,753 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>API Cost & Usage</title>
+
+  <!-- Allowed CDN: Chart.js v4 -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"
+    integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi"
+    crossorigin="anonymous"></script>
+
+  <style>
+    /*
+      Tokens from docs/artifact-design-system.md
+      (light tokens applied at :root because Cowork renders light-mode;
+       dark tokens kept behind [data-theme="dark"] for future use)
+    */
+    :root {
+      color-scheme: light;
+
+      --bg:       #FAF8F3;
+      --surface:  #F2EFE7;
+      --card:     #FFFFFF;
+      --card-hi:  #F6F3EC;
+
+      --text:   #1A1A22;
+      --text-2: #4A4A55;
+      --text-3: #767582;
+      --text-4: #B5B3AE;
+
+      --border:        rgba(26, 26, 34, 0.10);
+      --border-hover:  rgba(26, 26, 34, 0.20);
+      --divider:       rgba(26, 26, 34, 0.06);
+
+      --hover: rgba(26, 26, 34, 0.04);
+      --press: rgba(26, 26, 34, 0.08);
+
+      --accent:       #2F7A58;
+      --accent-hover: #266547;
+      --accent-soft:  rgba(47, 122, 88, 0.10);
+      --accent-text:  #2F7A58;
+      --on-accent:    #FFFFFF;
+
+      --info:    #4F86C9;
+      --warn:    #B8862E;
+      --danger:  #B8453F;
+      --success: var(--accent);
+
+      --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+      --shadow-md: 0 4px 14px rgba(20, 20, 30, 0.08);
+      --shadow-lg: 0 16px 40px rgba(20, 20, 30, 0.14);
+
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'Inconsolata', 'SF Mono', Menlo, monospace;
+
+      --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-pill: 999px;
+
+      --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+      --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px;
+    }
+
+    [data-theme="dark"] {
+      --bg: #0E0E13; --surface: #1C1C25; --card: #2A2933; --card-hi: #353441;
+      --text: #ECE6D6; --text-2: #B8AE96; --text-3: #807865; --text-4: #5A5448;
+      --border: rgba(236, 230, 214, 0.08);
+      --border-hover: rgba(236, 230, 214, 0.16);
+      --divider: rgba(236, 230, 214, 0.06);
+      --hover: rgba(236, 230, 214, 0.04); --press: rgba(236, 230, 214, 0.08);
+      --accent: #5BB088; --accent-hover: #6FC09A;
+      --accent-soft: rgba(91, 176, 136, 0.14); --on-accent: #0E0E13;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 14px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout shell ─────────────────────────────────────────── */
+    .artifact { max-width: 1200px; margin: 0 auto; padding: var(--s6); }
+
+    .artifact-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--s4); flex-wrap: wrap;
+      padding-bottom: var(--s4);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--s6);
+    }
+    .artifact-header .title-block h1 {
+      font-size: 1.4rem; font-weight: 600; margin: 0;
+      letter-spacing: -0.01em;
+    }
+    .artifact-header .title-block .subtitle {
+      font-size: 0.8rem; color: var(--text-3);
+      margin-top: var(--s1);
+    }
+
+    .artifact-body { display: grid; gap: var(--s6); }
+
+    /* ── Period picker (segmented control) ────────────────────── */
+    .period-picker {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      padding: 3px;
+    }
+    .period-picker button {
+      appearance: none; cursor: pointer;
+      background: transparent; border: none;
+      color: var(--text-2);
+      font-family: var(--sans);
+      font-size: 0.8rem; font-weight: 500;
+      padding: 6px 14px;
+      border-radius: var(--r-pill);
+      transition: background 0.15s, color 0.15s;
+    }
+    .period-picker button:hover { color: var(--text); }
+    .period-picker button.active {
+      background: var(--card);
+      color: var(--text);
+      box-shadow: var(--shadow-sm);
+    }
+    .period-picker button:disabled { opacity: 0.5; cursor: wait; }
+
+    /* ── KPI tiles ────────────────────────────────────────────── */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: var(--s4);
+    }
+    .kpi {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s4) var(--s5);
+    }
+    .kpi-label {
+      font-size: 0.7rem; color: var(--text-3);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: var(--s2);
+    }
+    .kpi-value {
+      font-size: 1.6rem; font-weight: 600;
+      color: var(--text); font-family: var(--mono);
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+    .kpi-sub {
+      font-size: 0.75rem; margin-top: var(--s1);
+      color: var(--text-3);
+    }
+
+    /* ── Sections / cards ─────────────────────────────────────── */
+    .section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s5);
+    }
+    .section-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      margin-bottom: var(--s4);
+    }
+    .section-header h2 {
+      font-size: 0.95rem; font-weight: 600; color: var(--text);
+      margin: 0;
+    }
+    .section-header .meta {
+      font-size: 0.75rem; color: var(--text-3); font-family: var(--mono);
+    }
+
+    .two-col {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--s6);
+    }
+    @media (max-width: 880px) { .two-col { grid-template-columns: 1fr; } }
+
+    /* Chart container */
+    .chart-wrap { position: relative; height: 240px; }
+
+    /* Feature breakdown table */
+    .feature-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: var(--s3);
+      align-items: center;
+      padding: var(--s3) 0;
+      border-bottom: 1px solid var(--divider);
+      font-size: 0.85rem;
+    }
+    .feature-row:last-child { border-bottom: none; }
+    .feature-name { color: var(--text); font-weight: 500; }
+    .feature-meta { color: var(--text-3); font-family: var(--mono); font-size: 0.78rem; }
+    .feature-cost { color: var(--text); font-family: var(--mono); font-weight: 500; }
+
+    /* Recent calls list */
+    .recent-list { display: flex; flex-direction: column; gap: var(--s3); }
+    .call-card {
+      background: var(--card-hi);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s3) var(--s4);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .call-card:hover { border-color: var(--border-hover); }
+    .call-card-header {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--s2); margin-bottom: var(--s2);
+    }
+    .call-feature {
+      font-size: 0.85rem; font-weight: 600; color: var(--text);
+    }
+    .call-time {
+      font-size: 0.72rem; color: var(--text-3); font-family: var(--mono);
+    }
+    .call-row {
+      display: flex; flex-wrap: wrap; gap: var(--s3);
+      font-size: 0.75rem; color: var(--text-3);
+      font-family: var(--mono);
+    }
+    .call-row .pill {
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 2px 8px; border-radius: var(--r-pill);
+    }
+    .call-excerpt {
+      margin-top: var(--s2); font-size: 0.8rem; color: var(--text-2);
+      line-height: 1.5;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    /* ── Empty state ──────────────────────────────────────────── */
+    .empty {
+      display: flex; flex-direction: column; align-items: center;
+      gap: var(--s3); padding: var(--s12) var(--s6);
+      text-align: center; color: var(--text-3);
+    }
+    .empty svg { width: 32px; height: 32px; opacity: 0.55; color: var(--text-3); }
+    .empty h3 {
+      font-size: 1rem; font-weight: 500; color: var(--text-2);
+      margin: 0;
+    }
+    .empty p {
+      font-size: 0.85rem; max-width: 380px;
+      line-height: 1.55; margin: 0;
+    }
+
+    /* ── Error banner ─────────────────────────────────────────── */
+    .error-banner {
+      display: flex; align-items: center; gap: var(--s3);
+      background: rgba(184, 69, 63, 0.08);
+      border: 1px solid rgba(184, 69, 63, 0.24);
+      color: var(--danger);
+      padding: var(--s3) var(--s4);
+      border-radius: var(--r-md);
+      font-size: 0.85rem;
+    }
+    .error-banner svg { width: 18px; height: 18px; flex-shrink: 0; }
+    .error-banner span { flex: 1; }
+
+    /* ── Skeleton / loading ───────────────────────────────────── */
+    .skeleton {
+      background: linear-gradient(90deg, var(--card) 0%, var(--card-hi) 50%, var(--card) 100%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite linear;
+      border-radius: var(--r-md);
+    }
+    .skeleton-kpi { height: 88px; }
+    .skeleton-section { height: 240px; }
+    @keyframes shimmer {
+      0% { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    .btn {
+      appearance: none; cursor: pointer; font-family: var(--sans);
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border); border-radius: var(--r-sm);
+      padding: 6px 12px; font-size: 0.8rem; font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+    .btn:hover { background: var(--hover); border-color: var(--border-hover); color: var(--text); }
+
+    .footer-note {
+      font-size: 0.72rem; color: var(--text-4);
+      text-align: center; margin-top: var(--s6);
+      font-family: var(--mono);
+    }
+  </style>
+</head>
+<body>
+  <div class="artifact">
+
+    <header class="artifact-header">
+      <div class="title-block">
+        <h1>API Cost &amp; Usage</h1>
+        <div class="subtitle" id="window-label">paulland.io LLM calls — usage_events</div>
+      </div>
+
+      <div class="period-picker" role="tablist" aria-label="Time window">
+        <button data-period="24h" type="button" role="tab">24h</button>
+        <button data-period="7d"  type="button" role="tab">7d</button>
+        <button data-period="30d" type="button" role="tab">30d</button>
+        <button data-period="90d" type="button" role="tab">90d</button>
+      </div>
+    </header>
+
+    <div id="error-slot"></div>
+
+    <main class="artifact-body" id="body">
+      <!-- KPI grid -->
+      <section class="kpi-grid" id="kpi-grid">
+        <div class="skeleton skeleton-kpi"></div>
+        <div class="skeleton skeleton-kpi"></div>
+        <div class="skeleton skeleton-kpi"></div>
+        <div class="skeleton skeleton-kpi"></div>
+      </section>
+
+      <!-- Trend chart -->
+      <section class="section" id="trend-section">
+        <div class="section-header">
+          <h2>Daily cost</h2>
+          <span class="meta" id="trend-meta">—</span>
+        </div>
+        <div class="chart-wrap">
+          <canvas id="trend-chart"></canvas>
+        </div>
+      </section>
+
+      <!-- Two-col: features + recent -->
+      <div class="two-col">
+        <section class="section" id="feature-section">
+          <div class="section-header">
+            <h2>By feature</h2>
+            <span class="meta" id="feature-meta">—</span>
+          </div>
+          <div id="feature-body"></div>
+        </section>
+
+        <section class="section" id="recent-section">
+          <div class="section-header">
+            <h2>Recent calls</h2>
+            <span class="meta" id="recent-meta">—</span>
+          </div>
+          <div class="recent-list" id="recent-body"></div>
+        </section>
+      </div>
+    </main>
+
+    <div class="footer-note" id="footer-note">—</div>
+  </div>
+
+  <script>
+    // ── Config ──────────────────────────────────────────────────
+    const TOOL = 'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__list_usage_events';
+    const STORAGE_KEY = 'cost-panel:period';
+    const VALID_PERIODS = ['24h', '7d', '30d', '90d'];
+    const DEFAULT_PERIOD = '7d';
+
+    let trendChart = null;
+    let currentPeriod = readStoredPeriod();
+    let inFlight = false;
+
+    function readStoredPeriod() {
+      try {
+        const v = localStorage.getItem(STORAGE_KEY);
+        if (v && VALID_PERIODS.includes(v)) return v;
+      } catch (_) {}
+      return DEFAULT_PERIOD;
+    }
+    function writeStoredPeriod(p) {
+      try { localStorage.setItem(STORAGE_KEY, p); } catch (_) {}
+    }
+
+    // ── MCP wrapper (per design system §4.1) ────────────────────
+    async function callMcp(tool, args = {}) {
+      try {
+        const result = await window.cowork.callMcpTool(tool, args);
+        return { ok: true, data: result };
+      } catch (err) {
+        console.error(`MCP call failed: ${tool}`, err);
+        return { ok: false, error: (err && err.message) || 'Unknown error' };
+      }
+    }
+
+    // Some MCP wrappers return JSON-stringified content blocks; normalise.
+    function normaliseResult(raw) {
+      if (!raw) return null;
+      if (typeof raw === 'object' && !Array.isArray(raw) && 'totals' in raw) return raw;
+      // Handle { content: [{ type: 'text', text: '{...}' }] }
+      const text = raw?.content?.[0]?.text ?? raw?.text ?? null;
+      if (typeof text === 'string') {
+        try { return JSON.parse(text); } catch (_) { return null; }
+      }
+      return raw;
+    }
+
+    // ── Formatters ──────────────────────────────────────────────
+    const fmtUSD = (n) => {
+      const v = Number(n) || 0;
+      if (v === 0) return '$0.00';
+      if (v < 0.01) return '$' + v.toFixed(4);
+      if (v < 100) return '$' + v.toFixed(3);
+      return '$' + v.toLocaleString('en-US', { maximumFractionDigits: 2 });
+    };
+    const fmtInt = (n) => (Number(n) || 0).toLocaleString('en-US');
+    const fmtTokens = (n) => {
+      const v = Number(n) || 0;
+      if (v >= 1_000_000) return (v / 1_000_000).toFixed(2) + 'M';
+      if (v >= 1_000) return (v / 1_000).toFixed(1) + 'k';
+      return String(v);
+    };
+    const fmtTimeAgo = (iso) => {
+      if (!iso) return '';
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return iso;
+      const diff = Date.now() - t;
+      const m = Math.round(diff / 60000);
+      if (m < 1) return 'just now';
+      if (m < 60) return m + 'm ago';
+      const h = Math.round(m / 60);
+      if (h < 24) return h + 'h ago';
+      const d = Math.round(h / 24);
+      return d + 'd ago';
+    };
+    const fmtDuration = (ms) => {
+      if (!ms && ms !== 0) return '—';
+      if (ms < 1000) return ms + 'ms';
+      return (ms / 1000).toFixed(1) + 's';
+    };
+    const periodLabel = (p) => ({
+      '24h': 'last 24 hours',
+      '7d':  'last 7 days',
+      '30d': 'last 30 days',
+      '90d': 'last 90 days',
+    }[p] || p);
+
+    // ── Render: error / empty / data ────────────────────────────
+    function renderError(msg) {
+      document.getElementById('error-slot').innerHTML = `
+        <div class="error-banner" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+            <line x1="12" y1="9" x2="12" y2="13"/>
+            <line x1="12" y1="17" x2="12.01" y2="17"/>
+          </svg>
+          <span>${escapeHtml(msg)}</span>
+          <button class="btn" onclick="loadData()">Retry</button>
+        </div>`;
+    }
+    function clearError() { document.getElementById('error-slot').innerHTML = ''; }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    function renderEmpty() {
+      document.getElementById('body').innerHTML = `
+        <div class="empty">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+            <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/>
+          </svg>
+          <h3>No paulland.io API calls in this window</h3>
+          <p>Most of your work happens via Cowork chat, which doesn't write to <code style="font-family:var(--mono);font-size:0.8rem;background:var(--surface);padding:1px 5px;border-radius:3px;">usage_events</code>.
+             The Ask/Jasper, extract pipelines, and AI summaries on paulland.io are what show up here.</p>
+        </div>`;
+    }
+
+    function renderKpis(totals) {
+      document.getElementById('kpi-grid').innerHTML = `
+        <div class="kpi">
+          <div class="kpi-label">Total cost</div>
+          <div class="kpi-value">${fmtUSD(totals.cost_est_total)}</div>
+          <div class="kpi-sub">${periodLabel(currentPeriod)}</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">API calls</div>
+          <div class="kpi-value">${fmtInt(totals.count)}</div>
+          <div class="kpi-sub">${totals.count === 1 ? 'call' : 'calls'} logged</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Tokens in</div>
+          <div class="kpi-value">${fmtTokens(totals.tokens_in_total)}</div>
+          <div class="kpi-sub">incl. ${fmtTokens(totals.cache_read_total || 0)} cache read</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-label">Tokens out</div>
+          <div class="kpi-value">${fmtTokens(totals.tokens_out_total)}</div>
+          <div class="kpi-sub">${fmtTokens(totals.cache_creation_total || 0)} cache write</div>
+        </div>`;
+    }
+
+    function renderTrend(byDay) {
+      const entries = Object.entries(byDay || {}).sort((a, b) => a[0].localeCompare(b[0]));
+      document.getElementById('trend-meta').textContent =
+        entries.length ? `${entries.length} day${entries.length === 1 ? '' : 's'}` : 'no data';
+
+      const labels = entries.map(([d]) => d.slice(5)); // MM-DD
+      const data = entries.map(([, v]) => Number(v.cost_est) || 0);
+
+      const ctx = document.getElementById('trend-chart').getContext('2d');
+      if (trendChart) trendChart.destroy();
+
+      // Resolve theme-aware colours from CSS variables
+      const css = getComputedStyle(document.documentElement);
+      const accent = css.getPropertyValue('--accent').trim() || '#2F7A58';
+      const textDim = css.getPropertyValue('--text-3').trim() || '#767582';
+      const grid = css.getPropertyValue('--divider').trim() || 'rgba(0,0,0,0.06)';
+
+      trendChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Cost (USD)',
+            data,
+            backgroundColor: accent,
+            borderRadius: 4,
+            maxBarThickness: 32,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => fmtUSD(ctx.parsed.y),
+              },
+            },
+          },
+          scales: {
+            x: {
+              grid: { display: false },
+              ticks: { color: textDim, font: { family: 'Inconsolata, monospace', size: 11 } },
+            },
+            y: {
+              beginAtZero: true,
+              grid: { color: grid, drawBorder: false },
+              ticks: {
+                color: textDim,
+                font: { family: 'Inconsolata, monospace', size: 11 },
+                callback: (v) => fmtUSD(v),
+              },
+            },
+          },
+        },
+      });
+    }
+
+    function renderFeatures(byFeature) {
+      const entries = Object.entries(byFeature || {})
+        .sort((a, b) => (b[1].cost_est || 0) - (a[1].cost_est || 0));
+      document.getElementById('feature-meta').textContent =
+        entries.length ? `${entries.length}` : 'none';
+
+      const body = document.getElementById('feature-body');
+      if (!entries.length) {
+        body.innerHTML = `<div style="color:var(--text-3);font-size:0.85rem;padding:var(--s3) 0;">No features in this window.</div>`;
+        return;
+      }
+      body.innerHTML = entries.map(([feature, m]) => `
+        <div class="feature-row">
+          <div class="feature-name">${escapeHtml(feature)}</div>
+          <div class="feature-meta">${fmtInt(m.count)} ${m.count === 1 ? 'call' : 'calls'} · ${fmtTokens((m.tokens_in||0) + (m.tokens_out||0))} tok</div>
+          <div class="feature-cost">${fmtUSD(m.cost_est)}</div>
+        </div>
+      `).join('');
+    }
+
+    function renderRecent(recent) {
+      const list = Array.isArray(recent) ? recent : [];
+      document.getElementById('recent-meta').textContent =
+        list.length ? `${list.length}` : 'none';
+
+      const body = document.getElementById('recent-body');
+      if (!list.length) {
+        body.innerHTML = `<div style="color:var(--text-3);font-size:0.85rem;padding:var(--s3) 0;">No recent calls.</div>`;
+        return;
+      }
+      body.innerHTML = list.map(r => `
+        <div class="call-card">
+          <div class="call-card-header">
+            <div class="call-feature">${escapeHtml(r.feature || 'unknown')}</div>
+            <div class="call-time" title="${escapeHtml(r.created_at || '')}">${escapeHtml(fmtTimeAgo(r.created_at))}</div>
+          </div>
+          <div class="call-row">
+            <span class="pill">${escapeHtml(r.model || 'model?')}</span>
+            <span class="pill">${fmtUSD(r.cost_est)}</span>
+            <span class="pill">${fmtTokens(r.tokens_in)}→${fmtTokens(r.tokens_out)} tok</span>
+            <span class="pill">${fmtDuration(r.duration_ms)}</span>
+            ${r.surface ? `<span class="pill">${escapeHtml(r.surface)}</span>` : ''}
+            ${r.quality_flag ? `<span class="pill" style="color:var(--warn);">${escapeHtml(r.quality_flag)}</span>` : ''}
+          </div>
+          ${r.output_excerpt ? `<div class="call-excerpt">${escapeHtml(r.output_excerpt)}</div>` : ''}
+        </div>
+      `).join('');
+    }
+
+    function rebuildBodyShell() {
+      // Restore the body shell after an empty/error render so subsequent
+      // loads can target the inner slots again.
+      document.getElementById('body').innerHTML = `
+        <section class="kpi-grid" id="kpi-grid">
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>
+        </section>
+        <section class="section" id="trend-section">
+          <div class="section-header">
+            <h2>Daily cost</h2>
+            <span class="meta" id="trend-meta">—</span>
+          </div>
+          <div class="chart-wrap"><canvas id="trend-chart"></canvas></div>
+        </section>
+        <div class="two-col">
+          <section class="section" id="feature-section">
+            <div class="section-header">
+              <h2>By feature</h2>
+              <span class="meta" id="feature-meta">—</span>
+            </div>
+            <div id="feature-body"></div>
+          </section>
+          <section class="section" id="recent-section">
+            <div class="section-header">
+              <h2>Recent calls</h2>
+              <span class="meta" id="recent-meta">—</span>
+            </div>
+            <div class="recent-list" id="recent-body"></div>
+          </section>
+        </div>`;
+    }
+
+    function showLoading() {
+      // Skeletons for KPIs only — keep section shells stable
+      const kpi = document.getElementById('kpi-grid');
+      if (kpi) {
+        kpi.innerHTML = `
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>
+          <div class="skeleton skeleton-kpi"></div>`;
+      }
+    }
+
+    // ── Period picker ───────────────────────────────────────────
+    function setActivePeriodButton(period) {
+      document.querySelectorAll('.period-picker button').forEach(b => {
+        b.classList.toggle('active', b.dataset.period === period);
+      });
+    }
+
+    function bindPeriodPicker() {
+      document.querySelectorAll('.period-picker button').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (inFlight) return;
+          const p = btn.dataset.period;
+          if (!VALID_PERIODS.includes(p) || p === currentPeriod) return;
+          currentPeriod = p;
+          writeStoredPeriod(p);
+          setActivePeriodButton(p);
+          loadData();
+        });
+      });
+    }
+
+    // ── Main load ───────────────────────────────────────────────
+    async function loadData() {
+      if (inFlight) return;
+      inFlight = true;
+      clearError();
+
+      // If the last render was empty, restore the shell first
+      if (!document.getElementById('kpi-grid')) rebuildBodyShell();
+      showLoading();
+
+      const subtitle = document.getElementById('window-label');
+      subtitle.textContent = `paulland.io LLM calls — ${periodLabel(currentPeriod)}`;
+
+      const buttons = document.querySelectorAll('.period-picker button');
+      buttons.forEach(b => b.disabled = true);
+
+      const { ok, data, error } = await callMcp(TOOL, {
+        since: currentPeriod,
+        limit: 50,
+      });
+
+      buttons.forEach(b => b.disabled = false);
+      inFlight = false;
+
+      if (!ok) {
+        renderError(`Couldn't load usage_events: ${error}`);
+        rebuildBodyShell(); // leave a clean shell underneath
+        return;
+      }
+
+      const result = normaliseResult(data);
+      if (!result || !result.totals) {
+        renderError('Unexpected response shape from list_usage_events.');
+        rebuildBodyShell();
+        return;
+      }
+
+      const { totals, by_feature, by_day, recent } = result;
+
+      // Empty state per spec: "No paulland.io API calls in this window..."
+      if (!totals.count || totals.count === 0) {
+        renderEmpty();
+        document.getElementById('footer-note').textContent =
+          `No data · queried ${new Date().toLocaleTimeString()}`;
+        return;
+      }
+
+      // Make sure shell is in place (it may have been replaced by an empty/error)
+      if (!document.getElementById('kpi-grid')) rebuildBodyShell();
+
+      renderKpis(totals);
+      renderTrend(by_day);
+      renderFeatures(by_feature);
+      renderRecent(recent);
+
+      document.getElementById('footer-note').textContent =
+        `Window since ${totals.since || '—'} · refreshed ${new Date().toLocaleTimeString()}`;
+    }
+
+    // ── Refresh on visibility (per design system §7.4) ──────────
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadData();
+    });
+
+    // ── Boot ────────────────────────────────────────────────────
+    setActivePeriodButton(currentPeriod);
+    bindPeriodPicker();
+    loadData();
+  </script>
+</body>
+</html>
