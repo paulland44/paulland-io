@@ -1,19 +1,32 @@
 /**
- * APNS sender for paulland-mis push notifications.
+ * APNS sender for paulland-mis push notifications fired from MCP tools.
  *
- * Mirror of capture-worker/src/apns.ts so the email worker can fire pushes
- * the moment an email-submitted job lands (status='AE-Submitted'), without
- * waiting for the enrichment poller to pick it up. Kept self-contained
- * because email-to-mis-job has no shared module with the capture-worker.
- *
- * Signs an ES256 JWT with the team's APNS .p8 key, then POSTs the push
- * payload to Apple's HTTP/2 endpoint. JWT cached for ~50 minutes.
+ * Mirror of capture-worker/src/apns.ts and email-to-mis-job/src/apns.ts —
+ * kept self-contained because each runtime has its own env-access pattern
+ * (worker bindings vs Node process.env). Signs an ES256 JWT with the team's
+ * APNS .p8 key and POSTs to Apple's HTTP/2 endpoint. JWT cached for ~50 min.
  */
-import type { Env } from './types.js';
+
+import { supabaseGet } from './supabase.js';
 
 const APNS_HOST_DEV = 'https://api.development.push.apple.com';
 const APNS_HOST_PROD = 'https://api.push.apple.com';
 const APNS_TOPIC = 'io.paulland.misapp';
+
+// Support both process.env (local stdio) and explicit init (Worker).
+let _keyP8: string | undefined;
+let _keyId: string | undefined;
+let _teamId: string | undefined;
+
+export function initApns(keyP8?: string, keyId?: string, teamId?: string) {
+  if (keyP8) _keyP8 = keyP8;
+  if (keyId) _keyId = keyId;
+  if (teamId) _teamId = teamId;
+}
+
+function getKeyP8() { return _keyP8 || process.env.APNS_KEY_P8; }
+function getKeyId() { return _keyId || process.env.APNS_KEY_ID; }
+function getTeamId() { return _teamId || process.env.APPLE_TEAM_ID; }
 
 interface DeviceTokenRow {
   id: string;
@@ -31,25 +44,26 @@ let cachedJWT: CachedJWT | null = null;
  * skipped. Returns the count of successful sends.
  */
 export async function fanoutPush(
-  env: Env,
   bundleId: string,
   payload: { title: string; body: string; jobId: string; wcpUrl?: string; category?: string }
 ): Promise<number> {
-  if (!env.APNS_KEY_P8 || !env.APNS_KEY_ID || !env.APPLE_TEAM_ID) {
+  const keyP8 = getKeyP8();
+  const keyId = getKeyId();
+  const teamId = getTeamId();
+  if (!keyP8 || !keyId || !teamId) {
     console.log('[apns] secrets missing — skipping push');
     return 0;
   }
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_KEY) {
-    console.log('[apns] supabase env missing — skipping push');
-    return 0;
-  }
-  const rows = await fetchDeviceTokens(env, bundleId);
+
+  const rows = (await supabaseGet(
+    `device_tokens?bundle_id=eq.${encodeURIComponent(bundleId)}&select=id,token,environment,bundle_id`
+  )) as DeviceTokenRow[];
   if (!rows.length) {
     console.log(`[apns] no device tokens registered for ${bundleId}`);
     return 0;
   }
 
-  const jwt = await getOrSignJWT(env);
+  const jwt = await getOrSignJWT(keyP8, keyId, teamId);
   let ok = 0;
   await Promise.all(rows.map(async (row) => {
     const host = row.environment === 'production' ? APNS_HOST_PROD : APNS_HOST_DEV;
@@ -58,8 +72,6 @@ export async function fanoutPush(
       alert: { title: payload.title, body: payload.body },
       sound: 'default',
     };
-    // category enables UNNotificationAction buttons (e.g. "Open in WCP") on
-    // the client. Must be registered with UNUserNotificationCenter on launch.
     if (payload.category) aps.category = payload.category;
     const apnsBody: Record<string, unknown> = { aps, jobId: payload.jobId };
     if (payload.wcpUrl) apnsBody.wcpUrl = payload.wcpUrl;
@@ -80,18 +92,16 @@ export async function fanoutPush(
         ok++;
         return;
       }
-      // 410 Gone → uninstalled / token invalidated. Prune the row.
       if (resp.status === 410) {
-        await fetch(
-          `${env.SUPABASE_URL!}/rest/v1/device_tokens?id=eq.${row.id}`,
-          {
+        // BadDeviceToken — prune the row so we stop sending to a dead token.
+        const supaUrl = process.env.SUPABASE_URL;
+        const supaKey = process.env.SUPABASE_SERVICE_KEY;
+        if (supaUrl && supaKey) {
+          await fetch(`${supaUrl}/rest/v1/device_tokens?id=eq.${row.id}`, {
             method: 'DELETE',
-            headers: {
-              apikey: env.SUPABASE_SERVICE_KEY!,
-              Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY!}`,
-            },
-          }
-        );
+            headers: { apikey: supaKey, Authorization: `Bearer ${supaKey}` },
+          });
+        }
         console.log(`[apns] pruned dead token ${row.token.slice(0, 8)}… (HTTP 410)`);
         return;
       }
@@ -105,30 +115,13 @@ export async function fanoutPush(
   return ok;
 }
 
-async function fetchDeviceTokens(env: Env, bundleId: string): Promise<DeviceTokenRow[]> {
-  const resp = await fetch(
-    `${env.SUPABASE_URL!}/rest/v1/device_tokens?bundle_id=eq.${encodeURIComponent(bundleId)}&select=id,token,environment,bundle_id`,
-    {
-      headers: {
-        apikey: env.SUPABASE_SERVICE_KEY!,
-        Authorization: `Bearer ${env.SUPABASE_SERVICE_KEY!}`,
-      },
-    }
-  );
-  if (!resp.ok) return [];
-  return resp.json() as Promise<DeviceTokenRow[]>;
-}
-
 // ─── JWT signing ──────────────────────────────────────────────
 
-async function getOrSignJWT(env: Env): Promise<string> {
+async function getOrSignJWT(keyP8: string, keyId: string, teamId: string): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (cachedJWT && cachedJWT.expiresAt > now + 60) return cachedJWT.jwt;
 
-  const keyId = env.APNS_KEY_ID!;
-  const teamId = env.APPLE_TEAM_ID!;
-  const privateKey = await importP8Key(env.APNS_KEY_P8!);
-
+  const privateKey = await importP8Key(keyP8);
   const header = { alg: 'ES256', kid: keyId, typ: 'JWT' };
   const payload = { iss: teamId, iat: now };
   const headerB64 = base64UrlEncode(new TextEncoder().encode(JSON.stringify(header)));
