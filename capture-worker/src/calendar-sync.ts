@@ -21,7 +21,9 @@ export async function syncCalendar(env: Env): Promise<number> {
 
   const { SUPABASE_URL: url, SUPABASE_SERVICE_KEY: key } = env;
   const userTz = env.USER_TIMEZONE || 'Europe/London';
-  const daysAhead = 7;
+  // Sync today + 30 days ahead so the iOS app can show meetings on dates the user is
+  // planning notes for (was 7; widened 2026-05-09).
+  const daysAhead = 30;
 
   console.log('Fetching calendar ICS feed...');
   let icsText: string;
@@ -92,6 +94,38 @@ export async function syncCalendar(env: Env): Promise<number> {
     return 0;
   }
 
-  console.log(`Calendar sync complete: ${rows.length} events synced`);
+  // Clean up stale future rows: anything in [today, today+daysAhead] whose synced_at
+  // is NOT this sync's timestamp must have been dropped from Outlook (e.g. a meeting
+  // moved to a different date, or was deleted/declined). Without this, moved meetings
+  // duplicate — the old date's row sticks around even though Outlook no longer has it.
+  const fmtDate = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const todayStr = fmtDate(today);
+  const lastDt = new Date(today);
+  lastDt.setDate(today.getDate() + daysAhead);
+  const lastStr = fmtDate(lastDt);
+
+  const delUrl =
+    `${url}/rest/v1/calendar_events` +
+    `?event_date=gte.${todayStr}&event_date=lte.${lastStr}` +
+    `&synced_at=neq.${encodeURIComponent(now)}`;
+  try {
+    const delRes = await fetch(delUrl, {
+      method: 'DELETE',
+      headers: {
+        apikey: key,
+        Authorization: `Bearer ${key}`,
+        Prefer: 'return=minimal',
+      },
+    });
+    if (!delRes.ok) {
+      const body = await delRes.text().catch(() => '');
+      console.error(`Stale calendar cleanup failed: ${delRes.status} ${body.substring(0, 200)}`);
+    }
+  } catch (e) {
+    console.error('Stale calendar cleanup error:', e);
+  }
+
+  console.log(`Calendar sync complete: ${rows.length} events upserted, range ${todayStr}..${lastStr}`);
   return rows.length;
 }
