@@ -3482,6 +3482,114 @@
             opacity: 0.25;
         }
 
+        /* Cases table filter controls */
+        .cases-filter-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem;
+            margin: 0.5rem 0 1rem;
+            padding: 0.75rem;
+            background: var(--void-light);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+        }
+        .cases-filter-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        .cases-status-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.25rem 0.7rem;
+            font-size: 0.75rem;
+            font-family: var(--mono);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-pill);
+            background: var(--void);
+            color: var(--text-muted);
+            cursor: pointer;
+            user-select: none;
+            transition: background 0.15s, color 0.15s, border-color 0.15s;
+        }
+        .cases-status-chip:hover {
+            border-color: var(--accent);
+            color: var(--text-body);
+        }
+        .cases-status-chip.active {
+            background: var(--accent-dim);
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .cases-status-chip .chip-count {
+            font-size: 0.7rem;
+            opacity: 0.7;
+        }
+        .cases-customer-select {
+            background: var(--void);
+            color: var(--text-body);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.6rem;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            min-width: 200px;
+        }
+        .cases-search-input {
+            background: var(--void);
+            color: var(--text-body);
+            border: 1px solid var(--border-hover);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.6rem;
+            font-family: var(--mono);
+            font-size: 0.8rem;
+            min-width: 180px;
+        }
+        .cases-filter-reset {
+            background: none;
+            border: 1px solid var(--border-hover);
+            color: var(--text-muted);
+            border-radius: var(--radius-sm);
+            padding: 0.3rem 0.7rem;
+            font-size: 0.75rem;
+            cursor: pointer;
+        }
+        .cases-filter-reset:hover {
+            color: var(--accent);
+            border-color: var(--accent);
+        }
+        .cases-status-tag {
+            display: inline-block;
+            padding: 0.1rem 0.45rem;
+            font-size: 0.7rem;
+            font-family: var(--mono);
+            border-radius: var(--radius-pill);
+            white-space: nowrap;
+        }
+        .cases-status-tag[data-status="Closed"] { background: rgba(29,111,66,0.15); color: #4ea876; }
+        .cases-status-tag[data-status="Working"] { background: rgba(220,120,60,0.18); color: #e0935c; }
+        .cases-status-tag[data-status="Sent to R&D"] { background: rgba(196,80,80,0.18); color: #d97676; }
+        .cases-status-tag[data-status="Waiting - Customer"] { background: rgba(196,168,80,0.18); color: #d4ad62; }
+        .cases-status-tag[data-status="Close to confirm"] { background: rgba(140,140,200,0.18); color: #a098dc; }
+        .cases-rnd-tag {
+            font-family: var(--mono);
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            background: var(--void-lighter);
+            padding: 0.1rem 0.4rem;
+            border-radius: var(--radius-sm);
+        }
+        .cases-empty {
+            padding: 2rem;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.85rem;
+        }
+
         .btn-action {
             display: inline-flex;
             align-items: center;
@@ -14462,6 +14570,10 @@
     let supportCharts = [];
     let supportFilter = null;   // { type: 'aging'|'customer', bucket?: string, name?: string }
     let supportFilterAgg = null; // cached agg for re-rendering tables
+    // Cases-table filter state (separate from chart-driven supportFilter so the user can drive both)
+    let caseStatusFilter = null;     // Set<string> of selected statuses; null = all selected
+    let caseCustomerFilter = '';     // customer name; '' = all
+    let caseSearchFilter = '';       // free-text match on case_number or subject
 
     function destroySupportCharts() {
         supportCharts.forEach(c => c.destroy());
@@ -14749,11 +14861,16 @@
             <div id="supportFilterIndicator"></div>
             <div id="supportFeatureGapsContainer"></div>
             <div id="supportAgingCasesContainer"></div>
+            <div id="supportAllCasesContainer"></div>
         `;
 
         refreshIcons();
         supportFilter = null;
         supportFilterAgg = agg;
+        // Reset case-table filters so each visit defaults to "show open cases" (caseStatusFilter=null triggers default)
+        caseStatusFilter = null;
+        caseCustomerFilter = '';
+        caseSearchFilter = '';
         initSupportCharts(agg);
         applySupportFilter(agg);
     }
@@ -14863,6 +14980,132 @@
         } else {
             agingEl.innerHTML = '';
         }
+
+        renderSupportAllCases(agg);
+        refreshIcons();
+    }
+
+    function renderSupportAllCases(agg) {
+        const el = document.getElementById('supportAllCasesContainer');
+        if (!el) return;
+
+        const allCases = agg.latest?.cases || [];
+        if (!allCases.length) {
+            el.innerHTML = `<div class="support-section">
+                <h3><i data-lucide="list" style="width:16px;height:16px;"></i> Cases</h3>
+                <div class="cases-empty">This review didn't capture a full case list. Re-run the support review skill to populate it.</div>
+            </div>`;
+            return;
+        }
+
+        const closedStatuses = new Set(['Closed']);
+        // Status counts for chip labels
+        const statusCounts = {};
+        const customers = new Set();
+        for (const c of allCases) {
+            const s = c.status || '(unknown)';
+            statusCounts[s] = (statusCounts[s] || 0) + 1;
+            if (c.customer_name) customers.add(c.customer_name);
+        }
+        // Default selection: all open statuses (everything that isn't 'Closed')
+        if (caseStatusFilter === null) {
+            caseStatusFilter = new Set(Object.keys(statusCounts).filter(s => !closedStatuses.has(s)));
+        }
+
+        // Apply filters
+        const search = (caseSearchFilter || '').toLowerCase().trim();
+        const filtered = allCases.filter(c => {
+            if (caseStatusFilter.size && !caseStatusFilter.has(c.status)) return false;
+            if (caseCustomerFilter && c.customer_name !== caseCustomerFilter) return false;
+            if (search) {
+                const hay = `${c.case_number} ${c.subject || ''} ${c.rnd_issue || ''}`.toLowerCase();
+                if (!hay.includes(search)) return false;
+            }
+            return true;
+        });
+        // Sort: open statuses first, then by days_open desc
+        filtered.sort((a, b) => {
+            const aOpen = !closedStatuses.has(a.status) ? 0 : 1;
+            const bOpen = !closedStatuses.has(b.status) ? 0 : 1;
+            if (aOpen !== bOpen) return aOpen - bOpen;
+            return (b.days_open || 0) - (a.days_open || 0);
+        });
+
+        const statusOrder = ['Working', 'Sent to R&D', 'Waiting - Customer', 'Close to confirm', 'Closed'];
+        const orderedStatuses = [
+            ...statusOrder.filter(s => statusCounts[s] != null),
+            ...Object.keys(statusCounts).filter(s => !statusOrder.includes(s)),
+        ];
+
+        const customerOptions = Array.from(customers).sort((a, b) => a.localeCompare(b));
+
+        el.innerHTML = `<div class="support-section">
+            <h3><i data-lucide="list" style="width:16px;height:16px;"></i> Cases (${filtered.length}/${allCases.length})</h3>
+            <div class="cases-filter-bar">
+                <span class="cases-filter-label">Status</span>
+                ${orderedStatuses.map(s => `
+                    <span class="cases-status-chip ${caseStatusFilter.has(s) ? 'active' : ''}"
+                          onclick="toggleCaseStatusFilter(${JSON.stringify(s).replace(/"/g, '&quot;')})">${esc(s)}<span class="chip-count">${statusCounts[s]}</span></span>
+                `).join('')}
+                <span class="cases-filter-label" style="margin-left:0.75rem;">Customer</span>
+                <select class="cases-customer-select" onchange="setCaseCustomerFilter(this.value)">
+                    <option value="">All customers</option>
+                    ${customerOptions.map(cn => `<option value="${esc(cn)}" ${caseCustomerFilter === cn ? 'selected' : ''}>${esc(cn)}</option>`).join('')}
+                </select>
+                <input type="text" class="cases-search-input" placeholder="Search case # or subject…" value="${esc(caseSearchFilter)}" oninput="setCaseSearchFilter(this.value)">
+                <button class="cases-filter-reset" onclick="resetCaseFilters()">Reset</button>
+            </div>
+            <table class="support-table">
+                <thead><tr>
+                    <th>Case</th>
+                    <th>Subject</th>
+                    <th>Customer</th>
+                    <th>Status</th>
+                    <th>Days</th>
+                    <th>R&amp;D</th>
+                </tr></thead>
+                <tbody>
+                    ${filtered.map(c => {
+                        const daysClass = c.days_open >= 60 ? 'days-critical' : c.days_open >= 30 ? 'days-warning' : '';
+                        return `<tr>
+                            <td style="font-family:var(--mono);font-size:0.8rem;">${esc(c.case_number)}</td>
+                            <td>${esc(c.subject || '')}</td>
+                            <td>${esc(c.customer_name || '—')}</td>
+                            <td><span class="cases-status-tag" data-status="${esc(c.status)}">${esc(c.status || '—')}</span></td>
+                            <td class="${daysClass}" style="text-align:right;">${c.days_open != null ? c.days_open : '—'}</td>
+                            <td>${c.rnd_issue ? `<span class="cases-rnd-tag">${esc(c.rnd_issue)}</span>` : ''}</td>
+                        </tr>`;
+                    }).join('') || `<tr><td colspan="6" class="cases-empty">No cases match the current filters.</td></tr>`}
+                </tbody>
+            </table>
+        </div>`;
+    }
+
+    function toggleCaseStatusFilter(status) {
+        if (!caseStatusFilter) caseStatusFilter = new Set();
+        if (caseStatusFilter.has(status)) caseStatusFilter.delete(status);
+        else caseStatusFilter.add(status);
+        if (supportFilterAgg) renderSupportAllCases(supportFilterAgg);
+        refreshIcons();
+    }
+
+    function setCaseCustomerFilter(value) {
+        caseCustomerFilter = value || '';
+        if (supportFilterAgg) renderSupportAllCases(supportFilterAgg);
+        refreshIcons();
+    }
+
+    function setCaseSearchFilter(value) {
+        caseSearchFilter = value || '';
+        if (supportFilterAgg) renderSupportAllCases(supportFilterAgg);
+        // Don't refreshIcons here — the search input would lose focus
+    }
+
+    function resetCaseFilters() {
+        caseStatusFilter = null;
+        caseCustomerFilter = '';
+        caseSearchFilter = '';
+        if (supportFilterAgg) renderSupportAllCases(supportFilterAgg);
         refreshIcons();
     }
 

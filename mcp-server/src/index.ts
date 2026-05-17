@@ -2694,9 +2694,10 @@ server.tool(
     }
 
     // 4. Fetch known entities for matching
-    const [people, products] = await Promise.all([
+    const [people, products, companies] = await Promise.all([
       supabaseGet('people?select=id,name&order=name'),
       supabaseGet('products?select=id,name&order=name'),
+      supabaseGet('companies?type=eq.customer&select=id,name&order=name'),
     ]);
 
     // 5. Count actual case data rows (skip metadata/headers/footer)
@@ -2730,6 +2731,7 @@ server.tool(
           user_prompt_template: prompt?.user_prompt_template || null,
           known_products: products?.map((p: any) => ({ id: p.id, name: p.name })) || [],
           known_people: people?.map((p: any) => ({ id: p.id, name: p.name })) || [],
+          known_companies: companies?.map((c: any) => ({ id: c.id, name: c.name })) || [],
         }, null, 2),
       }],
     };
@@ -2775,22 +2777,45 @@ server.tool(
         summary: z.string(),
         notable_cases: z.array(z.string()).optional().default([]),
       })).optional().default([]),
+      cases: z.array(z.object({
+        case_number: z.string(),
+        customer_name: z.string().optional(),
+        status: z.string(),
+        subject: z.string(),
+        days_open: z.number(),
+        rnd_issue: z.string().optional(),
+        opened: z.string().optional(),
+      })).optional().default([]).describe('Full case list — every row in the export, used to render a filterable table on the support dashboard'),
     }).describe('Structured support review analysis'),
   },
   async ({ date, asset_id, review_data }) => {
     // 1. Fetch entity maps
-    const [people, products] = await Promise.all([
+    const [people, products, companies] = await Promise.all([
       supabaseGet('people?select=id,name&order=name'),
       supabaseGet('products?select=id,name&order=name'),
+      supabaseGet('companies?type=eq.customer&select=id,name&order=name'),
     ]);
 
     const peopleMap: Record<string, string> = {};
     people.forEach((p: any) => { peopleMap[p.name.toLowerCase()] = p.id; });
     const productMap: Record<string, string> = {};
     products.forEach((p: any) => { productMap[p.name.toLowerCase()] = p.id; });
+    const companiesMap: Record<string, string> = {};
+    companies.forEach((c: any) => { companiesMap[c.name.toLowerCase()] = c.id; });
 
     const sourceRef = { support_review_date: date, asset_id };
     const results = { patterns: 0, feature_gaps: 0, customer_entries: 0 };
+    const skipped: { customers: string[] } = { customers: [] };
+    const autoCreated: { customers: string[] } = { customers: [] };
+    const fuzzyMatched: { customers: string[] } = { customers: [] };
+
+    // Strip common corporate suffixes for fuzzy customer matching against companies.
+    const stripSuffix = (s: string) => s
+      .replace(/\b(pty|ltd|limited|inc|llc|gmbh|srl|s\.?r\.?l|s\.?p\.?a|sa|nv|bv|co|kg|ag|plc|corp|corporation)\.?\b/gi, '')
+      .replace(/[^a-z0-9 ]/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .toLowerCase();
 
     // 2. Build markdown body
     let body = `# Support Review — ${date}\n\n`;
@@ -2894,20 +2919,87 @@ server.tool(
       results.feature_gaps++;
     }
 
-    // 6. Write people log for customer entries
+    // 6. Match customer entries against companies (type=customer). Strategy:
+    //   1. Exact name match (companiesMap)
+    //   2. Fuzzy match — corporate-suffix-stripped substring, both directions
+    //      (handles "Peacock Bros" ↔ "Peacock Bros Pty Ltd")
+    //   3. Legacy people-table fallback for "Customer - X" rows that predate
+    //      the companies migration
+    //   4. Auto-create the company with type='customer' so the next run
+    //      matches automatically. Tagged 'auto-from-support' for review.
+    // Build fuzzy lookup once
+    const companyByStripped: Record<string, { id: string; name: string }> = {};
+    for (const c of companies) {
+      const k = stripSuffix(c.name);
+      if (k) companyByStripped[k] = { id: c.id, name: c.name };
+    }
     for (const entry of review_data.customer_entries) {
-      const personId = peopleMap[entry.customer_name?.toLowerCase()]
-        || peopleMap[`customer - ${entry.customer_name?.toLowerCase()}`]
-        || null;
-      if (!personId) continue;
-      await supabasePost('people_log', {
-        person_id: personId,
-        note_date: date,
-        entry: `Support review: ${entry.summary}`,
-        source: 'support_review',
-        source_ref: sourceRef,
-      });
-      results.customer_entries++;
+      const raw = entry.customer_name;
+      if (!raw) continue;
+      const lc = raw.toLowerCase();
+      let companyId: string | null = companiesMap[lc] || null;
+
+      if (!companyId) {
+        // Fuzzy: strip suffixes and try substring match both directions
+        const stripped = stripSuffix(raw);
+        if (stripped && stripped.length >= 3) {
+          if (companyByStripped[stripped]) {
+            companyId = companyByStripped[stripped].id;
+            fuzzyMatched.customers.push(`${raw} → ${companyByStripped[stripped].name}`);
+          } else {
+            // Try includes() either direction — guard against very short keys
+            const hit = Object.entries(companyByStripped).find(([k, _]) =>
+              (k.length >= 4 && stripped.includes(k)) || (stripped.length >= 4 && k.includes(stripped))
+            );
+            if (hit) {
+              companyId = hit[1].id;
+              fuzzyMatched.customers.push(`${raw} → ${hit[1].name}`);
+            }
+          }
+        }
+      }
+
+      if (companyId) {
+        results.customer_entries++;
+        continue;
+      }
+
+      // Legacy people-table fallback (kept for backwards compatibility)
+      const personId = peopleMap[lc] || peopleMap[`customer - ${lc}`] || null;
+      if (personId) {
+        await supabasePost('people_log', {
+          person_id: personId,
+          note_date: date,
+          entry: `Support review: ${entry.summary}`,
+          source: 'support_review',
+          source_ref: sourceRef,
+        });
+        results.customer_entries++;
+        continue;
+      }
+
+      // Auto-create. Cache to companiesMap so a second entry with the same
+      // name in the same call doesn't double-create.
+      try {
+        const created = await supabasePost('companies', {
+          name: raw,
+          type: 'customer',
+          tags: ['auto-from-support'],
+          notes: `Auto-created from support review on ${date}.`,
+        }, true);
+        const newId = created.data?.[0]?.id;
+        if (newId) {
+          companiesMap[lc] = newId;
+          companyByStripped[stripSuffix(raw)] = { id: newId, name: raw };
+          autoCreated.customers.push(raw);
+          results.customer_entries++;
+        } else {
+          skipped.customers.push(raw);
+        }
+      } catch (err: any) {
+        // If the create fails (e.g. unique constraint, RLS), surface as skipped
+        skipped.customers.push(raw);
+      }
     }
 
     // 7. Create audit record
@@ -2925,6 +3017,10 @@ server.tool(
       embedItem('summaries', summaryId).catch(() => {});
     }
 
+    const skippedDedup = { customers: Array.from(new Set(skipped.customers)) };
+    const autoCreatedDedup = { customers: Array.from(new Set(autoCreated.customers)) };
+    const fuzzyMatchedDedup = { customers: Array.from(new Set(fuzzyMatched.customers)) };
+
     return {
       content: [{
         type: 'text' as const,
@@ -2935,6 +3031,9 @@ server.tool(
           date,
           writes: results,
           action: existing.length ? 'updated' : 'created',
+          skipped: skippedDedup,
+          auto_created: autoCreatedDedup,
+          fuzzy_matched: fuzzyMatchedDedup,
         }, null, 2),
       }],
     };
