@@ -223,6 +223,10 @@ async function buildS2Payload(jobId: string, extracted: ExtractedJob, env: Env, 
           `${apiUrl}/mis/customers?searchValue=${encodeURIComponent(term)}`,
           { headers }
         );
+        if (!custResp.ok) {
+          const errText = await custResp.text().catch(() => '');
+          console.warn(`[email-to-mis] Customer search for "${term}" failed: HTTP ${custResp.status} ${errText.slice(0, 200)}`);
+        }
         if (custResp.ok) {
           const custData = await custResp.json() as any;
           const items = custData?.items || custData?.data || (Array.isArray(custData) ? custData : []);
@@ -883,7 +887,11 @@ export async function createMisJob(
         headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
         body: JSON.stringify(draftRecord),
       });
-      const draftStored = draftResp.ok ? await draftResp.json() : draftRecord;
+      if (!draftResp.ok) {
+        const errText = await draftResp.text().catch(() => '');
+        throw new Error(`Draft job POST to /api/mis/jobs failed: HTTP ${draftResp.status} ${errText.slice(0, 300)}`);
+      }
+      const draftStored = await draftResp.json();
       // Arrival push — no WCP link (project not created upstream).
       fireArrivalPush(env, extracted, draftStored, jobId, null);
       return draftStored;
