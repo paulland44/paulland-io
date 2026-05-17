@@ -1,0 +1,2169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Today — paulland.io</title>
+
+  <style>
+    /* ─────────────────────────────────────────────────────────────
+       Design tokens (docs/artifact-design-system.md §1)
+       Light by default (Cowork renders light); dark behind data-theme.
+       ───────────────────────────────────────────────────────────── */
+    :root {
+      color-scheme: light;
+      --bg:       #FAF8F3;
+      --surface:  #F2EFE7;
+      --card:     #FFFFFF;
+      --card-hi:  #F6F3EC;
+      --text:     #1A1A22;
+      --text-2:   #4A4A55;
+      --text-3:   #767582;
+      --text-4:   #B5B3AE;
+      --border:        rgba(26, 26, 34, 0.10);
+      --border-hover:  rgba(26, 26, 34, 0.20);
+      --divider:       rgba(26, 26, 34, 0.06);
+      --hover: rgba(26, 26, 34, 0.04);
+      --press: rgba(26, 26, 34, 0.08);
+      --accent:       #2F7A58;
+      --accent-hover: #266547;
+      --accent-soft:  rgba(47, 122, 88, 0.10);
+      --accent-text:  #2F7A58;
+      --on-accent:    #FFFFFF;
+      --info:    #4F86C9;
+      --warn:    #B8862E;
+      --danger:  #B8453F;
+      --success: var(--accent);
+      --shadow-sm: 0 1px 2px rgba(20, 20, 30, 0.06);
+      --shadow-md: 0 4px 14px rgba(20, 20, 30, 0.08);
+      --shadow-lg: 0 16px 40px rgba(20, 20, 30, 0.14);
+      --sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: 'Inconsolata', 'SF Mono', Menlo, monospace;
+      --r-sm: 4px; --r-md: 6px; --r-lg: 10px; --r-pill: 999px;
+      --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+      --s5: 20px; --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px;
+    }
+    [data-theme="dark"] {
+      --bg: #0E0E13; --surface: #1C1C25; --card: #2A2933; --card-hi: #353441;
+      --text: #ECE6D6; --text-2: #B8AE96; --text-3: #807865; --text-4: #5A5448;
+      --border: rgba(236, 230, 214, 0.08);
+      --border-hover: rgba(236, 230, 214, 0.16);
+      --divider: rgba(236, 230, 214, 0.06);
+      --hover: rgba(236, 230, 214, 0.04); --press: rgba(236, 230, 214, 0.08);
+      --accent: #5BB088; --accent-hover: #6FC09A;
+      --accent-soft: rgba(91, 176, 136, 0.14); --on-accent: #0E0E13;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg); color: var(--text);
+      font-family: var(--sans); font-size: 14px; line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ── Layout shell ──────────────────────────────────────────── */
+    .artifact { max-width: 1400px; margin: 0 auto; padding: var(--s5) var(--s6); }
+    .artifact-header {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center; gap: var(--s4);
+      padding-bottom: var(--s3);
+      border-bottom: 1px solid var(--border);
+      margin-bottom: var(--s5);
+    }
+    .period-nav {
+      display: inline-flex;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-pill);
+      padding: 3px;
+    }
+    .period-nav button {
+      appearance: none; cursor: pointer;
+      background: transparent; border: none;
+      color: var(--text-2);
+      font-family: var(--sans); font-size: 0.78rem; font-weight: 500;
+      padding: 5px 12px; border-radius: var(--r-pill);
+      transition: background 0.15s, color 0.15s;
+      display: inline-flex; align-items: center; gap: var(--s1);
+    }
+    .period-nav button:hover { color: var(--text); }
+    .period-nav button.active {
+      background: var(--card); color: var(--text);
+      box-shadow: var(--shadow-sm);
+    }
+    .period-nav .arrow { font-family: var(--mono); opacity: 0.7; }
+
+    .date-display {
+      text-align: left; padding-left: var(--s3);
+      font-family: var(--mono); color: var(--text-3);
+      font-size: 0.82rem; letter-spacing: 0.01em;
+    }
+    .date-display strong {
+      color: var(--text); font-family: var(--sans);
+      font-weight: 600; font-size: 0.95rem;
+      margin-right: var(--s2);
+    }
+    .header-actions { display: inline-flex; align-items: center; gap: var(--s2); justify-self: end; }
+
+    /* ── Two-column body ──────────────────────────────────────── */
+    .artifact-body {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: var(--s6); align-items: start;
+    }
+    @media (max-width: 1100px) {
+      .artifact-body { grid-template-columns: 1fr; }
+      .sidebar { order: -1; }
+    }
+    .main-col { display: grid; gap: var(--s5); min-width: 0; }
+    .sidebar {
+      display: grid; gap: var(--s4);
+      position: sticky; top: var(--s4);
+      max-height: calc(100vh - var(--s8));
+      overflow-y: auto;
+      padding-right: var(--s2);
+    }
+
+    /* ── Section headers ──────────────────────────────────────── */
+    .section { display: grid; gap: var(--s2); }
+    .section-header {
+      display: flex; align-items: baseline; justify-content: space-between;
+      gap: var(--s3);
+    }
+    .section-header h2 {
+      font-size: 0.72rem; font-weight: 600; color: var(--text-2);
+      margin: 0; text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .section-header .meta {
+      font-size: 0.72rem; color: var(--text-3); font-family: var(--mono);
+    }
+    .section-header .toggle {
+      appearance: none; cursor: pointer; background: none; border: none;
+      color: var(--text-3); font-family: var(--mono); font-size: 0.7rem;
+      padding: 2px 6px; border-radius: var(--r-sm);
+    }
+    .section-header .toggle:hover { background: var(--hover); color: var(--text); }
+
+    /* ── Buttons ──────────────────────────────────────────────── */
+    .btn {
+      appearance: none; cursor: pointer; font-family: var(--sans);
+      background: transparent; color: var(--text-2);
+      border: 1px solid var(--border); border-radius: var(--r-sm);
+      padding: 5px 11px; font-size: 0.78rem; font-weight: 500;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+      display: inline-flex; align-items: center; gap: var(--s1);
+      white-space: nowrap;
+    }
+    .btn:hover:not(:disabled) {
+      background: var(--hover); border-color: var(--border-hover); color: var(--text);
+    }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+    .btn-danger { color: var(--danger); border-color: var(--border); }
+    .btn-danger:hover:not(:disabled) { background: rgba(184, 69, 63, 0.08); border-color: rgba(184, 69, 63, 0.32); color: var(--danger); }
+    .btn-sm { padding: 3px 8px; font-size: 0.72rem; }
+    .btn-icon { padding: 3px 5px; }
+    .btn-icon svg { width: 13px; height: 13px; }
+    .btn svg { width: 13px; height: 13px; flex-shrink: 0; }
+
+    /* ─────────────────────────────────────────────────────────────
+       WYSIWYG — Tiptap editor primitive (design system §3.8)
+       Used by Notes & Thoughts, Stoic Challenge fields, per-meeting
+       editors. Toolbar drives Tiptap commands; save serialises via
+       `editor.storage.markdown.getMarkdown()`.
+       ───────────────────────────────────────────────────────────── */
+    .wysiwyg-block { display: grid; gap: 0; }
+    .wysiwyg-toolbar {
+      display: flex; flex-wrap: wrap; gap: 2px;
+      padding: var(--s2);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-bottom: none;
+      border-radius: var(--r-sm) var(--r-sm) 0 0;
+    }
+    .wysiwyg-btn {
+      appearance: none; cursor: pointer;
+      background: transparent; color: var(--text-2);
+      border: 1px solid transparent; border-radius: var(--r-sm);
+      padding: 3px 8px; font-size: 0.76rem; font-weight: 500;
+      font-family: var(--sans); min-width: 26px;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .wysiwyg-btn:hover { background: var(--hover); color: var(--text); border-color: var(--border); }
+    .wysiwyg-btn.is-active {
+      background: var(--accent-soft); color: var(--accent-text);
+      border-color: var(--accent-soft);
+    }
+    .wysiwyg-btn.bold { font-weight: 700; }
+    .wysiwyg-btn.italic { font-style: italic; }
+    .wysiwyg-btn.heading { font-family: var(--mono); }
+    .wysiwyg-btn.attach svg { width: 12px; height: 12px; vertical-align: middle; }
+
+    .tiptap-editor {
+      min-height: 160px;
+      padding: var(--s3) var(--s4);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--r-md) var(--r-md);
+      font-family: var(--sans); font-size: 0.95rem; line-height: 1.55;
+      color: var(--text);
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .tiptap-editor:focus-within { border-color: var(--border-hover); }
+    .tiptap-editor.dragover    { border-color: var(--accent); background: var(--accent-soft); }
+    .tiptap-editor .ProseMirror { outline: none; min-height: inherit; }
+    .tiptap-editor .ProseMirror p.is-editor-empty:first-child::before {
+      content: attr(data-placeholder);
+      float: left; color: var(--text-4); pointer-events: none; height: 0;
+    }
+    .tiptap-editor h1 { font-size: 1.4rem; font-weight: 600; margin: var(--s3) 0 var(--s2); }
+    .tiptap-editor h2 { font-size: 1.15rem; font-weight: 600; margin: var(--s3) 0 var(--s2); }
+    .tiptap-editor h3 { font-size: 1rem; font-weight: 600; margin: var(--s3) 0 var(--s2); }
+    .tiptap-editor p  { margin: var(--s2) 0; }
+    .tiptap-editor ul, .tiptap-editor ol { padding-left: var(--s5); margin: var(--s2) 0; }
+    .tiptap-editor li { margin: var(--s1) 0; }
+    .tiptap-editor strong { font-weight: 600; }
+    .tiptap-editor em { font-style: italic; }
+    .tiptap-editor a { color: var(--accent-text); text-decoration: underline; }
+    .tiptap-editor blockquote {
+      border-left: 3px solid var(--border);
+      padding-left: var(--s4);
+      color: var(--text-2);
+      margin: var(--s3) 0;
+    }
+    .tiptap-editor code {
+      font-family: var(--mono); font-size: 0.875em;
+      background: var(--press); padding: 2px 4px; border-radius: var(--r-sm);
+    }
+    .tiptap-editor pre {
+      background: var(--surface); padding: var(--s3); border-radius: var(--r-sm);
+      overflow-x: auto; font-family: var(--mono); font-size: 0.85em;
+    }
+    .tiptap-editor img {
+      max-width: 100%; height: auto; border-radius: var(--r-sm);
+      margin: var(--s2) 0;
+    }
+    .tiptap-editor.compact { min-height: 80px; padding: var(--s2) var(--s3); font-size: 0.88rem; }
+
+    .wysiwyg-status {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--s2);
+      padding: 4px var(--s3);
+      font-size: 0.7rem; color: var(--text-3); font-family: var(--mono);
+      border: 1px solid var(--border); border-top: none;
+      border-radius: 0 0 var(--r-sm) var(--r-sm);
+      background: var(--bg);
+    }
+    .wysiwyg-status.saving { color: var(--info); }
+    .wysiwyg-status.dirty  { color: var(--warn); }
+    .wysiwyg-status.saved  { color: var(--accent-text); }
+
+    /* Editor that's just a simple block (no toolbar/status) — used
+       inside the stoic-grid where each field has its own mini editor */
+    .wysiwyg-block.bare .tiptap-editor {
+      border-top: 1px solid var(--border);
+      border-radius: var(--r-sm);
+    }
+
+    /* ── Pending attachments (during upload) ──────────────────── */
+    .pending-atts {
+      display: flex; flex-wrap: wrap; gap: var(--s2);
+      padding: var(--s2) var(--s3);
+      border-top: 1px dashed var(--border);
+    }
+    .pending-atts:empty { display: none; }
+    .pending-att {
+      display: inline-flex; align-items: center; gap: var(--s2);
+      padding: 3px 9px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-size: 0.72rem; color: var(--text-2);
+    }
+    .pending-att.uploading { border-color: var(--info); color: var(--info); }
+    .pending-att.uploaded  { border-color: var(--accent); color: var(--accent-text); }
+    .pending-att.failed    { border-color: var(--danger); color: var(--danger); }
+    .pending-att svg { width: 12px; height: 12px; }
+    .pending-att .filename { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pending-att .progress { font-family: var(--mono); font-size: 0.68rem; opacity: 0.85; }
+    .pending-att .remove-btn {
+      appearance: none; cursor: pointer; background: none; border: none;
+      color: inherit; opacity: 0.5; padding: 0; line-height: 1;
+      font-size: 1rem;
+    }
+    .pending-att .remove-btn:hover { opacity: 1; }
+
+    /* ── Stoic challenge ──────────────────────────────────────── */
+    .stoic {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s4);
+    }
+    .stoic.collapsed .stoic-grid { display: none; }
+    .stoic-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--s3); margin-top: var(--s3);
+    }
+    @media (max-width: 800px) { .stoic-grid { grid-template-columns: 1fr; } }
+    .stoic-field label {
+      display: block; font-size: 0.7rem; font-weight: 600;
+      color: var(--text-3); text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: var(--s1);
+    }
+    .stoic-field .tiptap-editor { min-height: 70px; }
+    .stoic-field.dirty .tiptap-editor  { border-color: var(--warn); }
+    .stoic-field.saving .tiptap-editor { border-color: var(--info); }
+
+    /* ── Notes & Thoughts ─────────────────────────────────────── */
+    .notes-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s4);
+    }
+
+    /* ── Meetings list ─────────────────────────────────────────── */
+    .meetings-list {
+      display: flex; flex-direction: column;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      overflow: hidden;
+    }
+    .meeting-row {
+      display: grid;
+      grid-template-columns: 64px 1fr auto;
+      align-items: center;
+      gap: var(--s3);
+      padding: var(--s3) var(--s4);
+      border-bottom: 1px solid var(--divider);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .meeting-row:hover { background: var(--card-hi); }
+    .meeting-row:last-child { border-bottom: none; }
+    .meeting-row.expanded { background: var(--card-hi); cursor: default; }
+    .meeting-time {
+      font-family: var(--mono); font-size: 0.78rem;
+      color: var(--accent-text); font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+    .meeting-title {
+      font-size: 0.9rem; font-weight: 500; color: var(--text);
+      line-height: 1.35; min-width: 0;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .meeting-row.expanded .meeting-title { white-space: normal; }
+    .meeting-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px;
+      background: var(--accent-soft); color: var(--accent-text);
+      font-family: var(--mono); font-size: 0.7rem; font-weight: 600;
+      border-radius: var(--r-pill);
+    }
+    .meeting-badge.empty { background: var(--surface); color: var(--text-4); }
+
+    .meeting-expand {
+      grid-column: 1 / -1;
+      padding: var(--s3) var(--s4) var(--s4);
+      border-top: 1px dashed var(--border);
+      margin-top: var(--s3);
+      display: grid; gap: var(--s3);
+    }
+    .meeting-meta {
+      display: flex; flex-wrap: wrap; gap: var(--s2);
+      font-size: 0.74rem;
+    }
+    .meeting-meta .pill {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--surface); border: 1px solid var(--border);
+      padding: 2px 8px; border-radius: var(--r-pill);
+      font-family: var(--mono); font-size: 0.7rem; color: var(--text-3);
+    }
+    .meeting-meta .pill svg { width: 11px; height: 11px; }
+
+    .meeting-existing { display: flex; flex-direction: column; gap: var(--s3); }
+    .existing-note {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: var(--s3);
+    }
+    .existing-note.editing { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
+    .existing-note-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: var(--s2); margin-bottom: var(--s2);
+    }
+    .existing-note-time { font-family: var(--mono); font-size: 0.7rem; color: var(--text-3); }
+    .existing-note-actions { display: flex; gap: 2px; }
+    .existing-note .note-text {
+      font-size: 0.85rem; color: var(--text); line-height: 1.55;
+      max-height: 240px; overflow-y: auto; padding-right: var(--s2);
+    }
+    .existing-note .note-text > *:first-child { margin-top: 0; }
+    .existing-note .note-text > *:last-child  { margin-bottom: 0; }
+    .existing-note .note-text h1 { font-size: 0.95rem; margin: var(--s2) 0 4px; }
+    .existing-note .note-text h2 { font-size: 0.9rem;  margin: var(--s2) 0 4px; }
+    .existing-note .note-text h3 { font-size: 0.85rem; margin: var(--s2) 0 4px; }
+    .existing-note .note-text p  { margin: 4px 0; }
+    .existing-note .note-text ul, .existing-note .note-text ol { margin: 4px 0; padding-left: var(--s5); }
+    .existing-note .note-text a  { color: var(--accent-text); text-decoration: none; }
+    .existing-note .note-text a:hover { text-decoration: underline; }
+    .existing-note .note-text code { background: var(--surface); padding: 1px 4px; border-radius: 3px; font-family: var(--mono); font-size: 0.85em; }
+    .existing-note .note-text strong { color: var(--text); font-weight: 600; }
+    .existing-note .note-text em { font-style: italic; }
+    .note-attachments {
+      display: flex; flex-wrap: wrap; gap: var(--s2);
+      margin-top: var(--s2);
+    }
+    .att-thumb {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 3px 8px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      font-size: 0.72rem; color: var(--text-2);
+      text-decoration: none;
+    }
+    .att-thumb:hover { background: var(--surface); border-color: var(--border-hover); color: var(--text); }
+    .att-thumb svg { width: 11px; height: 11px; }
+    .att-thumb .filename { max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .meeting-editor-wrap { display: grid; gap: var(--s2); }
+    .meeting-editor-row {
+      display: flex; align-items: center; justify-content: flex-end;
+      gap: var(--s2);
+    }
+
+    /* ── Today's attachments strip ─────────────────────────────── */
+    .att-strip {
+      display: flex; flex-wrap: wrap; gap: var(--s2);
+    }
+    .att-card {
+      display: inline-flex; align-items: center; gap: var(--s2);
+      padding: var(--s2) var(--s3);
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      text-decoration: none; color: inherit;
+      max-width: 280px;
+    }
+    .att-card:hover { background: var(--card-hi); border-color: var(--border-hover); }
+    .att-card .att-icon {
+      width: 26px; height: 26px; flex-shrink: 0;
+      border-radius: var(--r-sm); background: var(--surface);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-3);
+    }
+    .att-card .att-icon svg { width: 13px; height: 13px; }
+    .att-card .att-icon.image { color: var(--info); }
+    .att-card .att-icon.pdf   { color: var(--danger); }
+    .att-card .att-icon.sheet { color: var(--warn); }
+    .att-card .att-icon.doc   { color: var(--accent-text); }
+    .att-card .att-name {
+      font-size: 0.78rem; color: var(--text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 180px;
+    }
+    .att-card .att-meta { font-family: var(--mono); font-size: 0.66rem; color: var(--text-3); }
+
+    /* ── Reflections placeholder ──────────────────────────────── */
+    .reflections-placeholder {
+      background: var(--card);
+      border: 1px dashed var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s4);
+      text-align: center;
+      color: var(--text-3); font-size: 0.82rem;
+    }
+    .reflections-placeholder strong {
+      color: var(--text-2); font-weight: 600;
+      display: block; margin-bottom: var(--s1); font-size: 0.88rem;
+    }
+
+    /* ── Sidebar / Tasks ──────────────────────────────────────── */
+    .sidebar-section {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: var(--s4);
+    }
+    .add-task-row {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: var(--s2); margin-bottom: var(--s4);
+    }
+    .add-task-row input[type="text"] {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 5px var(--s2);
+      font-family: var(--sans); font-size: 0.78rem; color: var(--text);
+      outline: none; min-width: 0;
+    }
+    .add-task-row input[type="text"]:focus { border-color: var(--accent); background: var(--card); }
+    .add-task-row select {
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--r-sm); padding: 4px var(--s1);
+      font-family: var(--sans); font-size: 0.72rem; color: var(--text);
+      outline: none;
+    }
+    .task-group { margin-bottom: var(--s4); }
+    .task-group:last-child { margin-bottom: 0; }
+    .task-group-head {
+      display: flex; align-items: center; gap: var(--s2);
+      padding: var(--s1) 0;
+      font-size: 0.7rem; font-weight: 600; letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-2);
+      border-bottom: 1px solid var(--divider);
+      margin-bottom: var(--s2);
+    }
+    .task-group-head .count {
+      font-family: var(--mono); font-size: 0.7rem; color: var(--text-3);
+      margin-left: auto; letter-spacing: 0;
+    }
+    .task-group.collapsible .task-group-head { cursor: pointer; }
+    .task-group.collapsible .task-group-head:hover { color: var(--text); }
+    .task-group-head .chev { font-family: var(--mono); margin-left: 4px; opacity: 0.6; transition: transform 0.15s; }
+    .task-group.collapsed .chev { transform: rotate(-90deg); }
+    .task-group.collapsed .task-group-body { display: none; }
+    .task-group.overdue .task-group-head { color: var(--danger); }
+    .task-group.today   .task-group-head { color: var(--accent-text); }
+
+    .task-row {
+      display: grid;
+      grid-template-columns: 8px 1fr auto;
+      gap: var(--s2);
+      padding: var(--s2) 0;
+      align-items: start;
+      border-bottom: 1px solid var(--divider);
+      transition: opacity 0.25s ease, transform 0.25s ease, max-height 0.3s ease,
+                  margin 0.3s ease, padding 0.3s ease, border 0.3s ease;
+      max-height: 200px; overflow: hidden;
+    }
+    .task-row:last-child { border-bottom: none; }
+    .task-row.completing {
+      opacity: 0; transform: translateX(8px);
+      max-height: 0; padding-top: 0; padding-bottom: 0;
+      border-color: transparent;
+    }
+    .task-prio-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      margin-top: 5px;
+      background: var(--text-4);
+    }
+    .task-prio-dot.high   { background: var(--danger); }
+    .task-prio-dot.medium { background: var(--warn); }
+    .task-prio-dot.low    { background: var(--info); }
+    .task-body { min-width: 0; }
+    .task-title-line { font-size: 0.82rem; color: var(--text); line-height: 1.4; }
+    .task-meta-line {
+      font-size: 0.68rem; color: var(--text-3); font-family: var(--mono);
+      margin-top: 2px;
+      display: flex; gap: var(--s2); flex-wrap: wrap;
+    }
+    .task-meta-line .due-overdue { color: var(--danger); }
+    .task-meta-line .due-today   { color: var(--accent-text); font-weight: 600; }
+    .task-complete-btn {
+      appearance: none; cursor: pointer; background: transparent;
+      border: 1px solid var(--border); border-radius: var(--r-sm);
+      padding: 3px 5px; color: var(--text-3);
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .task-complete-btn:hover { background: var(--accent-soft); color: var(--accent-text); border-color: var(--accent); }
+    .task-complete-btn svg { width: 12px; height: 12px; display: block; }
+
+    /* ── Empty / skeleton / error ──────────────────────────────── */
+    .empty {
+      display: flex; flex-direction: column; align-items: center;
+      gap: var(--s2); padding: var(--s5) var(--s4);
+      text-align: center; color: var(--text-3);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+    }
+    .empty-inline {
+      padding: var(--s4) var(--s2);
+      text-align: center; color: var(--text-3); font-size: 0.78rem;
+    }
+    .empty svg { width: 24px; height: 24px; opacity: 0.55; }
+    .empty h3 { font-size: 0.88rem; font-weight: 500; color: var(--text-2); margin: 0; }
+    .empty p  { font-size: 0.78rem; max-width: 340px; line-height: 1.5; margin: 0; }
+
+    .skeleton {
+      background: linear-gradient(90deg, var(--card) 0%, var(--card-hi) 50%, var(--card) 100%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite linear;
+      border-radius: var(--r-md);
+    }
+    .sk-row    { height: 36px; margin-bottom: var(--s1); }
+    .sk-block  { height: 120px; }
+    @keyframes shimmer {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+    .editor-loading {
+      min-height: 160px;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      display: flex; align-items: center; justify-content: center;
+      color: var(--text-3); font-family: var(--mono); font-size: 0.78rem;
+    }
+
+    .error-banner {
+      display: flex; align-items: center; gap: var(--s2);
+      background: rgba(184, 69, 63, 0.08);
+      border: 1px solid rgba(184, 69, 63, 0.24);
+      color: var(--danger);
+      padding: var(--s2) var(--s3);
+      border-radius: var(--r-md);
+      font-size: 0.8rem;
+    }
+    .error-banner svg { width: 16px; height: 16px; flex-shrink: 0; }
+    .error-banner span { flex: 1; min-width: 0; word-break: break-word; }
+
+    /* ── Toast ─────────────────────────────────────────────────── */
+    .toast {
+      position: fixed; bottom: var(--s5); right: var(--s5);
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: var(--r-md);
+      padding: var(--s2) var(--s4);
+      font-size: 0.82rem; font-weight: 500;
+      box-shadow: var(--shadow-md);
+      opacity: 0; transform: translateY(8px);
+      transition: opacity 0.2s, transform 0.2s;
+      pointer-events: none;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast.danger { border-left-color: var(--danger); color: var(--danger); }
+
+    /* ── Footer ───────────────────────────────────────────────── */
+    .footer-note {
+      font-size: 0.7rem; color: var(--text-4);
+      text-align: center; margin-top: var(--s6);
+      font-family: var(--mono);
+    }
+  </style>
+
+  <!-- Tiptap (design system §3.8 / §5) — ES module imports.
+       Loaded as a module so the bundle is fetched lazily; main script
+       waits for `tiptap-ready` before instantiating editors. -->
+  <script type="module">
+    import { Editor }   from 'https://esm.sh/@tiptap/core@2';
+    import StarterKit   from 'https://esm.sh/@tiptap/starter-kit@2';
+    import Placeholder  from 'https://esm.sh/@tiptap/extension-placeholder@2';
+    import { Markdown } from 'https://esm.sh/tiptap-markdown@0.8';
+    window.Tiptap = { Editor, StarterKit, Placeholder, Markdown };
+    window.dispatchEvent(new CustomEvent('tiptap-ready'));
+  </script>
+</head>
+<body>
+  <div class="artifact">
+
+    <header class="artifact-header">
+      <nav class="period-nav" role="tablist" aria-label="Date">
+        <button data-rel="prev" type="button" title="Yesterday">
+          <span class="arrow">←</span><span>Yesterday</span>
+        </button>
+        <button data-rel="today" type="button">Today</button>
+        <button data-rel="next" type="button" title="Tomorrow">
+          <span>Tomorrow</span><span class="arrow">→</span>
+        </button>
+      </nav>
+
+      <div class="date-display">
+        <strong id="date-headline">Today</strong>
+        <span id="date-subtitle">—</span>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn btn-primary btn-sm" id="review-day-btn" type="button" title="Run end-of-day review (run_daily_review)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          <span id="review-day-label">Review Day</span>
+        </button>
+      </div>
+    </header>
+
+    <main class="artifact-body">
+
+      <!-- ─────────────  MAIN COLUMN  ───────────── -->
+      <div class="main-col">
+
+        <!-- Stoic Challenge -->
+        <section class="section" id="sec-stoic">
+          <div class="section-header">
+            <h2>Stoic Challenge</h2>
+            <button class="toggle" type="button" id="stoic-toggle" aria-expanded="false">expand ▾</button>
+          </div>
+          <div class="stoic collapsed" id="stoic-card">
+            <div class="empty-inline" id="stoic-empty">
+              No stoic notes yet. <a href="#" id="stoic-start" style="color:var(--accent-text)">Start one</a> — frustration / reframe / opportunity.
+            </div>
+            <div class="stoic-grid" id="stoic-grid" hidden>
+              <div class="stoic-field" data-stoic-field="frustration">
+                <label>Frustration</label>
+                <div class="wysiwyg-block bare">
+                  <div class="tiptap-editor" id="stoic-frustration"></div>
+                </div>
+              </div>
+              <div class="stoic-field" data-stoic-field="reframe">
+                <label>Reframe</label>
+                <div class="wysiwyg-block bare">
+                  <div class="tiptap-editor" id="stoic-reframe"></div>
+                </div>
+              </div>
+              <div class="stoic-field" data-stoic-field="opportunity">
+                <label>Opportunity</label>
+                <div class="wysiwyg-block bare">
+                  <div class="tiptap-editor" id="stoic-opportunity"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Notes & Thoughts -->
+        <section class="section" id="sec-notes">
+          <div class="section-header">
+            <h2>Notes &amp; Thoughts</h2>
+            <span class="meta" id="meta-notes">—</span>
+          </div>
+          <div class="notes-card" id="notes-card">
+            <div class="wysiwyg-block" id="notes-wysiwyg-wrap">
+              <div class="wysiwyg-toolbar" data-toolbar="notes" role="toolbar" aria-label="Formatting"></div>
+              <div class="tiptap-editor" id="notes-editor"></div>
+              <div class="pending-atts" id="notes-pending"></div>
+              <div class="wysiwyg-status" id="notes-status">
+                <span data-status>Saves as markdown — auto-saves on blur</span>
+                <span data-hint>writes to <code>daily_notes.notes</code></span>
+              </div>
+            </div>
+            <input type="file" id="notes-file-input" multiple style="display:none" />
+          </div>
+        </section>
+
+        <!-- Meetings -->
+        <section class="section" id="sec-meetings">
+          <div class="section-header">
+            <h2>Meetings &amp; Conversations</h2>
+            <span class="meta" id="meta-meetings">—</span>
+          </div>
+          <div id="meetings-body">
+            <div class="meetings-list">
+              <div class="skeleton sk-row"></div>
+              <div class="skeleton sk-row"></div>
+              <div class="skeleton sk-row"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Today's attachments -->
+        <section class="section" id="sec-attachments">
+          <div class="section-header">
+            <h2>Today's Attachments</h2>
+            <span class="meta" id="meta-attachments">—</span>
+          </div>
+          <div id="attachments-body">
+            <div class="att-strip">
+              <div class="skeleton" style="height:46px;width:200px"></div>
+              <div class="skeleton" style="height:46px;width:200px"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Reflections placeholder -->
+        <section class="section" id="sec-reflections">
+          <div class="section-header">
+            <h2>Reflection Corner</h2>
+            <span class="meta">phase 4</span>
+          </div>
+          <div class="reflections-placeholder">
+            <strong>Coming in Phase 4</strong>
+            Reflection capture &amp; synthesis. The Skill Auditor will propose synthesised reflections here for approval.
+          </div>
+        </section>
+
+      </div>
+
+      <!-- ─────────────  SIDEBAR  ───────────── -->
+      <aside class="sidebar">
+        <section class="sidebar-section" id="sec-tasks">
+          <div class="section-header" style="margin-bottom:var(--s2)">
+            <h2>Tasks</h2>
+            <span class="meta" id="meta-tasks">—</span>
+          </div>
+
+          <div class="add-task-row">
+            <input id="new-task-title" type="text" placeholder="New task title…" />
+            <select id="new-task-prio" title="Priority">
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+              <option value="low">Low</option>
+            </select>
+            <button class="btn btn-sm btn-primary" id="add-task-btn" type="button">Add</button>
+          </div>
+
+          <div id="tasks-body">
+            <div class="task-group">
+              <div class="task-group-head">Loading… <span class="count">…</span></div>
+              <div class="skeleton sk-row"></div>
+              <div class="skeleton sk-row"></div>
+              <div class="skeleton sk-row"></div>
+            </div>
+          </div>
+        </section>
+      </aside>
+
+    </main>
+
+    <div class="footer-note" id="footer-note">—</div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    // ──────────────────────────────────────────────────────────────
+    // Tool IDs — fully-qualified MCP ids on the paulland-mcp server.
+    // ──────────────────────────────────────────────────────────────
+    const TOOL = {
+      list_calendar_events: 'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__list_calendar_events',
+      list_tasks:           'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__list_tasks',
+      create_task:          'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__create_task',
+      complete_task:        'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__complete_task',
+      get_daily_note:       'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__get_daily_note',
+      upsert_daily_note:    'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__upsert_daily_note',
+      run_daily_review:     'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__run_daily_review',
+      list_assets:          'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__list_assets',
+      upload_asset:         'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__upload_asset',
+      add_meeting_note:     'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__add_meeting_note',
+      update_meeting_note:  'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__update_meeting_note',
+      delete_meeting_note:  'mcp__18cbcf7e-1a2c-44d7-90ca-7ba2e879014f__delete_meeting_note',
+    };
+
+    const STORAGE_KEY = 'today-artifact:date';
+    const UPCOMING_DAYS = 14;
+
+    // ──────────────────────────────────────────────────────────────
+    // State
+    // ──────────────────────────────────────────────────────────────
+    let selectedDate = readStoredDate() || todayStr();
+    let dailyNoteCache = null;
+
+    const meetingsByUid = new Map();           // uid → calendar event
+    const meetingNoteCounts = new Map();       // uid → count
+    const expandedUids = new Set();
+    const meetingEditors = new Map();          // uid → { mode, editingIndex, pending: [], existing: [], editor, draft }
+
+    const notesEditorState = {
+      editor: null,
+      dirty: false,
+      savingTimer: null,
+      pending: [],           // pending uploads inserted as markdown when done
+    };
+
+    const stoicEditors = { frustration: null, reframe: null, opportunity: null };
+    const stoicDirty = { frustration: false, reframe: false, opportunity: false };
+
+    // Tiptap-ready promise — waits for the ES-module import
+    const tiptapReady = new Promise(resolve => {
+      if (window.Tiptap) { resolve(); return; }
+      window.addEventListener('tiptap-ready', () => resolve(), { once: true });
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // Date helpers
+    // ──────────────────────────────────────────────────────────────
+    function todayStr() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    }
+    function addDays(yyyymmdd, n) {
+      const [y, m, d] = yyyymmdd.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      dt.setUTCDate(dt.getUTCDate() + n);
+      return dt.toISOString().slice(0, 10);
+    }
+    function formatHumanDate(yyyymmdd) {
+      const [y, m, d] = yyyymmdd.split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString('en-GB', {
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+      });
+    }
+    function dayLabel(yyyymmdd) {
+      const t = todayStr();
+      if (yyyymmdd === t) return 'Today';
+      if (yyyymmdd === addDays(t, -1)) return 'Yesterday';
+      if (yyyymmdd === addDays(t, 1)) return 'Tomorrow';
+      return formatHumanDate(yyyymmdd).split(' ').slice(0, 3).join(' ');
+    }
+    function relativeTime(iso) {
+      if (!iso) return '';
+      const t = new Date(iso).getTime();
+      if (isNaN(t)) return iso;
+      const now = Date.now();
+      const diff = now - t;
+      const mins = Math.round(diff / 60000);
+      if (mins < 1)  return 'just now';
+      if (mins < 60) return mins + 'm ago';
+      const hrs = Math.round(mins / 60);
+      if (hrs < 24)  return hrs + 'h ago';
+      const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+      const yest = new Date(todayDate.getTime() - 86400000);
+      const dt = new Date(t);
+      const hhmm = String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
+      if (dt >= todayDate) return 'today at ' + hhmm;
+      if (dt >= yest)      return 'yesterday at ' + hhmm;
+      const days = Math.floor((todayDate.getTime() - dt.getTime()) / 86400000);
+      if (days < 7) return days + 'd ago at ' + hhmm;
+      return dt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) + ' at ' + hhmm;
+    }
+    function readStoredDate() {
+      try { const v = localStorage.getItem(STORAGE_KEY); if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) return v; } catch (_) {}
+      return null;
+    }
+    function writeStoredDate(d) { try { localStorage.setItem(STORAGE_KEY, d); } catch (_) {} }
+
+    // ──────────────────────────────────────────────────────────────
+    // MCP wrapper (design system §4.1)
+    // ──────────────────────────────────────────────────────────────
+    async function callMcp(tool, args = {}) {
+      try {
+        const result = await window.cowork.callMcpTool(tool, args);
+        return { ok: true, data: result };
+      } catch (err) {
+        console.error(`MCP call failed: ${tool}`, err);
+        return { ok: false, error: (err && err.message) || 'Unknown error' };
+      }
+    }
+    function normaliseResult(raw) {
+      if (raw == null) return null;
+      if (typeof raw === 'object' && !Array.isArray(raw) &&
+          !('content' in raw) && !('text' in raw)) {
+        return raw;
+      }
+      const text = raw?.content?.[0]?.text ?? raw?.text ?? null;
+      if (typeof text === 'string') {
+        const trimmed = text.trim();
+        if (!trimmed) return null;
+        if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+          try { return JSON.parse(trimmed); } catch (_) {}
+        }
+        return { __text: text };
+      }
+      return raw;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? '').replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      }[c]));
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Toast
+    // ──────────────────────────────────────────────────────────────
+    let toastTimer = null;
+    function toast(msg, kind) {
+      const el = document.getElementById('toast');
+      el.textContent = msg;
+      el.classList.remove('danger');
+      if (kind === 'danger') el.classList.add('danger');
+      el.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => el.classList.remove('show'), 2400);
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Read-only markdown renderer (used inside existing-note bodies)
+    // ──────────────────────────────────────────────────────────────
+    function renderMarkdownReadOnly(md) {
+      if (!md) return '';
+      const lines = md.replace(/\r\n/g, '\n').split('\n');
+      const out = []; let inList = false; let para = [];
+      const flushPara = () => { if (para.length) { out.push('<p>' + inlineFmt(para.join(' ')) + '</p>'); para = []; } };
+      const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+      for (const rawLine of lines) {
+        const line = rawLine.trimEnd();
+        if (!line.trim()) { flushPara(); closeList(); continue; }
+        if (/^---+$/.test(line.trim())) { flushPara(); closeList(); out.push('<hr>'); continue; }
+        const h = /^(#{1,3})\s+(.+)$/.exec(line);
+        if (h) { flushPara(); closeList(); out.push(`<h${h[1].length}>${inlineFmt(h[2])}</h${h[1].length}>`); continue; }
+        const li = /^[\s]*[-*~]\s+(.+)$/.exec(line);
+        if (li) { flushPara(); if (!inList) { out.push('<ul>'); inList = true; } out.push('<li>' + inlineFmt(li[1]) + '</li>'); continue; }
+        closeList(); para.push(line);
+      }
+      flushPara(); closeList();
+      return out.join('\n');
+    }
+    function inlineFmt(s) {
+      let out = escapeHtml(s);
+      out = out.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_, alt, url) => `<img src="${url}" alt="${alt || ''}">`);
+      out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, url) => `<a href="${url}" target="_blank" rel="noopener">${t}</a>`);
+      out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      out = out.replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, '$1<em>$2</em>');
+      out = out.replace(/(^|\W)\*([^*\n]+)\*(?=\W|$)/g, '$1<em>$2</em>');
+      out = out.replace(/`([^`]+)`/g, '<code>$1</code>');
+      return out;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Inline SVG icons
+    // ──────────────────────────────────────────────────────────────
+    const ICON = {
+      mapPin: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 7-8 13-8 13S4 17 4 10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>',
+      users:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>',
+      calendar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+      check:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>',
+      alert:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
+      inbox:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11Z"/></svg>',
+      file:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+      image:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>',
+      sheet:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>',
+      pdf:    '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
+      pencil: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+      trash:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>',
+      paperclip: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>',
+    };
+
+    function attachmentKind(mime) {
+      if (!mime) return { cls: 'doc', svg: ICON.file, label: 'file' };
+      if (mime.startsWith('image/'))       return { cls: 'image', svg: ICON.image, label: 'image' };
+      if (mime === 'application/pdf')      return { cls: 'pdf',   svg: ICON.pdf,   label: 'PDF' };
+      if (mime.includes('spreadsheet'))    return { cls: 'sheet', svg: ICON.sheet, label: 'sheet' };
+      if (mime.includes('wordprocessing')) return { cls: 'doc',   svg: ICON.file,  label: 'doc' };
+      return { cls: 'doc', svg: ICON.file, label: (mime.split('/')[0] || 'file') };
+    }
+    function fmtBytes(n) {
+      const v = Number(n) || 0;
+      if (v < 1024) return v + ' B';
+      if (v < 1024 * 1024) return (v / 1024).toFixed(0) + ' KB';
+      return (v / 1024 / 1024).toFixed(1) + ' MB';
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Per-section error renderer
+    // ──────────────────────────────────────────────────────────────
+    function renderError(bodyEl, msg, retry) {
+      bodyEl.innerHTML = `
+        <div class="error-banner" role="alert">
+          ${ICON.alert}
+          <span>${escapeHtml(msg)}</span>
+          ${retry ? '<button class="btn btn-sm" type="button" data-retry>Retry</button>' : ''}
+        </div>`;
+      const b = bodyEl.querySelector('[data-retry]');
+      if (b && retry) b.addEventListener('click', retry);
+    }
+    function renderEmpty(bodyEl, title, msg, iconSvg) {
+      bodyEl.innerHTML = `
+        <div class="empty">
+          ${iconSvg || ICON.inbox}
+          <h3>${escapeHtml(title)}</h3>
+          <p>${escapeHtml(msg)}</p>
+        </div>`;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Tiptap WYSIWYG factory (design system §3.8)
+    //
+    // createEditor({ element, content, placeholder, onUpdate, compact })
+    //   returns { editor, getMarkdown(), setMarkdown(md), focus(), destroy() }
+    //
+    // Toolbar (separate, same component) is wired via bindToolbar(editor, toolbarEl, onAttach).
+    // ──────────────────────────────────────────────────────────────
+    function createEditor({ element, content, placeholder, onUpdate, compact }) {
+      const { Editor, StarterKit, Placeholder, Markdown } = window.Tiptap;
+      if (compact) element.classList.add('compact');
+      const editor = new Editor({
+        element,
+        extensions: [
+          StarterKit.configure({ codeBlock: { HTMLAttributes: { class: '' } } }),
+          Placeholder.configure({ placeholder: placeholder || '' }),
+          Markdown.configure({ html: false, breaks: true, transformPastedText: true }),
+        ],
+        content: content || '',
+        onUpdate: onUpdate ? () => onUpdate(editor) : undefined,
+      });
+      return {
+        editor,
+        getMarkdown: () => {
+          try { return editor.storage.markdown.getMarkdown() || ''; }
+          catch (_) { return editor.getText() || ''; }
+        },
+        setMarkdown: (md) => { editor.commands.setContent(md || ''); },
+        focus: () => editor.commands.focus(),
+        destroy: () => editor.destroy(),
+      };
+    }
+
+    // Default toolbar HTML — used by every WYSIWYG instance
+    function toolbarHtml(includeAttach = true) {
+      return `
+        <button class="wysiwyg-btn bold"    type="button" data-cmd="bold"    title="Bold (⌘B)">B</button>
+        <button class="wysiwyg-btn italic"  type="button" data-cmd="italic"  title="Italic (⌘I)">I</button>
+        <button class="wysiwyg-btn heading" type="button" data-cmd="h1"      title="Heading 1">H1</button>
+        <button class="wysiwyg-btn heading" type="button" data-cmd="h2"      title="Heading 2">H2</button>
+        <button class="wysiwyg-btn heading" type="button" data-cmd="h3"      title="Heading 3">H3</button>
+        <button class="wysiwyg-btn"         type="button" data-cmd="bullet"  title="Bulleted list">•</button>
+        <button class="wysiwyg-btn heading" type="button" data-cmd="ordered" title="Numbered list">1.</button>
+        <button class="wysiwyg-btn"         type="button" data-cmd="quote"   title="Blockquote">&rdquo;</button>
+        <button class="wysiwyg-btn"         type="button" data-cmd="code"    title="Inline code">&lt;/&gt;</button>
+        ${includeAttach ? `<button class="wysiwyg-btn attach" type="button" data-cmd="attach" title="Attach file">${ICON.paperclip}</button>` : ''}
+      `;
+    }
+
+    function bindToolbar(toolbarEl, editor, onAttach) {
+      // Run a Tiptap chain command
+      const run = (fn) => () => fn(editor.chain().focus()).run();
+      const handlers = {
+        bold:    run(c => c.toggleBold()),
+        italic:  run(c => c.toggleItalic()),
+        h1:      run(c => c.toggleHeading({ level: 1 })),
+        h2:      run(c => c.toggleHeading({ level: 2 })),
+        h3:      run(c => c.toggleHeading({ level: 3 })),
+        bullet:  run(c => c.toggleBulletList()),
+        ordered: run(c => c.toggleOrderedList()),
+        quote:   run(c => c.toggleBlockquote()),
+        code:    run(c => c.toggleCode()),
+        attach:  () => onAttach && onAttach(),
+      };
+      toolbarEl.querySelectorAll('.wysiwyg-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          const fn = handlers[btn.dataset.cmd];
+          if (fn) fn();
+        });
+      });
+      // Active state mirroring (B/I/H/list pressed when caret is inside)
+      const refresh = () => {
+        toolbarEl.querySelectorAll('.wysiwyg-btn').forEach(btn => {
+          const cmd = btn.dataset.cmd;
+          let active = false;
+          try {
+            if (cmd === 'bold')         active = editor.isActive('bold');
+            else if (cmd === 'italic')  active = editor.isActive('italic');
+            else if (cmd === 'h1')      active = editor.isActive('heading', { level: 1 });
+            else if (cmd === 'h2')      active = editor.isActive('heading', { level: 2 });
+            else if (cmd === 'h3')      active = editor.isActive('heading', { level: 3 });
+            else if (cmd === 'bullet')  active = editor.isActive('bulletList');
+            else if (cmd === 'ordered') active = editor.isActive('orderedList');
+            else if (cmd === 'quote')   active = editor.isActive('blockquote');
+            else if (cmd === 'code')    active = editor.isActive('code');
+          } catch (_) {}
+          btn.classList.toggle('is-active', !!active);
+        });
+      };
+      editor.on('selectionUpdate', refresh);
+      editor.on('transaction', refresh);
+      refresh();
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Attachment upload (MCP base64 — Cowork-CSP-safe)
+    // ──────────────────────────────────────────────────────────────
+    function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const out = reader.result;
+          const comma = String(out).indexOf(',');
+          resolve(comma >= 0 ? String(out).slice(comma + 1) : String(out));
+        };
+        reader.onerror = () => reject(reader.error || new Error('FileReader failed'));
+        reader.readAsDataURL(file);
+      });
+    }
+    async function uploadFile(file, linkTo) {
+      let base64;
+      try { base64 = await fileToBase64(file); }
+      catch (err) { return { ok: false, error: err.message || 'file read failed' }; }
+
+      const tags = (linkTo && linkTo.meeting_uid) ? ['meeting-attachment'] : ['day-attachment'];
+      const res = await callMcp(TOOL.upload_asset, {
+        file_content: base64,
+        filename: file.name,
+        mime_type: file.type || 'application/octet-stream',
+        tags,
+        description: '',
+      });
+      if (!res.ok) return { ok: false, error: res.error };
+      const data = normaliseResult(res.data) || {};
+      const asset = data.asset || data;
+      return { ok: true, asset: {
+        id:        asset.id        || asset.asset_id,
+        r2_key:    asset.r2_key    || null,
+        filename:  asset.filename  || file.name,
+        mime_type: asset.mime_type || file.type,
+      }};
+    }
+
+    function buildPendingChip(entry, onRemove) {
+      const kind = attachmentKind(entry.file.type);
+      const stat = entry.status === 'uploaded' ? '✓ uploaded'
+                : entry.status === 'failed'   ? `✗ ${entry.error || 'failed'}`
+                : 'uploading…';
+      const span = document.createElement('span');
+      span.className = `pending-att ${entry.status}`;
+      span.dataset.paId = entry.id;
+      span.innerHTML = `
+        ${kind.svg}
+        <span class="filename" title="${escapeHtml(entry.file.name)}">${escapeHtml(entry.file.name)}</span>
+        <span class="progress">${escapeHtml(stat)}</span>
+        <button class="remove-btn" type="button" aria-label="Remove">×</button>`;
+      span.querySelector('.remove-btn').addEventListener('click', () => onRemove(entry.id));
+      return span;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Header / period nav
+    // ──────────────────────────────────────────────────────────────
+    function refreshHeader() {
+      document.getElementById('date-headline').textContent = dayLabel(selectedDate);
+      document.getElementById('date-subtitle').textContent = formatHumanDate(selectedDate);
+      const t = todayStr();
+      document.querySelectorAll('.period-nav button').forEach(b => {
+        b.classList.toggle('active', b.dataset.rel === 'today' && selectedDate === t);
+      });
+    }
+    function bindNav() {
+      document.querySelectorAll('.period-nav button').forEach(b => {
+        b.addEventListener('click', () => {
+          const rel = b.dataset.rel;
+          if (rel === 'prev')       selectedDate = addDays(selectedDate, -1);
+          else if (rel === 'next')  selectedDate = addDays(selectedDate, 1);
+          else if (rel === 'today') selectedDate = todayStr();
+          writeStoredDate(selectedDate);
+          // Reset transient UI state when scrubbing dates
+          expandedUids.clear();
+          // Tear down per-meeting editors (Tiptap instances)
+          meetingEditors.forEach(s => { try { s.editor && s.editor.destroy(); } catch (_) {} });
+          meetingEditors.clear();
+          refreshHeader();
+          loadAll();
+        });
+      });
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Review Day → run_daily_review (replaces v3 callApi helper)
+    // ──────────────────────────────────────────────────────────────
+    function bindReviewDay() {
+      const btn = document.getElementById('review-day-btn');
+      const lbl = document.getElementById('review-day-label');
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        lbl.textContent = 'Reviewing…';
+        const res = await callMcp(TOOL.run_daily_review, { note_date: selectedDate });
+        btn.disabled = false;
+        lbl.textContent = 'Review Day';
+        if (!res.ok) {
+          toast(`Review failed: ${res.error}`, 'danger');
+          return;
+        }
+        toast('✓ Day reviewed — refreshing');
+        await Promise.allSettled([loadNotes(), loadMeetings()]);
+      });
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Daily-note cache helpers
+    // ──────────────────────────────────────────────────────────────
+    async function fetchDailyNote(date) {
+      const res = await callMcp(TOOL.get_daily_note, { date });
+      if (!res.ok) return { ok: false, error: res.error, data: null };
+      const data = normaliseResult(res.data);
+      const isMissing = !data
+        || (data.__text && /no daily note/i.test(data.__text))
+        || (typeof data === 'string' && /no daily note/i.test(data));
+      return { ok: true, data: isMissing ? null : data };
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // STOIC CHALLENGE — three Tiptap editors, save merges metadata
+    // ──────────────────────────────────────────────────────────────
+    async function initStoicEditors() {
+      await tiptapReady;
+      ['frustration', 'reframe', 'opportunity'].forEach(key => {
+        if (stoicEditors[key]) return;
+        const el = document.getElementById('stoic-' + key);
+        const placeholder = ({
+          frustration: 'What threw you off today?',
+          reframe:     "What's another way to see it?",
+          opportunity: "What's the move that turns this into growth?",
+        })[key];
+        stoicEditors[key] = createEditor({
+          element: el,
+          content: '',
+          placeholder,
+          compact: true,
+          onUpdate: () => {
+            stoicDirty[key] = true;
+            const wrap = document.querySelector(`[data-stoic-field="${key}"]`);
+            wrap.classList.add('dirty');
+          },
+        });
+        // Save on blur (focus leaves the editor's contenteditable)
+        const proseMirror = el.querySelector('.ProseMirror');
+        if (proseMirror) {
+          proseMirror.addEventListener('blur', async () => {
+            if (!stoicDirty[key]) return;
+            await saveStoic();
+          });
+        }
+      });
+    }
+
+    function loadStoicFromCache() {
+      const meta = (dailyNoteCache && dailyNoteCache.metadata) || {};
+      const sc = meta.stoic_challenge || {};
+      const empty = !(sc.frustration || sc.reframe || sc.opportunity);
+      ['frustration', 'reframe', 'opportunity'].forEach(key => {
+        if (stoicEditors[key]) stoicEditors[key].setMarkdown(sc[key] || '');
+        stoicDirty[key] = false;
+        const wrap = document.querySelector(`[data-stoic-field="${key}"]`);
+        if (wrap) wrap.classList.remove('dirty', 'saving');
+      });
+      const stoicCard = document.getElementById('stoic-card');
+      const emptyEl   = document.getElementById('stoic-empty');
+      const grid      = document.getElementById('stoic-grid');
+      const toggle    = document.getElementById('stoic-toggle');
+      if (empty) {
+        stoicCard.classList.add('collapsed');
+        emptyEl.hidden = false; grid.hidden = true;
+        toggle.textContent = 'expand ▾';
+        toggle.setAttribute('aria-expanded', 'false');
+      } else {
+        stoicCard.classList.remove('collapsed');
+        emptyEl.hidden = true; grid.hidden = false;
+        toggle.textContent = 'collapse ▴';
+        toggle.setAttribute('aria-expanded', 'true');
+      }
+    }
+
+    function bindStoicToggle() {
+      document.getElementById('stoic-toggle').addEventListener('click', () => {
+        const card = document.getElementById('stoic-card');
+        const open = card.classList.toggle('collapsed') === false;
+        const grid = document.getElementById('stoic-grid');
+        const empty = document.getElementById('stoic-empty');
+        const toggle = document.getElementById('stoic-toggle');
+        if (open) {
+          empty.hidden = true; grid.hidden = false;
+          toggle.textContent = 'collapse ▴';
+          toggle.setAttribute('aria-expanded', 'true');
+          // Focus first field on open
+          setTimeout(() => stoicEditors.frustration && stoicEditors.frustration.focus(), 30);
+        } else {
+          const sc = readStoicFromForm();
+          const blank = !(sc.frustration || sc.reframe || sc.opportunity);
+          empty.hidden = !blank; grid.hidden = blank;
+          toggle.textContent = 'expand ▾';
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+      document.getElementById('stoic-start').addEventListener('click', (e) => {
+        e.preventDefault();
+        document.getElementById('stoic-toggle').click();
+      });
+    }
+    function readStoicFromForm() {
+      const get = k => stoicEditors[k] ? stoicEditors[k].getMarkdown().trim() : '';
+      return { frustration: get('frustration'), reframe: get('reframe'), opportunity: get('opportunity') };
+    }
+    async function saveStoic() {
+      const fields = ['frustration', 'reframe', 'opportunity'];
+      const wraps = fields.map(k => document.querySelector(`[data-stoic-field="${k}"]`));
+      wraps.forEach(w => { w.classList.remove('dirty'); w.classList.add('saving'); });
+      const sc = readStoicFromForm();
+
+      // upsert_daily_note now accepts a `metadata` parameter with deep-
+      // merge semantics — server merges into existing metadata, so we
+      // don't need to read-then-write. Other keys (meetings_structured,
+      // review_data) are preserved server-side.
+      const res = await callMcp(TOOL.upsert_daily_note, {
+        date: selectedDate,
+        metadata: { stoic_challenge: sc },
+      });
+      wraps.forEach(w => w.classList.remove('saving'));
+      fields.forEach(k => { stoicDirty[k] = false; });
+      if (!res.ok) {
+        toast(`Couldn't save stoic: ${res.error}`, 'danger');
+        wraps.forEach(w => w.classList.add('dirty'));
+        return;
+      }
+      // Refresh cache so other consumers see the updated metadata
+      const refetched = await fetchDailyNote(selectedDate);
+      if (refetched.ok) dailyNoteCache = refetched.data;
+      toast('✓ Stoic saved');
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // NOTES & THOUGHTS — Tiptap editor that IS the live notes field
+    // (replace, not append: the WYSIWYG paradigm changes the v3 model)
+    // ──────────────────────────────────────────────────────────────
+    async function initNotesEditor() {
+      await tiptapReady;
+      if (notesEditorState.editor) return;
+      const el = document.getElementById('notes-editor');
+      notesEditorState.editor = createEditor({
+        element: el,
+        content: '',
+        placeholder: "Drop a thought, paste a Copilot recap, or capture something you don't want to forget. Headings, bullets, bold all preserved on paste.",
+        onUpdate: () => {
+          notesEditorState.dirty = true;
+          renderNotesStatus('dirty');
+          clearTimeout(notesEditorState.savingTimer);
+          notesEditorState.savingTimer = setTimeout(() => saveNotes(), 1200);
+        },
+      });
+      // Toolbar
+      const toolbar = document.querySelector('[data-toolbar="notes"]');
+      toolbar.innerHTML = toolbarHtml(true);
+      bindToolbar(toolbar, notesEditorState.editor.editor,
+        () => document.getElementById('notes-file-input').click());
+
+      // Save on blur
+      const pm = el.querySelector('.ProseMirror');
+      if (pm) pm.addEventListener('blur', () => {
+        clearTimeout(notesEditorState.savingTimer);
+        if (notesEditorState.dirty) saveNotes();
+      });
+
+      // File input → upload, then insert markdown into editor
+      const fi = document.getElementById('notes-file-input');
+      fi.addEventListener('change', () => {
+        handleNotesFiles(Array.from(fi.files || []));
+        fi.value = '';
+      });
+
+      // Drag/drop on the editor area
+      ['dragenter', 'dragover'].forEach(evt => el.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation(); el.classList.add('dragover');
+      }));
+      ['dragleave', 'drop'].forEach(evt => el.addEventListener(evt, (e) => {
+        e.preventDefault(); e.stopPropagation(); el.classList.remove('dragover');
+      }));
+      el.addEventListener('drop', (e) => {
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length) handleNotesFiles(files);
+      });
+    }
+
+    function renderNotesStatus(state) {
+      const el = document.getElementById('notes-status');
+      el.classList.remove('saving', 'dirty', 'saved');
+      const status = el.querySelector('[data-status]');
+      if (state === 'dirty')      { el.classList.add('dirty');  status.textContent = 'Unsaved — auto-saves on blur (~1s after pause)'; }
+      else if (state === 'saving') { el.classList.add('saving'); status.textContent = 'Saving…'; }
+      else if (state === 'saved')  { el.classList.add('saved');  status.textContent = '✓ Saved'; }
+      else                         { status.textContent = 'Saves as markdown — auto-saves on blur'; }
+    }
+    function handleNotesFiles(files) {
+      const tasks = files.map(file => {
+        const id = 'pa_' + Math.random().toString(36).slice(2, 10);
+        const entry = { id, file, status: 'uploading', asset: null, error: null };
+        notesEditorState.pending.push(entry);
+        renderNotesPending();
+        return uploadFile(file, { daily_note_date: selectedDate }).then(res => {
+          if (!res.ok) {
+            entry.status = 'failed'; entry.error = res.error;
+            renderNotesPending(); return;
+          }
+          entry.status = 'uploaded'; entry.asset = res.asset;
+          renderNotesPending();
+          // Insert at cursor as markdown image (for images) or link
+          const a = res.asset;
+          const href = a.r2_key
+            ? `/api/assets/file/${a.r2_key}`
+            : `/api/assets/${encodeURIComponent(a.id)}/content`;
+          const isImg = (a.mime_type || '').startsWith('image/');
+          const ed = notesEditorState.editor.editor;
+          if (isImg) {
+            // StarterKit ships an `image` node — use insertContent with an image
+            ed.chain().focus().insertContent({ type: 'image', attrs: { src: href, alt: a.filename } }).run();
+          } else {
+            // Markdown link via insertContent of a text node with a link mark
+            ed.chain().focus().insertContent([
+              { type: 'text', text: a.filename, marks: [{ type: 'link', attrs: { href } }] },
+              { type: 'text', text: ' ' },
+            ]).run();
+          }
+          // Drop the chip once it's been inserted into the doc
+          notesEditorState.pending = notesEditorState.pending.filter(p => p.id !== entry.id);
+          renderNotesPending();
+        });
+      });
+      Promise.allSettled(tasks).then(() => renderNotesPending());
+    }
+    function renderNotesPending() {
+      const el = document.getElementById('notes-pending');
+      el.innerHTML = '';
+      notesEditorState.pending.forEach(p => el.appendChild(buildPendingChip(p, (id) => {
+        notesEditorState.pending = notesEditorState.pending.filter(x => x.id !== id);
+        renderNotesPending();
+      })));
+    }
+    async function saveNotes() {
+      if (!notesEditorState.editor) return;
+      const md = notesEditorState.editor.getMarkdown();
+      renderNotesStatus('saving');
+      const res = await callMcp(TOOL.upsert_daily_note, {
+        date: selectedDate,
+        notes: md,
+      });
+      if (!res.ok) {
+        renderNotesStatus('dirty');
+        toast(`Couldn't save notes: ${res.error}`, 'danger');
+        return;
+      }
+      notesEditorState.dirty = false;
+      renderNotesStatus('saved');
+      // Refresh cache + meta count
+      const refetched = await fetchDailyNote(selectedDate);
+      if (refetched.ok) {
+        dailyNoteCache = refetched.data;
+        document.getElementById('meta-notes').textContent = (refetched.data && refetched.data.notes)
+          ? `${refetched.data.notes.length.toLocaleString()} chars`
+          : 'empty';
+      }
+      setTimeout(() => renderNotesStatus(null), 1600);
+    }
+    async function loadNotes() {
+      const meta = document.getElementById('meta-notes');
+      meta.textContent = '…';
+      const fetched = await fetchDailyNote(selectedDate);
+      if (!fetched.ok) {
+        renderError(document.getElementById('notes-card'),
+          `Couldn't load daily note: ${fetched.error}`, () => loadNotes());
+        meta.textContent = 'error';
+        return;
+      }
+      dailyNoteCache = fetched.data;
+      meta.textContent = (dailyNoteCache && dailyNoteCache.notes)
+        ? `${dailyNoteCache.notes.length.toLocaleString()} chars`
+        : (dailyNoteCache ? 'empty' : 'no note yet');
+
+      // Bring up the WYSIWYG editor and load content
+      await initNotesEditor();
+      const md = (dailyNoteCache && dailyNoteCache.notes) || '';
+      notesEditorState.editor.setMarkdown(md);
+      notesEditorState.dirty = false;
+      renderNotesStatus(null);
+
+      // Stoic also lives in the cached metadata
+      await initStoicEditors();
+      loadStoicFromCache();
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // MEETINGS — compact rows, Tiptap editor on expand
+    // ──────────────────────────────────────────────────────────────
+    function sameMeeting(structured, ev) {
+      if (structured && structured.meeting_uid) return structured.meeting_uid === ev.uid;
+      const a = (structured?.title || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      const b = (ev.title          || '').trim().toLowerCase().replace(/\s+/g, ' ');
+      return a === b;
+    }
+    async function loadMeetings() {
+      const body = document.getElementById('meetings-body');
+      const meta = document.getElementById('meta-meetings');
+      meta.textContent = '…';
+
+      const [eventsRes, noteRes] = await Promise.allSettled([
+        callMcp(TOOL.list_calendar_events, { date_from: selectedDate, date_to: selectedDate, limit: 50 }),
+        callMcp(TOOL.get_daily_note, { date: selectedDate }),
+      ]);
+      const evRes = eventsRes.status === 'fulfilled' ? eventsRes.value : { ok: false, error: 'fetch error' };
+      if (!evRes.ok) {
+        meta.textContent = 'error';
+        renderError(body, `Couldn't load calendar: ${evRes.error}`, () => loadMeetings());
+        return;
+      }
+      const events = normaliseResult(evRes.data);
+      const items = (events && Array.isArray(events.items)) ? events.items : [];
+      meetingsByUid.clear();
+      items.forEach(ev => meetingsByUid.set(ev.uid, ev));
+
+      let structured = [];
+      if (noteRes.status === 'fulfilled' && noteRes.value.ok) {
+        const data = normaliseResult(noteRes.value.data);
+        if (data && data.metadata && Array.isArray(data.metadata.meetings_structured)) {
+          structured = data.metadata.meetings_structured;
+        }
+        if (data && (data.id || data.note_date)) dailyNoteCache = data;
+      }
+      meetingNoteCounts.clear();
+      items.forEach(ev => {
+        const matched = structured.filter(s => sameMeeting(s, ev));
+        meetingNoteCounts.set(ev.uid, matched.length);
+      });
+
+      meta.textContent = items.length ? `${items.length} meeting${items.length === 1 ? '' : 's'}` : 'none';
+      if (!items.length) {
+        renderEmpty(body, 'No meetings on this day', 'Nothing on the calendar — a clear runway.', ICON.calendar);
+        return;
+      }
+
+      const sorted = [...items].sort((a, b) => String(a.start_time || '').localeCompare(String(b.start_time || '')));
+      const list = document.createElement('div');
+      list.className = 'meetings-list';
+      sorted.forEach(ev => list.appendChild(buildMeetingRow(ev)));
+      body.innerHTML = '';
+      body.appendChild(list);
+    }
+
+    function buildMeetingRow(ev) {
+      const wrap = document.createElement('div');
+      wrap.className = 'meeting-row';
+      wrap.dataset.uid = ev.uid;
+
+      const timeStr = ev.all_day ? 'all day'
+                    : ((ev.start_time || '—') + (ev.end_time ? '–' + ev.end_time : ''));
+      const count = meetingNoteCounts.get(ev.uid) || 0;
+      const badge = count
+        ? `<span class="meeting-badge" title="${count} note${count === 1 ? '' : 's'}">${count}</span>`
+        : `<span class="meeting-badge empty" title="no notes yet">+</span>`;
+
+      wrap.innerHTML = `
+        <div class="meeting-time">${escapeHtml(timeStr)}</div>
+        <div class="meeting-title">${escapeHtml(ev.title || '(untitled)')}</div>
+        ${badge}
+      `;
+      wrap.addEventListener('click', (e) => {
+        if (e.target.closest('.meeting-expand')) return;
+        toggleMeetingExpand(ev.uid);
+      });
+
+      if (expandedUids.has(ev.uid)) {
+        wrap.classList.add('expanded');
+        wrap.appendChild(buildMeetingExpand(ev));
+      }
+      return wrap;
+    }
+
+    function toggleMeetingExpand(uid) {
+      const ev = meetingsByUid.get(uid); if (!ev) return;
+      const row = document.querySelector(`.meeting-row[data-uid="${cssEscape(uid)}"]`);
+      if (!row) return;
+      if (expandedUids.has(uid)) {
+        expandedUids.delete(uid);
+        row.classList.remove('expanded');
+        const ex = row.querySelector('.meeting-expand'); if (ex) ex.remove();
+        const state = meetingEditors.get(uid);
+        if (state && state.editor) try { state.editor.destroy(); } catch (_) {}
+        meetingEditors.delete(uid);
+      } else {
+        expandedUids.add(uid);
+        row.classList.add('expanded');
+        const expand = buildMeetingExpand(ev);
+        row.appendChild(expand);
+      }
+    }
+    function cssEscape(s) {
+      return String(s).replace(/[^a-zA-Z0-9_-]/g, ch => '\\' + ch);
+    }
+
+    function buildMeetingExpand(ev) {
+      const expand = document.createElement('div');
+      expand.className = 'meeting-expand';
+      expand.dataset.uid = ev.uid;
+
+      const attendees = Array.isArray(ev.attendees) ? ev.attendees.filter(Boolean) : [];
+      const metaHtml = `
+        <div class="meeting-meta">
+          ${ev.location ? `<span class="pill" title="Location">${ICON.mapPin}<span>${escapeHtml(ev.location)}</span></span>` : ''}
+          ${attendees.length ? `<span class="pill" title="Attendees">${ICON.users}<span>${escapeHtml(attendees.slice(0, 4).join(', '))}${attendees.length > 4 ? ' +' + (attendees.length - 4) : ''}</span></span>` : ''}
+          <span class="pill">${ICON.calendar}<span>${escapeHtml(ev.event_date || selectedDate)}</span></span>
+        </div>
+      `;
+
+      const structured = (dailyNoteCache && dailyNoteCache.metadata && Array.isArray(dailyNoteCache.metadata.meetings_structured))
+        ? dailyNoteCache.metadata.meetings_structured : [];
+
+      let state = meetingEditors.get(ev.uid);
+      if (!state) {
+        state = { mode: 'add', editingIndex: null, draft: '', pending: [], existing: [], editor: null };
+        meetingEditors.set(ev.uid, state);
+      }
+      // Re-derive existing notes (with their original index in meetings_structured)
+      const indexed = structured.map((s, i) => ({ s, i })).filter(({ s }) => sameMeeting(s, ev))
+        .sort((a, b) => String(b.s.added_at || '').localeCompare(String(a.s.added_at || '')));
+      state.existing = indexed.map(({ s, i }) => ({ ...s, _index: i }));
+
+      const existingHtml = state.existing.length
+        ? `<div class="meeting-existing">${state.existing.map((n, displayIdx) => existingNoteHtml(n, ev, state, displayIdx)).join('')}</div>`
+        : `<div class="empty-inline">No notes for this meeting yet — start typing below.</div>`;
+
+      const safeUid = ev.uid.replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+      const tbId = `mt-tb-${safeUid}`;
+      const edId = `mt-ed-${safeUid}`;
+      const fiId = `mt-fi-${safeUid}`;
+      const peId = `mt-pe-${safeUid}`;
+
+      expand.innerHTML = `
+        ${metaHtml}
+        ${existingHtml}
+        <div class="meeting-editor-wrap">
+          <div class="wysiwyg-block">
+            <div class="wysiwyg-toolbar" id="${tbId}" role="toolbar" aria-label="Formatting">${toolbarHtml(true)}</div>
+            <div class="tiptap-editor" id="${edId}"></div>
+            <div class="pending-atts" id="${peId}"></div>
+          </div>
+          <div class="meeting-editor-row">
+            <input type="file" id="${fiId}" multiple style="display:none" />
+            ${state.mode === 'edit'
+              ? '<button class="btn btn-sm" type="button" data-cancel-edit>Cancel edit</button>'
+              : ''}
+            <button class="btn btn-sm" type="button" data-meeting-cancel>Cancel</button>
+            <button class="btn btn-sm btn-primary" type="button" data-meeting-save>${state.mode === 'edit' ? 'Save changes' : 'Add note'}</button>
+          </div>
+        </div>
+      `;
+
+      const tbEl = expand.querySelector('#' + tbId);
+      const edEl = expand.querySelector('#' + edId);
+      const fi   = expand.querySelector('#' + fiId);
+      const pe   = expand.querySelector('#' + peId);
+
+      // Build the Tiptap editor — async-await tiptapReady
+      tiptapReady.then(() => {
+        if (!document.body.contains(edEl)) return; // user collapsed before module loaded
+        state.editor = createEditor({
+          element: edEl,
+          content: state.draft || '',
+          placeholder: 'Add a note for this meeting…',
+          onUpdate: (ed) => {
+            try { state.draft = ed.storage.markdown.getMarkdown(); } catch (_) {}
+          },
+        });
+        bindToolbar(tbEl, state.editor.editor, () => fi.click());
+        // Auto-focus when first opened (and not editing)
+        if (state.mode === 'add' && !state.draft) {
+          setTimeout(() => state.editor.focus(), 60);
+        }
+      });
+
+      fi.addEventListener('change', () => {
+        handleMeetingFiles(ev, Array.from(fi.files || []), pe);
+        fi.value = '';
+      });
+      ['dragenter', 'dragover'].forEach(evt => edEl.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); edEl.classList.add('dragover'); }));
+      ['dragleave', 'drop'].forEach(evt   => edEl.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); edEl.classList.remove('dragover'); }));
+      edEl.addEventListener('drop', (e) => {
+        const files = Array.from(e.dataTransfer?.files || []);
+        if (files.length) handleMeetingFiles(ev, files, pe);
+      });
+
+      expand.querySelectorAll('[data-edit-note]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const di = Number(btn.dataset.editNote);
+          const note = state.existing[di]; if (!note) return;
+          state.mode = 'edit';
+          state.editingIndex = note._index;
+          state.draft = note.notes || note.text || '';
+          rerenderMeetingExpand(ev);
+        });
+      });
+      expand.querySelectorAll('[data-delete-note]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const di = Number(btn.dataset.deleteNote);
+          const note = state.existing[di]; if (!note) return;
+          await deleteMeetingNote(ev, note._index);
+        });
+      });
+
+      const cancelEdit = expand.querySelector('[data-cancel-edit]');
+      if (cancelEdit) cancelEdit.addEventListener('click', () => {
+        state.mode = 'add'; state.editingIndex = null; state.draft = '';
+        rerenderMeetingExpand(ev);
+      });
+
+      expand.querySelector('[data-meeting-cancel]').addEventListener('click', () => {
+        expandedUids.delete(ev.uid);
+        if (state.editor) try { state.editor.destroy(); } catch (_) {}
+        meetingEditors.delete(ev.uid);
+        loadMeetings();
+      });
+
+      expand.querySelector('[data-meeting-save]').addEventListener('click', async () => {
+        const text = state.editor ? state.editor.getMarkdown().trim() : '';
+        const stillUploading = state.pending.some(p => p.status === 'uploading');
+        if (stillUploading) { toast('Wait for uploads to finish, then try again.', 'danger'); return; }
+        if (!text && !state.pending.some(p => p.status === 'uploaded')) {
+          toast('Add some text or attachments before saving.', 'danger');
+          state.editor && state.editor.focus();
+          return;
+        }
+
+        const btn = expand.querySelector('[data-meeting-save]');
+        btn.disabled = true;
+        btn.textContent = state.mode === 'edit' ? 'Saving…' : 'Adding…';
+
+        const newAttachments = state.pending
+          .filter(p => p.status === 'uploaded' && p.asset)
+          .map(p => ({ asset_id: p.asset.id, filename: p.asset.filename, mime_type: p.asset.mime_type }));
+
+        let res;
+        if (state.mode === 'edit' && Number.isInteger(state.editingIndex)) {
+          // For an edit: merge existing attachments with newly uploaded ones
+          // (update_meeting_note REPLACES the array — so we merge client-side)
+          const note = state.existing.find(n => n._index === state.editingIndex);
+          const existingAtts = note && Array.isArray(note.attachments) ? note.attachments : [];
+          const merged = [...existingAtts, ...newAttachments];
+          res = await callMcp(TOOL.update_meeting_note, {
+            meeting_uid: ev.uid,
+            event_date: ev.event_date || selectedDate,
+            note_index: state.editingIndex,
+            text,
+            attachments: merged,
+          });
+        } else {
+          // ADD: first add the note (text only — add_meeting_note schema has
+          // no `attachments` field), then if there are uploads, follow up
+          // with update_meeting_note targeting the newly-created index.
+          res = await callMcp(TOOL.add_meeting_note, {
+            meeting_uid: ev.uid,
+            event_date: ev.event_date || selectedDate,
+            text,
+          });
+          if (res.ok && newAttachments.length) {
+            // The new note is appended at the end of this meeting's notes,
+            // i.e. its index is the count BEFORE the add.
+            const beforeCount = state.existing.length;
+            const followUp = await callMcp(TOOL.update_meeting_note, {
+              meeting_uid: ev.uid,
+              event_date: ev.event_date || selectedDate,
+              note_index: beforeCount,
+              attachments: newAttachments,
+            });
+            if (!followUp.ok) {
+              toast(`Note saved, but attachments failed: ${followUp.error}`, 'danger');
+            }
+          }
+        }
+
+        btn.disabled = false;
+        if (!res.ok) {
+          btn.textContent = state.mode === 'edit' ? 'Save changes' : 'Add note';
+          toast(`Save failed: ${res.error}`, 'danger');
+          return;
+        }
+        toast(state.mode === 'edit' ? '✓ Note updated' : '✓ Note added');
+        state.mode = 'add';
+        state.editingIndex = null;
+        state.draft = '';
+        state.pending = [];
+        if (state.editor) try { state.editor.destroy(); state.editor = null; } catch (_) {}
+        await loadMeetings();
+      });
+
+      renderMeetingPending(ev, pe);
+      return expand;
+    }
+
+    function rerenderMeetingExpand(ev) {
+      const row = document.querySelector(`.meeting-row[data-uid="${cssEscape(ev.uid)}"]`);
+      if (!row) return;
+      const old = row.querySelector('.meeting-expand');
+      const state = meetingEditors.get(ev.uid);
+      if (state && state.editor) try { state.editor.destroy(); state.editor = null; } catch (_) {}
+      const fresh = buildMeetingExpand(ev);
+      if (old) old.replaceWith(fresh); else row.appendChild(fresh);
+    }
+
+    function existingNoteHtml(note, ev, state, displayIdx) {
+      const editing = Number.isInteger(state.editingIndex) && note._index === state.editingIndex;
+      const stamp = note.added_at ? relativeTime(note.added_at)
+                                  : (note.time ? `during meeting (${escapeHtml(note.time)})` : 'time unknown');
+      const atts = Array.isArray(note.attachments) ? note.attachments : [];
+      return `
+        <div class="existing-note ${editing ? 'editing' : ''}">
+          <div class="existing-note-head">
+            <div class="existing-note-time">${escapeHtml(stamp)}</div>
+            <div class="existing-note-actions">
+              <button class="btn btn-icon btn-sm" type="button" data-edit-note="${displayIdx}" title="Edit note">${ICON.pencil}</button>
+              <button class="btn btn-icon btn-sm btn-danger" type="button" data-delete-note="${displayIdx}" title="Delete note">${ICON.trash}</button>
+            </div>
+          </div>
+          <div class="note-text">${renderMarkdownReadOnly(note.notes || note.text || '')}</div>
+          ${atts.length ? `<div class="note-attachments">${atts.map(buildAttThumbHtml).join('')}</div>` : ''}
+        </div>`;
+    }
+    function buildAttThumbHtml(att) {
+      const kind = attachmentKind(att.mime_type);
+      const href = att.r2_key
+        ? `/api/assets/file/${att.r2_key}`
+        : (att.asset_id ? `/api/assets/${encodeURIComponent(att.asset_id)}/content`
+                        : (att.id ? `/api/assets/${encodeURIComponent(att.id)}/content` : '#'));
+      return `<a class="att-thumb ${kind.cls}" href="${href}" target="_blank" rel="noopener">
+        ${kind.svg}<span class="filename">${escapeHtml(att.filename || 'file')}</span>
+      </a>`;
+    }
+
+    async function handleMeetingFiles(ev, files, peEl) {
+      const state = meetingEditors.get(ev.uid);
+      if (!state) return;
+      const tasks = files.map(file => {
+        const id = 'pa_' + Math.random().toString(36).slice(2, 10);
+        const entry = { id, file, status: 'uploading', asset: null, error: null };
+        state.pending.push(entry);
+        renderMeetingPending(ev, peEl);
+        return uploadFile(file, { meeting_uid: ev.uid, event_date: ev.event_date || selectedDate }).then(res => {
+          if (!res.ok) { entry.status = 'failed'; entry.error = res.error; }
+          else { entry.status = 'uploaded'; entry.asset = res.asset; }
+          renderMeetingPending(ev, peEl);
+        });
+      });
+      Promise.allSettled(tasks).then(() => renderMeetingPending(ev, peEl));
+    }
+    function renderMeetingPending(ev, peEl) {
+      const state = meetingEditors.get(ev.uid);
+      if (!state || !peEl) return;
+      peEl.innerHTML = '';
+      state.pending.forEach(p => peEl.appendChild(buildPendingChip(p, (id) => {
+        state.pending = state.pending.filter(x => x.id !== id);
+        renderMeetingPending(ev, peEl);
+      })));
+    }
+
+    async function deleteMeetingNote(ev, noteIndex) {
+      if (!Number.isInteger(noteIndex)) {
+        toast("Couldn't resolve note position — refresh and try again.", 'danger');
+        return;
+      }
+      if (!confirm('Delete this note?')) return;
+      const res = await callMcp(TOOL.delete_meeting_note, {
+        meeting_uid: ev.uid,
+        event_date: ev.event_date || selectedDate,
+        note_index: noteIndex,
+      });
+      if (!res.ok) { toast(`Couldn't delete: ${res.error}`, 'danger'); return; }
+      toast('✓ Note deleted');
+      await loadMeetings();
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // ATTACHMENTS strip — day-level only, server-side date filter
+    // ──────────────────────────────────────────────────────────────
+    async function loadAttachments() {
+      const body = document.getElementById('attachments-body');
+      const meta = document.getElementById('meta-attachments');
+      meta.textContent = '…';
+      // Pass the new uploaded_since/uploaded_until filters per spec.
+      // If the server's schema doesn't (yet) recognise them, the call
+      // either errors (handled below) or returns the wider list — we
+      // also filter client-side.
+      const since = `${selectedDate}T00:00:00Z`;
+      const until = `${selectedDate}T23:59:59Z`;
+      const res = await callMcp(TOOL.list_assets, {
+        limit: 100,
+        uploaded_since: since,
+        uploaded_until: until,
+      });
+      if (!res.ok) {
+        meta.textContent = 'error';
+        renderError(body, `Couldn't load assets: ${res.error}`, () => loadAttachments());
+        return;
+      }
+      const data = normaliseResult(res.data);
+      const all = (data && Array.isArray(data.assets)) ? data.assets : [];
+      // The artifact now gets `metadata` back in the response — filter
+      // out any asset where metadata.linked_to.meeting_uid is set.
+      // Belt-and-braces: also drop tags === ['meeting-attachment'].
+      const dayLevel = all.filter(a => {
+        if (!(a.uploaded_at || '').startsWith(selectedDate)) return false;
+        const linked = a.metadata && a.metadata.linked_to;
+        if (linked && linked.meeting_uid) return false;
+        const tags = Array.isArray(a.tags) ? a.tags : [];
+        if (tags.includes('meeting-attachment') || tags.includes('meeting-note')) return false;
+        return true;
+      });
+      meta.textContent = dayLevel.length ? `${dayLevel.length}` : 'none';
+      if (!dayLevel.length) {
+        body.innerHTML = '<div class="empty-inline">No day-level attachments. Files attached to a meeting live inside its row.</div>';
+        return;
+      }
+      const strip = document.createElement('div');
+      strip.className = 'att-strip';
+      dayLevel.slice().sort((a, b) => (b.uploaded_at || '').localeCompare(a.uploaded_at || ''))
+        .forEach(a => strip.appendChild(buildAttCard(a)));
+      body.innerHTML = '';
+      body.appendChild(strip);
+    }
+    function buildAttCard(asset) {
+      const a = document.createElement('a');
+      a.className = 'att-card';
+      a.href = asset.r2_key
+        ? `/api/assets/file/${asset.r2_key}`
+        : `/api/assets/${encodeURIComponent(asset.id)}/content`;
+      a.target = '_blank'; a.rel = 'noopener';
+      const kind = attachmentKind(asset.mime_type);
+      a.innerHTML = `
+        <div class="att-icon ${kind.cls}">${kind.svg}</div>
+        <div>
+          <div class="att-name" title="${escapeHtml(asset.filename || '')}">${escapeHtml(asset.filename || '(file)')}</div>
+          <div class="att-meta">${escapeHtml(kind.label)} · ${fmtBytes(asset.file_size)}</div>
+        </div>`;
+      return a;
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // SIDEBAR — Tasks (overdue / today / upcoming)
+    // ──────────────────────────────────────────────────────────────
+    async function loadTasks() {
+      const body = document.getElementById('tasks-body');
+      const meta = document.getElementById('meta-tasks');
+      meta.textContent = '…';
+
+      const args = (due) => ({ status: 'open', due, client_date: selectedDate, limit: 100 });
+      const [overdueR, todayR, upR] = await Promise.allSettled([
+        callMcp(TOOL.list_tasks, args('overdue')),
+        callMcp(TOOL.list_tasks, args('today')),
+        callMcp(TOOL.list_tasks, args('upcoming')),
+      ]);
+      const pickList = (r) => {
+        if (r.status !== 'fulfilled' || !r.value.ok) return { ok: false, err: r.value?.error || 'fetch error', tasks: [] };
+        const data = normaliseResult(r.value.data);
+        return { ok: true, tasks: (data && Array.isArray(data.tasks)) ? data.tasks : [] };
+      };
+      const overdue = pickList(overdueR);
+      const today   = pickList(todayR);
+      const up      = pickList(upR);
+      const horizon = addDays(selectedDate, UPCOMING_DAYS);
+      const upcoming = { ...up, tasks: up.tasks.filter(t => t.due_date && t.due_date > selectedDate && t.due_date <= horizon) };
+
+      const totalDue = overdue.tasks.length + today.tasks.length;
+      meta.textContent = totalDue ? `${totalDue} due` : 'no urgent';
+
+      const errs = [overdue, today, upcoming].filter(g => !g.ok).map(g => g.err);
+      const errBanner = errs.length
+        ? `<div class="error-banner" role="alert" style="margin-bottom:var(--s2)">${ICON.alert}<span>Couldn't load: ${escapeHtml(errs.join('; '))}</span><button class="btn btn-sm" type="button" data-task-retry>Retry</button></div>`
+        : '';
+
+      body.innerHTML = errBanner +
+        renderTaskGroup({ key: 'overdue',  label: 'Overdue',   cls: 'overdue', tasks: overdue.tasks,  collapsible: false, collapsed: false }) +
+        renderTaskGroup({ key: 'today',    label: 'Due today', cls: 'today',   tasks: today.tasks,    collapsible: false, collapsed: false }) +
+        renderTaskGroup({ key: 'upcoming', label: 'Upcoming',  cls: '',        tasks: upcoming.tasks, collapsible: true,  collapsed: true });
+
+      const retryBtn = body.querySelector('[data-task-retry]');
+      if (retryBtn) retryBtn.addEventListener('click', () => loadTasks());
+      body.querySelectorAll('.task-group.collapsible .task-group-head').forEach(h => {
+        h.addEventListener('click', () => h.parentElement.classList.toggle('collapsed'));
+      });
+      body.querySelectorAll('[data-complete-task]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.completeTask;
+          btn.disabled = true;
+          const res = await callMcp(TOOL.complete_task, { id });
+          if (!res.ok) {
+            btn.disabled = false;
+            toast(`Couldn't complete: ${res.error}`, 'danger');
+            return;
+          }
+          const row = btn.closest('.task-row');
+          row.classList.add('completing');
+          toast('✓ Task completed');
+          setTimeout(() => loadTasks(), 320);
+        });
+      });
+    }
+
+    function renderTaskGroup({ key, label, cls, tasks, collapsible, collapsed }) {
+      const groupClasses = ['task-group', cls, collapsible ? 'collapsible' : '', collapsed ? 'collapsed' : ''].filter(Boolean).join(' ');
+      const chev = collapsible ? '<span class="chev">▾</span>' : '';
+      const rowsHtml = tasks.length ? tasks.map(taskRowHtml).join('')
+                                    : '<div class="empty-inline" style="padding:var(--s2) 0">— none</div>';
+      return `
+        <div class="${groupClasses}" data-group="${key}">
+          <div class="task-group-head">
+            <span>${escapeHtml(label)}</span>
+            <span class="count">${tasks.length}${chev}</span>
+          </div>
+          <div class="task-group-body">${rowsHtml}</div>
+        </div>`;
+    }
+    function taskRowHtml(task) {
+      const prio = task.priority || 'none';
+      const due = task.due_date || '';
+      const dueClass = due === selectedDate ? 'due-today' : (due && due < selectedDate ? 'due-overdue' : '');
+      const dueLbl = due ? (due === selectedDate ? 'today' : due) : 'no date';
+      const src = task.source_ref ? `· ${escapeHtml(task.source_ref)}` : '';
+      return `
+        <div class="task-row" data-task-id="${escapeHtml(task.id)}">
+          <span class="task-prio-dot ${escapeHtml(prio)}" title="priority: ${escapeHtml(prio)}"></span>
+          <div class="task-body">
+            <div class="task-title-line">${escapeHtml(task.title || '(untitled)')}</div>
+            <div class="task-meta-line">
+              <span class="${dueClass}">${escapeHtml(dueLbl)}</span>
+              ${src ? `<span>${src}</span>` : ''}
+            </div>
+          </div>
+          <button class="task-complete-btn" type="button" title="Complete" data-complete-task="${escapeHtml(task.id)}">${ICON.check}</button>
+        </div>`;
+    }
+    function bindAddTask() {
+      const inp  = document.getElementById('new-task-title');
+      const sel  = document.getElementById('new-task-prio');
+      const btn  = document.getElementById('add-task-btn');
+      const submit = async () => {
+        const title = (inp.value || '').trim();
+        if (!title) { inp.focus(); return; }
+        btn.disabled = true; btn.textContent = '…';
+        const res = await callMcp(TOOL.create_task, {
+          title, priority: sel.value || 'medium', due_date: selectedDate,
+        });
+        btn.disabled = false; btn.textContent = 'Add';
+        if (!res.ok) { toast(`Couldn't add: ${res.error}`, 'danger'); return; }
+        inp.value = '';
+        toast('✓ Task added');
+        loadTasks();
+      };
+      btn.addEventListener('click', submit);
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+    }
+
+    // ──────────────────────────────────────────────────────────────
+    // Orchestrator
+    // ──────────────────────────────────────────────────────────────
+    function showSkeletons() {
+      document.getElementById('meetings-body').innerHTML =
+        '<div class="meetings-list">' + '<div class="skeleton sk-row"></div>'.repeat(4) + '</div>';
+      document.getElementById('attachments-body').innerHTML =
+        '<div class="att-strip">' + '<div class="skeleton" style="height:46px;width:200px"></div>'.repeat(2) + '</div>';
+      document.getElementById('tasks-body').innerHTML =
+        '<div class="task-group"><div class="task-group-head">Loading… <span class="count">…</span></div>' +
+        '<div class="skeleton sk-row"></div>'.repeat(3) + '</div>';
+    }
+    async function loadAll() {
+      showSkeletons();
+      // Notes first — populates the cache that meetings + stoic read
+      await loadNotes();
+      await Promise.allSettled([
+        loadMeetings(),
+        loadAttachments(),
+        loadTasks(),
+      ]);
+      document.getElementById('footer-note').textContent =
+        `${selectedDate} · refreshed ${new Date().toLocaleTimeString()}`;
+    }
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') loadAll();
+    });
+
+    // ──────────────────────────────────────────────────────────────
+    // Boot
+    // ──────────────────────────────────────────────────────────────
+    refreshHeader();
+    bindNav();
+    bindReviewDay();
+    bindStoicToggle();
+    bindAddTask();
+    loadAll();
+  </script>
+</body>
+</html>
