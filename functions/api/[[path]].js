@@ -1776,7 +1776,8 @@ async function handleProductUnlink(request, env) {
 }
 
 async function handleUpsertDailyNote(request, env, ctx) {
-  const { note_date, tasks, notes, meetings, metadata } = await request.json();
+  const payload = await request.json();
+  const { note_date } = payload;
 
   if (!note_date || !/^\d{4}-\d{2}-\d{2}$/.test(note_date)) {
     return json({ error: 'Invalid or missing note_date (YYYY-MM-DD)' }, 400);
@@ -1789,16 +1790,16 @@ async function handleUpsertDailyNote(request, env, ctx) {
     return json({ error: 'Server misconfigured' }, 500);
   }
 
-  const body = {
-    note_date,
-    tasks: tasks ?? '',
-    notes: notes ?? '',
-    meetings: meetings ?? '',
-  };
-
-  // Merge metadata if provided (preserves existing keys)
-  if (metadata && typeof metadata === 'object') {
-    body.metadata = metadata;
+  // Partial-update friendly: only set fields the client explicitly included in the request body.
+  // Fields omitted are preserved on the existing row (PostgREST merge-duplicates leaves
+  // unsupplied columns untouched on conflict). Native clients that only edit a single field
+  // (e.g. iOS app updating `notes`) no longer wipe the others.
+  const body = { note_date };
+  if ('tasks'    in payload) body.tasks    = payload.tasks    ?? '';
+  if ('notes'    in payload) body.notes    = payload.notes    ?? '';
+  if ('meetings' in payload) body.meetings = payload.meetings ?? '';
+  if ('metadata' in payload && payload.metadata && typeof payload.metadata === 'object') {
+    body.metadata = payload.metadata;
   }
 
   // Upsert via PostgREST — merge-duplicates resolves on the unique note_date constraint
@@ -1939,7 +1940,18 @@ async function handleAddMeetingNote(date, request, env, ctx) {
   const existingRows = await dnRes.json();
   const current = existingRows[0] || { meetings: '', metadata: {} };
 
-  const time = meeting.all_day ? 'All day' : (meeting.start_time || '');
+  // Format the time range to match the AI daily-review extractor's output ("HH:MM-HH:MM")
+  // so iOS / admin views render structured entries consistently regardless of who
+  // created them. Falls back to start-only or empty if data is missing.
+  let time;
+  if (meeting.all_day) {
+    time = 'All day';
+  } else {
+    const start = meeting.start_time || '';
+    const end = meeting.end_time || '';
+    if (start && end) time = `${start}-${end}`;
+    else time = start;
+  }
   const attendeeNames = Array.isArray(meeting.attendees)
     ? meeting.attendees
         .map(a => typeof a === 'string' ? a : (a?.name || a?.email || ''))
@@ -5500,38 +5512,57 @@ async function supabasePatch(url, key, path, data) {
 // ─── Calendar events ─────────────────────────────────────────
 
 async function handleCalendarEvents(request, env) {
-  const icsUrl = env.OUTLOOK_ICS_URL;
-  if (!icsUrl) {
-    return json({ error: 'Calendar not configured' }, 500);
-  }
-
   const url = new URL(request.url);
   const dateStr = url.searchParams.get('date');
   if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return json({ error: 'Missing or invalid date parameter (YYYY-MM-DD)' }, 400);
   }
 
-  try {
-    // Fetch the ICS feed — minimal headers to avoid Outlook/Exchange blocks
-    const icsRes = await fetch(icsUrl);
+  const supabaseUrl = env.SUPABASE_URL;
+  const serviceKey = env.SUPABASE_SERVICE_KEY;
 
-    if (!icsRes.ok) {
-      const body = await icsRes.text().catch(() => '');
-      return json({
-        error: 'Failed to fetch calendar',
-        status: icsRes.status,
-        statusText: icsRes.statusText,
-        detail: body.substring(0, 500),
-        url_configured: !!icsUrl,
-      }, 502);
+  // Read from the calendar_events table first — the capture-worker keeps this populated
+  // for today + the next 30 days. Faster and more reliable than fetching ICS on every
+  // request (Outlook returns 502 to requests without a browser User-Agent).
+  if (supabaseUrl && serviceKey) {
+    try {
+      const res = await fetch(
+        `${supabaseUrl}/rest/v1/calendar_events?event_date=eq.${dateStr}&select=uid,event_date,title,start_time,end_time,all_day,location,organizer,attendees`,
+        { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
+      );
+      if (res.ok) {
+        const events = await res.json();
+        if (events.length > 0) {
+          return json({ ok: true, date: dateStr, events });
+        }
+      }
+    } catch (_e) {
+      // Fall through to ICS fetch.
     }
+  }
 
+  // Fallback: live ICS fetch with a browser User-Agent (Outlook returns 502 without one).
+  const icsUrl = env.OUTLOOK_ICS_URL;
+  if (!icsUrl) {
+    return json({ ok: true, date: dateStr, events: [] });
+  }
+
+  try {
+    const icsRes = await fetch(icsUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+      },
+    });
+    if (!icsRes.ok) {
+      // Surface as empty rather than as a 5xx — frontend handles "no events" cleanly.
+      return json({ ok: true, date: dateStr, events: [] });
+    }
     const icsText = await icsRes.text();
     const events = parseICSForDate(icsText, dateStr);
-
     return json({ ok: true, date: dateStr, events });
-  } catch (err) {
-    return json({ error: 'Calendar fetch failed', detail: err.message }, 500);
+  } catch (_err) {
+    return json({ ok: true, date: dateStr, events: [] });
   }
 }
 
