@@ -37,7 +37,7 @@ let cachedJWT: CachedJWT | null = null;
 export async function fanoutPush(
   env: Env,
   bundleId: string,
-  payload: { title: string; body: string; jobId: string }
+  payload: { title: string; body: string; jobId: string; wcpUrl?: string; category?: string }
 ): Promise<number> {
   if (!env.APNS_KEY_P8 || !env.APNS_KEY_ID || !env.APPLE_TEAM_ID) {
     console.log('[apns] secrets missing — skipping push');
@@ -58,13 +58,16 @@ export async function fanoutPush(
   await Promise.all(rows.map(async (row) => {
     const host = row.environment === 'production' ? APNS_HOST_PROD : APNS_HOST_DEV;
     const url = `${host}/3/device/${row.token}`;
-    const body = JSON.stringify({
-      aps: {
-        alert: { title: payload.title, body: payload.body },
-        sound: 'default',
-      },
-      jobId: payload.jobId,
-    });
+    const aps: any = {
+      alert: { title: payload.title, body: payload.body },
+      sound: 'default',
+    };
+    // category enables UNNotificationAction buttons (e.g. "Open in WCP") on
+    // the client. Must be registered with UNUserNotificationCenter on launch.
+    if (payload.category) aps.category = payload.category;
+    const apnsBody: Record<string, unknown> = { aps, jobId: payload.jobId };
+    if (payload.wcpUrl) apnsBody.wcpUrl = payload.wcpUrl;
+    const body = JSON.stringify(apnsBody);
     try {
       const resp = await fetch(url, {
         method: 'POST',

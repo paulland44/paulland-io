@@ -31,6 +31,8 @@ import {
   matchToLegacyResult,
   initVectorizeRest,
 } from './vectorize.js';
+import { fanoutPush as apnsFanoutPush, initApns } from './apns.js';
+export { initApns } from './apns.js';
 // Note: fs/path are NOT available in the Cloudflare Worker runtime.
 // Tools must not depend on filesystem access. Use base64 data parameters instead.
 
@@ -85,6 +87,20 @@ export function initMisProxy(apiUrl?: string, clientId?: string, clientSecret?: 
   if (clientId) _misCfClientId = clientId;
   if (clientSecret) _misCfClientSecret = clientSecret;
   if (internalApiKey) _misInternalApiKey = internalApiKey;
+}
+
+// Bundle ID of the paulland-mis iOS / macOS app. Tools that create an S2
+// project fire `fanoutPush` against this bundle to deliver a "New job from
+// Claude" push to every registered device.
+const MIS_BUNDLE_ID = 'io.paulland.misapp';
+
+// Build the CSR-facing WCP URL for an S2 project — mirrors `misJobWcpUrl()`
+// in admin/index.html and the helpers in the email + capture workers.
+// Returns null if any piece is missing so callers can omit the link cleanly.
+function buildWcpUrlSync(baseUrl: string | null | undefined, repoId: string | null | undefined, projectNodeId: string | null | undefined): string | null {
+  if (!baseUrl || !repoId || !projectNodeId) return null;
+  const base = baseUrl.replace(/\/+$/, '').replace(/^(https?:\/\/)ae\./, '$1w2p.');
+  return `${base}/sites/${encodeURIComponent(repoId)}/Home/jobs/${encodeURIComponent(projectNodeId)}/tasks`;
 }
 
 async function resolveConnectionId(connection_id?: string): Promise<{ id: string; name: string; type?: string } | null> {
@@ -5170,7 +5186,32 @@ server.tool(
         project_node_id: result.data?.id || null,
       };
 
-      await supabasePost('mis_jobs', jobRecord, true);
+      const storedRow = await supabasePost('mis_jobs', jobRecord, true);
+
+      // Push: notify paulland-mis devices that an S2 project has just been
+      // created by Claude. Mirrors the email worker's behaviour for its
+      // S2-direct path, with a distinct "from Claude" title so the user
+      // sees the source at a glance.
+      //
+      // **Awaited** intentionally: in the Cloudflare Worker runtime, the
+      // request isolate can be GC'd as soon as we return the tool result,
+      // killing any still-pending `.catch()` on a fire-and-forget promise.
+      // Awaiting costs ~100–500ms but guarantees the push actually fires.
+      try {
+        const wcpUrl = buildWcpUrlSync(connection.base_url, connection.repo_id, result.data?.id || null);
+        const trackerId =
+          (Array.isArray(storedRow?.data) ? storedRow.data[0]?.id : storedRow?.data?.id) || job_id;
+        const customerLabel = customer_name ? ` from ${customer_name}` : '';
+        await apnsFanoutPush(MIS_BUNDLE_ID, {
+          title: 'New job from Claude',
+          body: `${job_name}${customerLabel}`,
+          jobId: trackerId,
+          wcpUrl: wcpUrl || undefined,
+          category: wcpUrl ? 'JOB_READY' : undefined,
+        });
+      } catch (err: any) {
+        console.warn(`[apns] mcp push failed: ${err.message}`);
+      }
 
       return {
         content: [{

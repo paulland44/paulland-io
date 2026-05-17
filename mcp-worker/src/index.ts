@@ -16,7 +16,7 @@ import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/
 import { initSupabase } from '../../mcp-server/src/supabase.js';
 import { initEmbeddings } from '../../mcp-server/src/embeddings.js';
 import { initVectorize } from '../../mcp-server/src/vectorize.js';
-import { createServer, initMisProxy } from '../../mcp-server/src/index.js';
+import { createServer, initMisProxy, initApns } from '../../mcp-server/src/index.js';
 
 interface Env {
   SUPABASE_URL: string;
@@ -29,6 +29,12 @@ interface Env {
   CF_ACCESS_CLIENT_SECRET?: string;
   PAULLAND_INTERNAL_API_KEY?: string;
   VECTORIZE: VectorizeIndex;
+  // APNS credentials for paulland-mis push notifications fired from MCP tools.
+  // Set via `wrangler secret put` on the mcp-worker. Optional — push silently
+  // skips when missing.
+  APNS_KEY_P8?: string;
+  APNS_KEY_ID?: string;
+  APPLE_TEAM_ID?: string;
 }
 
 // ─── CORS ────────────────────────────────────────────────────
@@ -274,6 +280,7 @@ export default {
     initEmbeddings(env.CF_ACCOUNT_ID, env.CF_API_TOKEN);
     initVectorize(env.VECTORIZE);
     initMisProxy(env.PAULLAND_API_URL, env.CF_ACCESS_CLIENT_ID, env.CF_ACCESS_CLIENT_SECRET, env.PAULLAND_INTERNAL_API_KEY);
+    initApns(env.APNS_KEY_P8, env.APNS_KEY_ID, env.APPLE_TEAM_ID);
 
     // Fresh server + transport per request (required by SDK for stateless mode)
     const server = createServer();

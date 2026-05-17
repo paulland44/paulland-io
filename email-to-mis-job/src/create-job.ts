@@ -613,21 +613,46 @@ async function createAeJob(
       console.warn(`[email-to-mis] Enrichment trigger failed (non-blocking): ${err.message}`);
     }
 
-    // Push: notify paulland-mis devices that a new email job has just landed.
-    // Pairs with the WCP-Enriched push fired by the capture-worker once
-    // enrichment completes — gives the user an arrival heads-up and a
-    // ready-to-act heads-up on the same job. Fire-and-forget.
-    const customerLabel = extracted.customer_match?.partnerName
-      ? ` from ${extracted.customer_match.partnerName}`
-      : '';
-    fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
-      title: 'New job from email',
-      body: `${extracted.job_name}${customerLabel}`,
-      jobId: storedJob?.id || jobId,
-    }).catch((err: any) => console.warn(`[apns] arrival fanout failed: ${err.message}`));
+    // No push here — the capture-worker fires a single "New job from email"
+    // push (with WCP link) once enrichment lands the project in S2.
   }
 
   return storedJob;
+}
+
+// Build the same CSR-facing WCP URL `misJobWcpUrl()` in admin/index.html
+// produces — used to attach an "Open in WCP" action button to the arrival
+// push for S2 paths where the project_node_id exists immediately.
+function buildWcpUrlSync(baseUrl: string | null, repoId: string | null, projectNodeId: string | null): string | null {
+  if (!baseUrl || !repoId || !projectNodeId) return null;
+  const base = baseUrl.replace(/\/+$/, '').replace(/^(https?:\/\/)ae\./, '$1w2p.');
+  return `${base}/sites/${encodeURIComponent(repoId)}/Home/jobs/${encodeURIComponent(projectNodeId)}/tasks`;
+}
+
+// Fire the "new email job" push for every successful create path (AE, S2
+// direct, S2 draft fallback, legacy WCP). For AE we don't yet have a WCP
+// project — the capture-worker will fire a second "Job ready" push with the
+// link once enrichment lands. For S2/WCP paths the project exists now, so
+// we attach the JOB_READY category + wcpUrl right away.
+function fireArrivalPush(
+  env: Env,
+  extracted: ExtractedJob,
+  storedJob: any,
+  fallbackJobId: string,
+  wcpUrl: string | null
+): void {
+  const customerLabel = extracted.customer_match?.partnerName
+    ? ` from ${extracted.customer_match.partnerName}`
+    : '';
+  const trackerId =
+    (Array.isArray(storedJob) ? storedJob[0]?.id : storedJob?.id) || fallbackJobId;
+  fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
+    title: 'New job from email',
+    body: `${extracted.job_name}${customerLabel}`,
+    jobId: trackerId,
+    wcpUrl: wcpUrl || undefined,
+    category: wcpUrl ? 'JOB_READY' : undefined,
+  }).catch((err: any) => console.warn(`[apns] arrival fanout failed: ${err.message}`));
 }
 
 // ─── Workflow Launch ────────────────────────────────────────
@@ -771,14 +796,18 @@ export async function createMisJob(
   const apiUrl = env.PAULLAND_API_URL || 'https://paulland.io/api';
   const connectionId = overrideConnectionId || env.DEFAULT_MIS_CONNECTION_ID || DEFAULT_WCP_CONNECTION_ID;
 
-  // Determine connection type (ae / wcp) and api_version (legacy / s2) from Supabase
+  // Determine connection type (ae / wcp) and api_version (legacy / s2) from Supabase.
+  // Also pick up base_url + repo_id so the S2 path can attach a WCP deep link
+  // to the arrival push (project_node_id exists immediately on direct S2 create).
   let apiVersion = env.DEFAULT_MIS_API_VERSION || 'legacy';
   let connectionType = 'wcp';
   let connectionName = '';
+  let connectionBaseUrl: string | null = null;
+  let connectionRepoId: string | null = null;
   if (env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY) {
     try {
       const connResp = await fetch(
-        `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=api_version,type,name,cluster&limit=1`,
+        `${env.SUPABASE_URL}/rest/v1/mis_connections?id=eq.${connectionId}&select=api_version,type,name,cluster,base_url,repo_id&limit=1`,
         {
           headers: {
             'apikey': env.SUPABASE_SERVICE_KEY,
@@ -793,6 +822,8 @@ export async function createMisJob(
           if (rows[0].api_version) apiVersion = rows[0].api_version;
           if (rows[0].type) connectionType = rows[0].type;
           connectionName = rows[0].name || '';
+          connectionBaseUrl = rows[0].base_url || null;
+          connectionRepoId = rows[0].repo_id || null;
           console.log(`[email-to-mis] Connection ${connectionName}: type=${connectionType}, api_version=${apiVersion}`);
         }
       }
@@ -852,7 +883,10 @@ export async function createMisJob(
         headers: { 'Content-Type': 'application/json', 'X-Internal-API-Key': env.PAULLAND_INTERNAL_API_KEY },
         body: JSON.stringify(draftRecord),
       });
-      return draftResp.ok ? await draftResp.json() : draftRecord;
+      const draftStored = draftResp.ok ? await draftResp.json() : draftRecord;
+      // Arrival push — no WCP link (project not created upstream).
+      fireArrivalPush(env, extracted, draftStored, jobId, null);
+      return draftStored;
     }
 
     // S2: create project directly via API proxy
@@ -898,7 +932,10 @@ export async function createMisJob(
         body: JSON.stringify(fallbackRecord),
       });
 
-      return fallbackResp.ok ? await fallbackResp.json() : fallbackRecord;
+      const fallbackStored = fallbackResp.ok ? await fallbackResp.json() : fallbackRecord;
+      // Arrival push — S2 create failed so no project_node_id; skip the WCP link.
+      fireArrivalPush(env, extracted, fallbackStored, jobId, null);
+      return fallbackStored;
     }
 
     // Store job record in Supabase for monitoring
@@ -959,6 +996,10 @@ export async function createMisJob(
       }
     }
 
+    // Arrival push — S2 path has a project_node_id from the create response,
+    // so we can attach the WCP deep link straight away (no second push needed).
+    const s2WcpUrl = buildWcpUrlSync(connectionBaseUrl, connectionRepoId, projectResult?.id || null);
+    fireArrivalPush(env, extracted, storedJob, jobId, s2WcpUrl);
     return storedJob;
   }
 
@@ -1035,5 +1076,8 @@ export async function createMisJob(
     }
   }
 
+  // Arrival push — legacy WCP has no S2 project_node_id, so no WCP link
+  // (the admin's misJobWcpUrl skips legacy connections too).
+  fireArrivalPush(env, extracted, createdJob, jobId, null);
   return createdJob;
 }

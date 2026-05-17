@@ -207,12 +207,19 @@ async function enrichOne(
     pending_attachments: null,
   });
 
-  // Push: notify paulland-mis devices that the AE → WCP cycle has completed.
+  // Push: notify paulland-mis devices that the email-sourced job has landed
+  // in S2. This is the *single* notification for the email → AE → WCP cycle
+  // — the email worker no longer fires an AE-Submitted heads-up. Include a
+  // WCP deep link so the notification can offer an "Open in WCP" action
+  // (registered under the JOB_READY category on the client).
   // Fire-and-forget so an APNS hiccup doesn't fail the enrichment itself.
+  const wcpUrl = await buildWcpUrl(env, s2ConnectionId, projectNodeId);
   fanoutPush(env, PAULLAND_MIS_BUNDLE_ID, {
-    title: 'Job ready',
+    title: 'New job from email',
     body: `${row.job_id} is now in WebCenter Pack`,
     jobId: row.id,
+    wcpUrl: wcpUrl || undefined,
+    category: wcpUrl ? 'JOB_READY' : undefined,
   }).catch((err: any) => console.warn(`[apns] fanout failed: ${err.message}`));
 
   // Step 5: clean up R2 for uploaded attachments
@@ -229,6 +236,31 @@ async function enrichOne(
 
   console.log(`[enrichment] ${row.job_id}: enriched (uploaded ${uploadedFilenames.length}/${row.pending_attachments?.length || 0} attachments)`);
   return 'enriched';
+}
+
+// Build the CSR-facing WCP deep link for a freshly-enriched project. Mirrors
+// `misJobWcpUrl()` in admin/index.html — strip trailing slash, swap the
+// leading `ae.` subdomain for `w2p.`, then assemble
+// `/sites/{repoId}/Home/jobs/{projectNodeId}/tasks`. Returns null if any
+// piece is missing so callers can omit the link cleanly.
+async function buildWcpUrl(
+  env: Env,
+  s2ConnectionId: string,
+  projectNodeId: string
+): Promise<string | null> {
+  if (!projectNodeId) return null;
+  const { SUPABASE_URL: url, SUPABASE_SERVICE_KEY: key } = env;
+  const rows = (await supabaseGet(
+    url,
+    key,
+    `mis_connections?id=eq.${s2ConnectionId}&select=base_url,repo_id&limit=1`
+  )) as { base_url: string | null; repo_id: string | null }[];
+  if (!rows.length) return null;
+  const baseRaw = rows[0].base_url;
+  const repoId = rows[0].repo_id;
+  if (!baseRaw || !repoId) return null;
+  const base = baseRaw.replace(/\/+$/, '').replace(/^(https?:\/\/)ae\./, '$1w2p.');
+  return `${base}/sites/${encodeURIComponent(repoId)}/Home/jobs/${encodeURIComponent(projectNodeId)}/tasks`;
 }
 
 // Look up the S2 connection to use for reads/enrichment. Prefer the explicit
